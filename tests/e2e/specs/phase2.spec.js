@@ -5,7 +5,8 @@ import { ADMIN, CUSTOMER, totp } from './helpers.js';
  * Phase 2 journey (IMPLEMENTATION_PLAN Phase 2 gate), through real cookies,
  * CSRF tokens and TOTP — the parts unit tests cannot cover.
  */
-test.describe.configure({ mode: 'serial' });
+// signInAdmin may wait up to 31 s for a fresh TOTP window, longer than the default timeout.
+test.describe.configure({ mode: 'serial', timeout: 90_000 });
 
 let adminSecret;
 let activationCode;

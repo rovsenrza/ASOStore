@@ -46,3 +46,6 @@ tests/e2e/playwright-report/
 
 # Swift Package Manager
 .swiftpm/
+
+# Built test IPA (scripts/export-demo-ipa.sh)
+fixtures/DemoApp/build/

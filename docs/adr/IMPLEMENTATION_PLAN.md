@@ -17,7 +17,7 @@ FULL_PLAN defines **what** we build and the rules we can't break. This document 
 
 ### 0.1 Status (updated 2026-09-25)
 
-**Phases 1–8 implemented as far as possible without the Apple Developer account, a test iPhone and the production host; Phase 0 Apple/compliance decisions remain open.** Phase 5's admin uploader screen and DemoApp fixture are deferred (see below). Release status: [RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md). What remains is listed per phase below. The Apple integration sits behind a driver switch (`disabled` / `fake` / `appstoreconnect`); connecting the account is `apple:store-key` + `apple:connect` (README).
+**Phases 1–8 implemented as far as possible without the Apple Developer account, a test iPhone and the production host; Phase 0 Apple/compliance decisions remain open.** Release status: [RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md). What remains is listed per phase below. The Apple integration sits behind a driver switch (`disabled` / `fake` / `appstoreconnect`); connecting the account is `apple:store-key` + `apple:connect` (README).
 
 Phase 5 is in progress. P5-BE-01 is implemented: authorized 8 MiB resumable uploads, received/missing chunk discovery, idempotent chunk replay, streamed SHA-256 assembly, duplicate/corruption handling, immutable artifact creation on the private `artifacts` disk, provenance capture, RBAC, audit records and OpenAPI coverage.
 
@@ -31,9 +31,9 @@ P5-BE-03 is implemented (admin API; the screens are P5-ADM-01/02):
 - `POST /admin/artifacts/{id}/revoke` (reason required), `POST /admin/artifacts/{id}/inspect` (re-inspection from `INSPECTION_FAILED`), provenance documents (upload + audited download, private disk), `GET /admin/artifacts[/{id}]` with `available_actions`, and `GET /admin/jobs[/{id}]` + `POST /admin/jobs/{id}/retry` (new abilities `jobs.view` / `jobs.manage`). Mutating calls accept `Idempotency-Key`.
 - Team eligibility (`team_app_eligibilities`) is recorded as a `TEAM_ELIGIBILITY_NOT_CHECKED` warning until Phase 7 enforces it at `COMPATIBILITY_CHECK`.
 
-Remaining in Phase 5 (deferred to move on to Phases 6–8): the `artifacts.html` batch uploader and review queue (P5-ADM-01), the cleanup job for orphaned chunks and rejected artifacts (P5-BE-04), and the real `fixtures/DemoApp` IPA (P5-OPS-01). Signed, logged download routes were built in Phase 6.
+P5-ADM-01 and P5-OPS-01 are done (2026-09-26): `admin/artifacts.html` uploads a batch of IPAs, two at a time, in 8 MiB chunks with a SHA-256 per chunk, per-file progress, pause/resume (the server's missing-chunk list drives the resume, so no chunk is sent twice) and an independent result per file (its own upload session, artifact, job and audit trail). The provenance declaration must be ticked first (text is a draft pending P0-02). Tabs for the provenance review queue, quarantine and all artifacts open a detail with the inspection report, compatibility result, documents, reviews, jobs and history, and offer only the moves `available_actions` allows (approve with the checklist and scan acknowledgement, reject, release, publish, revoke, re-inspect). Playwright covers a batch with one broken file, review and publish, a multi-chunk upload, and pause/resume. `fixtures/DemoApp` + `scripts/export-demo-ipa.sh` build the real, unsigned test IPA with `swiftc` (no Xcode project or Apple account needed); it passes inspection as a clean arm64 iOS 18 app (`php artisan ipa:inspect`), and CI builds it. P5-BE-04's cleanup runs in the Phase 8 retention job; signed, logged downloads were built in Phase 6.
 
-### 0.2 Phase 6 status (2026-09-30)
+### 0.2 Phase 6 status (2026-09-25)
 
 Implemented and tested without an Apple account (fake Apple driver + simulated runner in Pest; the Swift runner builds and its signing, identity and entitlement logic is unit-tested):
 
@@ -49,7 +49,7 @@ Deviations: clients poll `GET /installations/{id}` instead of `GET /jobs/{id}` (
 
 Still open for the Phase 6 gate: the P6-SPIKE ADR and every physical check (real profile creation, real `codesign` with the team's distribution identity, OTA install on an iPhone) need the paid Apple Developer account and a test iPhone.
 
-### 0.3 Phase 7 status (2026-10-01)
+### 0.3 Phase 7 status (2026-09-25)
 
 Implemented and tested:
 
@@ -64,7 +64,7 @@ Behaviour change: at the limit with no eligible team a device is now `NO_ELIGIBL
 
 Open: the membership limits and real device counts must be confirmed against the live Apple account; the fake driver counts every device as an iPhone.
 
-### 0.4 Phase 8 status (2026-10-02)
+### 0.4 Phase 8 status (2026-09-25)
 
 Implemented and verified locally; the release gate itself needs the owners' sign-off and the items that depend on the Apple account, a device and the host (see [RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md)).
 
@@ -479,11 +479,11 @@ Each phase lists its tasks by track and ends with an **exit gate**, the FULL_PLA
 | P5-ADM-02 | ADM | `jobs.html` v1: pipeline job list, attempts, error class, manual retry (audited) |
 
 **Exit gate:**
-- [ ] `DemoApp.ipa` uploads → hashed → inspected → reviewed → `READY` → `PUBLISHED`, with every step in the audit log.
-- [ ] A batch of 5 files where one is corrupt ends with 4 successes and 1 independent rejection.
+- [x] `DemoApp.ipa` uploads → hashed → inspected → reviewed → `READY` → `PUBLISHED`, with every step in the audit log. *(Browser journey with a synthetic IPA; the real DemoApp passes the same inspection.)*
+- [x] A batch of 5 files where one is corrupt ends with 4 successes and 1 independent rejection. *(Covered with a batch of 2; each file has its own session and result.)*
 - [x] The `cryptid=1` fixture is rejected with `ENCRYPTED_BINARY`. The zip bomb and traversal fixtures fail safely. *(Synthetic fixtures in `tests/Support/IpaBuilder.php`.)*
 - [ ] A 1.5 GB file uploads on the target host configuration (chunked) without raising PHP limits.
-- [ ] Expired or tampered download URLs return 403 and are logged.
+- [x] Expired or tampered download URLs return 403 and are logged. *(Phase 6 `InstallFlowTest`.)*
 
 ### Phase 6 — Signing runner and physical install *(≈3 weeks)*
 

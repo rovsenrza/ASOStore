@@ -148,3 +148,5 @@ jobs:
       - uses: actions/checkout@v4
       - working-directory: runner
         run: swift build && swift test
+      # The authorized test IPA must keep building (fixtures/DemoApp, P5-OPS-01).
+      - run: ./scripts/export-demo-ipa.sh

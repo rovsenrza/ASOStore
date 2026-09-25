@@ -13,6 +13,11 @@ export function artisan(...args) {
   return execFileSync('php', ['artisan', ...args], { cwd: path.join(ROOT, 'backend'), encoding: 'utf8' });
 }
 
+/** A small synthetic but well-formed IPA (backend/tests/Support/IpaBuilder.php). */
+export function makeIpa(out, bundle, version, build, paddingMiB = 0) {
+  execFileSync('php', ['tests/Support/make-ipa.php', out, bundle, version, build, String(paddingMiB)], { cwd: path.join(ROOT, 'backend') });
+}
+
 export function issueActivationCode() {
   return artisan('activation:issue', '--count=1', '--days=30', '--note=E2E').trim().split('\n').pop().trim();
 }

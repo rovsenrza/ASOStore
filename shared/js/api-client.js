@@ -55,8 +55,9 @@ export function createApiClient({ baseUrl = '/api/v1', transport = fetchTranspor
     }
   }
 
-  async function send(method, path, { body, idempotencyKey, signal } = {}) {
-    const headers = { Accept: 'application/json', 'X-Request-Id': newRequestId() };
+  async function send(method, path, { body, idempotencyKey, signal, headers: extra = {} } = {}) {
+    // extra: request-specific headers, e.g. X-Chunk-SHA256 for upload chunks.
+    const headers = { ...extra, Accept: 'application/json', 'X-Request-Id': newRequestId() };
 
     // JSON by default; FormData (file uploads) and Blob (raw chunks) are sent as they are.
     let payload;

@@ -1,6 +1,6 @@
 # Security review — OWASP ASVS 4.0 Level 2 (condensed)
 
-**Date:** 2026-10-02 · **Scope:** backend API, worker API, portal, admin panel, iOS app, signing runner ·
+**Date:** 2026-09-25 · **Scope:** backend API, worker API, portal, admin panel, iOS app, signing runner ·
 **Method:** code review against the ASVS L2 chapters that apply, plus the automated tests named below.
 This is an engineering self-review (IMPLEMENTATION_PLAN P8-SEC-01); an independent review is still
 recommended before launch (release checklist).

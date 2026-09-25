@@ -1,7 +1,7 @@
 # Release checklist (MVP)
 
 Phase 8 gate (FULL_PLAN §16): **signed by product, engineering and compliance owners.**
-Status as of 2026-10-02. ✅ done and verified · ⏳ needs the Apple account, a device or the host · ⛔ open decision / work.
+Status as of 2026-09-26. ✅ done and verified · ⏳ needs the Apple account, a device or the host · ⛔ open decision / work.
 
 ## 1. Blocking decisions (Phase 0)
 
@@ -21,11 +21,11 @@ Status as of 2026-10-02. ✅ done and verified · ⏳ needs the Apple account, a
 |---|---|---|
 | Customer can register on the website | ✅ | Phase 2 gate; Playwright phase 2 |
 | Admin can see the user and device | ✅ | Phase 3; Playwright phase 3 |
-| One or many IPAs uploaded from admin and stored | ⚠️ API ✅ (chunked, resumable, tested); the batch uploader screen `artifacts.html` (P5-ADM-01) is **not built** | `ChunkedUploadTest` |
-| Independent inspection/publish status per IPA | ✅ API; review queue UI pending with P5-ADM-01 | `InspectArtifactTest`, `ArtifactReviewTest` |
+| One or many IPAs uploaded from admin and stored | ✅ | Admin → Артефакты batch uploader; Playwright phase 5 (batch, multi-chunk, pause/resume) |
+| Independent inspection/publish status per IPA | ✅ | `InspectArtifactTest`, `ArtifactReviewTest`, Playwright phase 5 |
 | Native storefront shows catalog and detail | ✅ | Phase 4; iOS UI tests |
 | App requests preparation and shows job status | ✅ | `InstallationCoordinatorTests`, `InstallFlowTest` |
-| Real registered iPhone completes the authorized test install | ⏳ | Needs the Apple account, the runner Mac with the team's distribution identity, a test iPhone, and `fixtures/DemoApp` (P5-OPS-01) |
+| Real registered iPhone completes the authorized test install | ⏳ | Needs the Apple account, the runner Mac with the team's distribution identity and a test iPhone. The test IPA is ready: `scripts/export-demo-ipa.sh` |
 | Admins can inspect every step in the audit log | ✅ | Audit on every transition; installation timelines with request IDs |
 | Quota and credential state visible | ✅ | Admin → Команды Apple, dashboard widget |
 | No unknown or unauthorized IPA exposed as installable | ✅ | Negative tests: encrypted, unpublished, revoked, other device, expired/tampered links |
@@ -36,7 +36,7 @@ Status as of 2026-10-02. ✅ done and verified · ⏳ needs the Apple account, a
 |---|---|---|
 | ✅ | Backend: Pest (unit, feature, concurrency), Larastan, Pint, `composer audit` in CI | 330+ tests |
 | ✅ | OpenAPI lint + contract tests on live responses and shared fixtures | |
-| ✅ | iOS unit + UI tests; runner `swift test`; Playwright journeys (phases 2, 3, 4, 7) | |
+| ✅ | iOS unit + UI tests; runner `swift test`; DemoApp build; Playwright journeys (phases 2, 3, 4, 5, 7) | |
 | ✅ | Enforced CSP, HSTS over HTTPS, secure session cookies, dotfiles denied | `EnvelopeTest` |
 | ✅ | Security self-review against ASVS L2 (`docs/security/asvs-l2-review.md`) | |
 | ⛔ | Independent penetration test on staging | |
