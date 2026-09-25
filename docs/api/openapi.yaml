@@ -21,6 +21,8 @@ tags:
   - name: Devices
   - name: Storefront
   - name: Catalog
+  - name: Install
+    description: 'Preparation and OTA installation (IMPLEMENTATION_PLAN §5.6). The worker API for the signing runner is documented in runner/README.md.'
   - name: Admin
 paths:
   /health:
@@ -2020,6 +2022,265 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /apps/{id}/prepare:
+    post:
+      tags: [Install]
+      operationId: prepareApp
+      summary: Prepare the published build of an app for the calling device
+      description: |
+        Checks the device is ELIGIBLE, the app has a PUBLISHED artifact and the device is compatible (family,
+        iOS version). Reuses a DELIVERABLE signed build for (artifact, device) when there is one (200, READY_TO_INSTALL);
+        otherwise starts signing (202, PREPARING). Repeated calls return the same active installation.
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Already prepared
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstallationResponse" }
+              examples:
+                ready: { externalValue: examples/installation-ready.json }
+        "202":
+          description: Preparation started; poll GET /installations/{id}
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstallationResponse" }
+              examples:
+                preparing: { externalValue: examples/installation-preparing.json }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /storefront/install:
+    post:
+      tags: [Install]
+      operationId: installStorefront
+      summary: Prepare the native Storefront itself for the account's device (portal install.html)
+      description: 'Same flow as /apps/{id}/prepare for the catalog item flagged is_storefront (IMPLEMENTATION_PLAN §5.6).'
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Already prepared
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstallationResponse" }
+        "202":
+          description: Preparation started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstallationResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /installations/{installation}:
+    get:
+      tags: [Install]
+      operationId: getInstallation
+      summary: Installation progress for the calling device (poll with backoff 3 s → 30 s)
+      description: 'Only installations on the calling device are visible; others answer 404.'
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/InstallationId"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstallationResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /installations/{installation}/authorize:
+    post:
+      tags: [Install]
+      operationId: authorizeInstallation
+      summary: Issue a single-use, device-bound install link (10 minutes)
+      description: 'Returns an itms-services:// URL for openURL / location.assign. The manifest behind it can be fetched once.'
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/InstallationId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Link issued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstallLinkResponse" }
+              examples:
+                link: { externalValue: examples/install-link.json }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /library:
+    get:
+      tags: [Install]
+      operationId: getLibrary
+      summary: Latest installation per app on the calling device
+      description: 'DELIVERED is the last state the server can observe (IMPLEMENTATION_PLAN G13).'
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LibraryResponse" }
+              examples:
+                library: { externalValue: examples/library.json }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /install/{token}/manifest.plist:
+    get:
+      tags: [Install]
+      operationId: getInstallManifest
+      summary: OTA manifest, fetched by iOS (single-use token)
+      description: 'Not JSON. Expired, reused or unknown tokens answer 410 INSTALL_TOKEN_EXPIRED; withdrawn artifacts 409.'
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Manifest property list
+          content:
+            application/xml:
+              schema: { type: string }
+        "409": { $ref: "#/components/responses/Error" }
+        "410": { $ref: "#/components/responses/Error" }
+
+  /downloads/installations/{installation}:
+    get:
+      tags: [Install]
+      operationId: downloadSignedBuild
+      summary: The signed IPA, via a 10-minute signed URL from the manifest
+      description: 'Supports HTTP Range. Tampered or expired signatures answer 403 and are logged and audited.'
+      parameters:
+        - $ref: "#/components/parameters/InstallationId"
+        - { name: expires, in: query, required: true, schema: { type: integer } }
+        - { name: signature, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: IPA bytes
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "206":
+          description: Requested byte range
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "410": { $ref: "#/components/responses/Error" }
+
+  /admin/runners:
+    get:
+      tags: [Admin]
+      operationId: adminListRunners
+      summary: Signing runner health, identities and current leases
+      description: 'Requires jobs.view. A runner is online when its last heartbeat is under three minutes old.'
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /admin/runners/{runner}:
+    patch:
+      tags: [Admin]
+      operationId: adminUpdateRunner
+      summary: Enable or disable a runner (audited)
+      description: 'Requires teams.manage.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - { name: runner, in: path, required: true, schema: { $ref: "#/components/schemas/PublicId" } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status, reason]
+              properties:
+                status: { type: string, enum: [ACTIVE, DISABLED] }
+                reason: { type: string, maxLength: 500 }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /admin/installations:
+    get:
+      tags: [Admin]
+      operationId: adminListInstallations
+      summary: Installations across devices
+      description: 'Requires installations.view.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: q, in: query, schema: { type: string, maxLength: 100 } }
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /admin/installations/{installation}:
+    get:
+      tags: [Admin]
+      operationId: adminGetInstallation
+      summary: Installation timeline (events with request IDs) and audit history
+      description: 'Requires installations.view.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/InstallationId"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
 
 
 components:
@@ -2059,6 +2320,12 @@ components:
 
     ArtifactId:
       name: artifact
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/PublicId" }
+
+    InstallationId:
+      name: installation
       in: path
       required: true
       schema: { $ref: "#/components/schemas/PublicId" }
@@ -2452,7 +2719,7 @@ components:
 
     Permission:
       type: string
-      enum: [users.view, users.manage, activation-codes.view, activation-codes.manage, audit.view, catalog.view, catalog.manage, artifacts.view, artifacts.manage, jobs.view, jobs.manage, devices.view, devices.manage, devices.reveal-udid]
+      enum: [users.view, users.manage, activation-codes.view, activation-codes.manage, audit.view, catalog.view, catalog.manage, artifacts.view, artifacts.manage, jobs.view, jobs.manage, installations.view, teams.view, teams.manage, devices.view, devices.manage, devices.reveal-udid]
 
     Subscription:
       type: object
@@ -3564,6 +3831,59 @@ components:
                           result_code: { type: [string, "null"] }
                           error_class: { type: [string, "null"] }
                           error_message: { type: [string, "null"] }
+
+    Installation:
+      type: object
+      required: [id, status, status_reason, app, version, build_number, preparation, delivered_at, created_at, updated_at]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        status: { type: string, enum: [PREPARING, READY_TO_INSTALL, AUTHORIZED, MANIFEST_FETCHED, DELIVERED, FAILED, EXPIRED] }
+        status_reason: { type: [string, "null"], description: 'e.g. NO_SIGNING_CERTIFICATE, DEVICE_NOT_IN_PROFILE, ARTIFACT_REVOKED, SUPERSEDED' }
+        app:
+          type: object
+          required: [id, name, icon_url]
+          properties:
+            id: { $ref: "#/components/schemas/PublicId" }
+            name: { type: string }
+            icon_url: { type: [string, "null"] }
+        version: { type: [string, "null"] }
+        build_number: { type: [string, "null"] }
+        preparation:
+          type: object
+          required: [stage, progress]
+          properties:
+            stage: { type: [string, "null"], enum: [SIGNING_PENDING, SIGNING, SIGNED, SIGNATURE_VERIFIED, DELIVERABLE, SIGNING_FAILED, VALIDATION_FAILED, EXPIRED, REVOKED, null] }
+            progress: { type: [number, "null"], minimum: 0, maximum: 1 }
+        delivered_at: { type: [string, "null"] }
+        created_at: { type: [string, "null"] }
+        updated_at: { type: [string, "null"] }
+
+    InstallationResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/Installation" }
+
+    LibraryResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/Installation" }
+
+    InstallLinkResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: object
+              required: [installation_id, install_url, manifest_url, expires_at]
+              properties:
+                installation_id: { $ref: "#/components/schemas/PublicId" }
+                install_url: { type: string, pattern: '^itms-services://\?action=download-manifest&url=' }
+                manifest_url: { type: string }
+                expires_at: { type: string }
 
     UploadedArtifactResponse:
       allOf:

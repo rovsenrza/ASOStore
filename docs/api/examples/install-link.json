@@ -1,0 +1,10 @@
+{
+  "data": {
+    "installation_id": "01j8zq4m6r2x9d3k5v7w1y0b2c",
+    "install_url": "itms-services://?action=download-manifest&url=https%3A%2F%2Fexample.com%2Fapi%2Fv1%2Finstall%2FtOkEn%2Fmanifest.plist",
+    "manifest_url": "https://example.com/api/v1/install/tOkEn/manifest.plist",
+    "expires_at": "2026-09-30T10:13:40Z"
+  },
+  "meta": { "request_id": "01j8zq4m6r2x9d3k5v7w1y0b2f" },
+  "error": null
+}

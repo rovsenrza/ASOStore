@@ -49,6 +49,9 @@ class AppServiceProvider extends ServiceProvider
     {
         $email = fn (Request $request) => Str::lower(trim((string) $request->input('email')));
 
+        RateLimiter::for('worker', fn (Request $request) => Limit::perMinute(600)->by('worker:'.$request->header('X-Runner-Key', $request->ip())));
+        RateLimiter::for('installs', fn (Request $request) => Limit::perMinute(30)->by('installs:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+        RateLimiter::for('install-manifest', fn (Request $request) => Limit::perMinute(30)->by('manifest:'.$request->ip()));
         RateLimiter::for('api', fn (Request $request) => Limit::perMinute(120)->by($request->user()?->getAuthIdentifier() ?: $request->ip()));
 
         RateLimiter::for('auth-login', fn (Request $request) => [

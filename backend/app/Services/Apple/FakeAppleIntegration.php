@@ -4,7 +4,11 @@ namespace App\Services\Apple;
 
 use App\Enums\AppleDeviceStatus;
 use App\Models\AppleTeam;
+use CFPropertyList\CFPropertyList;
+use CFPropertyList\CFTypeDetector;
+use DateTimeImmutable;
 use Illuminate\Contracts\Cache\Repository;
+use Illuminate\Support\Str;
 use LogicException;
 
 /**
@@ -61,6 +65,57 @@ class FakeAppleIntegration implements AppleIntegration
     }
 
     public function verifyCredentials(AppleTeam $team): void {}
+
+    public function findCertificate(AppleTeam $team, string $serialNumber): ?string
+    {
+        return 'FAKECERT'.strtoupper(substr(hash('sha256', $team->apple_team_id.$serialNumber), 0, 8));
+    }
+
+    public function ensureBundleId(AppleTeam $team, string $identifier, string $name): string
+    {
+        $resource = 'FAKEBUNDLE'.strtoupper(substr(hash('sha256', $team->apple_team_id.$identifier), 0, 8));
+        $this->cache->forever($this->key($team, 'bundle:'.$resource), $identifier);
+
+        return $resource;
+    }
+
+    /**
+     * A structurally real .mobileprovision payload (CMS envelope simulated)
+     * listing the device, so signature verification can be exercised locally.
+     */
+    public function createAdHocProfile(AppleTeam $team, string $name, string $bundleIdResource, string $certificateId, string $appleDeviceId): AppleProfile
+    {
+        $device = $this->cache->get($this->key($team, 'id:'.$appleDeviceId));
+        if (! is_array($device)) {
+            throw new AppleException("Unknown fake device {$appleDeviceId}.", 'APPLE_DEVICE_NOT_FOUND');
+        }
+
+        $bundle = $this->cache->get($this->key($team, 'bundle:'.$bundleIdResource), $bundleIdResource);
+        $uuid = strtoupper((string) Str::uuid());
+        $expires = new DateTimeImmutable('+1 year');
+
+        $plist = new CFPropertyList;
+        $plist->add((new CFTypeDetector(['castNumericStrings' => false]))->toCFType([
+            'AppIDName' => $name,
+            'Name' => $name,
+            'UUID' => $uuid,
+            'TeamIdentifier' => [$team->apple_team_id],
+            'ProvisionedDevices' => [$device['udid']],
+            'CreationDate' => new \DateTime,
+            'ExpirationDate' => \DateTime::createFromImmutable($expires),
+            'Entitlements' => [
+                'application-identifier' => $team->apple_team_id.'.'.$bundle,
+                'com.apple.developer.team-identifier' => $team->apple_team_id,
+                'get-task-allow' => false,
+                'keychain-access-groups' => [$team->apple_team_id.'.*'],
+            ],
+        ]));
+        $content = base64_encode("0\x82FAKE-CMS".$plist->toXML()."\x00FAKE-SIGNATURE");
+
+        return new AppleProfile('FAKEPROFILE'.substr($uuid, 0, 8), $uuid, $name, $content, $expires);
+    }
+
+    public function deleteProfile(AppleTeam $team, string $profileId): void {}
 
     /**
      * @param  array{id: string, udid: string, registered_at: int}  $record

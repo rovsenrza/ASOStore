@@ -15,6 +15,7 @@ use App\Models\User;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use App\Services\Inspection\MalwareScanner;
+use App\Services\Installations\InstallationService;
 use App\Services\Pipeline\PipelineJobService;
 use App\StateMachines\StateMachine;
 use Illuminate\Support\Facades\DB;
@@ -131,6 +132,7 @@ class ArtifactReviewService
                 ->get();
             foreach ($previous as $old) {
                 $this->states->transition($old, ArtifactStatus::Expired, 'Superseded by '.$artifact->public_id, $by, extra: ['status_reason' => 'SUPERSEDED']);
+                app(InstallationService::class)->artifactWithdrawn($old, 'SUPERSEDED');
             }
 
             $version = $app->versions()->firstOrCreate(
@@ -159,6 +161,8 @@ class ArtifactReviewService
         return DB::transaction(function () use ($artifact, $actor, $reason) {
             $artifact = $this->lock($artifact);
             $this->states->transition($artifact, ArtifactStatus::Revoked, $reason, Actor::user($actor), extra: ['status_reason' => 'REVOKED_BY_OPERATOR']);
+            // Signed builds stop being deliverable at once (FULL_PLAN §5.4).
+            app(InstallationService::class)->artifactWithdrawn($artifact, 'REVOKED');
 
             return $artifact;
         });

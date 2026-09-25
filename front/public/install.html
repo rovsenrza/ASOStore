@@ -30,15 +30,16 @@
     <section class="page-hero" aria-labelledby="page-title">
       <p class="eyebrow">Storefront</p>
       <h1 id="page-title">Установка Storefront</h1>
-      <p>Когда устройство зарегистрировано и приложение подготовлено, здесь появится персональная ссылка на установку.</p>
+      <p>Storefront подписывается отдельно для вашего iPhone. Установка идёт через Safari на этом устройстве.</p>
     </section>
 
     <div class="page-body">
       <section class="panel" aria-labelledby="install-title">
         <h2 id="install-title">Ваше устройство</h2>
         <div id="install-state" role="status" aria-live="polite"></div>
+        <div id="install-progress" role="status" aria-live="polite" hidden></div>
         <div class="stage-actions">
-          <a class="primary-button" id="install-storefront" href="#" aria-disabled="true">Установить Storefront <span aria-hidden="true">→</span></a>
+          <a class="primary-button" id="install-storefront" href="#" role="button" aria-disabled="true">Установить Storefront <span aria-hidden="true">→</span></a>
         </div>
         <div class="open-app" id="open-storefront" hidden>
           <div class="form-status"></div>
@@ -51,7 +52,17 @@
         <h2 id="recovery-title">Если Storefront не открывается</h2>
         <div class="prose">
           <p>Эта страница всегда доступна, даже если приложение перестало запускаться. Проверьте статус устройства выше: если он изменился, следуйте подсказке.</p>
-          <p>Подробные инструкции по восстановлению появятся вместе с установкой Storefront. Если нужна помощь сейчас, откройте раздел <a href="/support.html">Поддержка</a>.</p>
+          <h3 id="trust">«Недоверенный корпоративный разработчик»</h3>
+          <ol>
+            <li>Откройте «Настройки» → «Основные» → «VPN и управление устройством».</li>
+            <li>В разделе «Приложение разработчика» выберите профиль разработчика Storefront.</li>
+            <li>Нажмите «Доверять» и подтвердите. Затем снова откройте Storefront.</li>
+          </ol>
+          <h3>Storefront пропал или не запускается</h3>
+          <p>Нажмите «Установить Storefront» выше ещё раз — приложение будет подготовлено заново для этого iPhone. Данные аккаунта хранятся на сервере и не потеряются.</p>
+          <h3>Установка зависла на значке</h3>
+          <p>Проверьте свободное место и подключение к сети. Удалите серый значок и повторите установку со страницы.</p>
+          <p>Если ничего не помогло, откройте раздел <a href="/support.html">Поддержка</a> и укажите код запроса из сообщения об ошибке.</p>
         </div>
       </section>
     </div>

@@ -7,9 +7,12 @@ use App\Enums\PipelineJobStatus;
 use App\Exceptions\ApiException;
 use App\Exceptions\IllegalStateTransition;
 use App\Jobs\InspectArtifactJob;
+use App\Jobs\PrepareSigningJob;
+use App\Jobs\VerifySignatureJob;
 use App\Models\PipelineJob;
 use App\Models\PipelineJobAttempt;
 use App\Services\Audit\Actor;
+use App\Services\Signing\SigningService;
 use App\StateMachines\StateMachine;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Context;
@@ -42,6 +45,9 @@ class PipelineJobService
             'subject_type' => $subject->getMorphClass(),
             'subject_id' => $subject->getKey(),
             'payload' => $payload,
+            // Set here, not by the column default: MySQL's CURRENT_TIMESTAMP is in
+            // the server's time zone, while every comparison uses the app's UTC now().
+            'available_at' => now(),
         ]);
     }
 
@@ -111,6 +117,81 @@ class PipelineJobService
     }
 
     /**
+     * The work asked to wait (e.g. Apple rate limiting). The attempt is closed
+     * without counting against the retry budget.
+     */
+    public function postpone(PipelineJob $job, PipelineJobAttempt $attempt, RetryLater $wait): void
+    {
+        $this->states->transition($job, PipelineJobStatus::Queued, $wait->getMessage(), $this->actor(), extra: [
+            'available_at' => now()->addSeconds($wait->seconds),
+            'max_attempts' => $job->max_attempts + 1,
+        ]);
+        $attempt->update(['finished_at' => now(), 'result_code' => 'POSTPONED', 'error_message_redacted' => mb_substr($wait->getMessage(), 0, 1000)]);
+    }
+
+    /**
+     * Hands a queued runner job to a runner (IMPLEMENTATION_PLAN D9, P6-BE-02).
+     * Must be called inside a transaction that holds the job row lock.
+     */
+    public function lease(PipelineJob $job, string $runnerKey, int $seconds): PipelineJobAttempt
+    {
+        $actor = Actor::worker($runnerKey);
+        $this->states->transition($job, PipelineJobStatus::Leased, actor: $actor, extra: [
+            'lease_owner' => $runnerKey,
+            'lease_expires_at' => now()->addSeconds($seconds),
+            'attempt' => $job->attempt + 1,
+            'started_at' => now(),
+            'finished_at' => null,
+        ]);
+        $this->states->transition($job, PipelineJobStatus::Running, actor: $actor);
+
+        return $job->attempts()->create(['attempt' => $job->attempt, 'worker' => $runnerKey, 'started_at' => now()]);
+    }
+
+    public function extendLease(PipelineJob $job, int $seconds): void
+    {
+        $job->forceFill(['lease_expires_at' => now()->addSeconds($seconds)])->save();
+    }
+
+    /**
+     * Returns runner jobs whose lease ran out to the queue (the runner died or
+     * lost its connection). Returns the recovered jobs.
+     *
+     * @return list<PipelineJob>
+     */
+    public function recoverExpiredLeases(): array
+    {
+        $recovered = [];
+        $expired = PipelineJob::query()
+            ->whereIn('status', [PipelineJobStatus::Leased->value, PipelineJobStatus::Running->value])
+            ->whereNotNull('lease_owner')
+            ->where('lease_expires_at', '<', now())
+            ->get();
+
+        foreach ($expired as $job) {
+            try {
+                $this->states->transition($job, PipelineJobStatus::Queued, 'Lease expired.', $this->actor(), extra: [
+                    'lease_owner' => null,
+                    'lease_expires_at' => null,
+                    'available_at' => now(),
+                ]);
+                $job->attempts()->where('attempt', $job->attempt)->whereNull('finished_at')
+                    ->update(['finished_at' => now(), 'result_code' => 'LEASE_EXPIRED']);
+                $recovered[] = $job;
+            } catch (IllegalStateTransition) {
+                // Finished concurrently.
+            }
+        }
+
+        return $recovered;
+    }
+
+    public function currentAttempt(PipelineJob $job): ?PipelineJobAttempt
+    {
+        return $job->attempts()->where('attempt', $job->attempt)->first();
+    }
+
+    /**
      * Operator retry of a failed job (FULL_PLAN §9 POST /admin/jobs/{id}/retry).
      * The job gets one more attempt; the idempotency key stays the same, so the
      * work itself is never duplicated.
@@ -131,6 +212,10 @@ class PipelineJobService
     {
         match ($job->type) {
             InspectArtifactJob::TYPE => InspectArtifactJob::dispatch($job->id)->afterCommit(),
+            PrepareSigningJob::TYPE => PrepareSigningJob::dispatch($job->id)->afterCommit(),
+            VerifySignatureJob::TYPE => VerifySignatureJob::dispatch($job->id)->afterCommit(),
+            // Runner jobs are picked up by a runner lease; nothing to dispatch.
+            SigningService::RUNNER_JOB_TYPE => null,
             default => throw new ApiException(ErrorCode::Conflict, 'Этот тип задачи нельзя перезапустить.', ['type' => $job->type]),
         };
     }

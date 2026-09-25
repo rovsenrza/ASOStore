@@ -42,6 +42,10 @@ dataset('examples', [
     'claim redeem' => ['storefront-claim-redeem.json', 'ClaimRedeemResponse'],
     'admin devices' => ['admin-devices.json', 'AdminDeviceListResponse'],
     'app detail support urls' => ['app-detail.json', 'AppDetailResponse'],
+    'installation preparing' => ['installation-preparing.json', 'InstallationResponse'],
+    'installation ready' => ['installation-ready.json', 'InstallationResponse'],
+    'install link' => ['install-link.json', 'InstallLinkResponse'],
+    'library' => ['library.json', 'LibraryResponse'],
 ]);
 
 it('keeps every shared example valid against its schema', function (string $file, string $schema) {

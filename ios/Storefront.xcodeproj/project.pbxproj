@@ -7,14 +7,14 @@
 	objects = {
 
 /* Begin PBXContainerItemProxy section */
-		000000000000000360000000 /* PBXContainerItemProxy */ = {
+		000000000000000260000000 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 000000000000000000000000 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 000000000000000100000000;
 			remoteInfo = Storefront;
 		};
-		000000000000000260000000 /* PBXContainerItemProxy */ = {
+		000000000000000360000000 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 000000000000000000000000 /* Project object */;
 			proxyType = 1;
@@ -45,15 +45,15 @@
 			path = StorefrontTests;
 			sourceTree = "<group>";
 		};
-		000000000000000000000013 /* StorefrontUITests */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			path = StorefrontUITests;
-			sourceTree = "<group>";
-		};
 		000000000000000000000012 /* API Examples */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			name = "API Examples";
 			path = ../docs/api/examples;
+			sourceTree = "<group>";
+		};
+		000000000000000000000013 /* StorefrontUITests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = StorefrontUITests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -682,29 +682,6 @@
 			};
 			name = Debug;
 		};
-		000000000000000313000000 /* Staging configuration for PBXNativeTarget "StorefrontUITests" */ = {
-			isa = XCBuildConfiguration;
-			baseConfigurationReference = 000000000000000000000032 /* Staging.xcconfig */;
-			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = 994PCN86WH;
-				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "$(STOREFRONT_BUNDLE_ID).uitests";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = iphoneos;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
-				SUPPORTS_MACCATALYST = NO;
-				SWIFT_APPROACHABLE_CONCURRENCY = YES;
-				SWIFT_EMIT_LOC_STRINGS = NO;
-				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = "1,7";
-				TEST_TARGET_NAME = Storefront;
-			};
-			name = Staging;
-		};
 		000000000000000312000000 /* Release configuration for PBXNativeTarget "StorefrontUITests" */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = 000000000000000000000033 /* Production.xcconfig */;
@@ -727,6 +704,29 @@
 				TEST_TARGET_NAME = Storefront;
 			};
 			name = Release;
+		};
+		000000000000000313000000 /* Staging configuration for PBXNativeTarget "StorefrontUITests" */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 000000000000000000000032 /* Staging.xcconfig */;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 994PCN86WH;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "$(STOREFRONT_BUNDLE_ID).uitests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,7";
+				TEST_TARGET_NAME = Storefront;
+			};
+			name = Staging;
 		};
 /* End XCBuildConfiguration section */
 

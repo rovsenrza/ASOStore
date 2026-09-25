@@ -27,6 +27,8 @@ nonisolated struct MockTransport: HTTPTransport {
             case (_, "auth", "logout"): return "empty"
             case (_, "activation", "redeem"): return "activation-redeem"
             case ("storefront", "claims", "redeem"): return "storefront-claim-redeem"
+            case ("apps", _, "prepare"): return "installation-preparing"
+            case ("installations", _, "authorize"): return "install-link"
             default: return nil
             }
         }
@@ -34,6 +36,8 @@ nonisolated struct MockTransport: HTTPTransport {
 
         switch tail {
         case (_, _, "health"): return "health"
+        case (_, _, "library"): return "library"
+        case (_, "installations", _): return "installation-ready"
         case (_, "auth", "me"): return "auth-me"
         case (_, "devices", "me"): return "devices-me"
         case (_, "storefront", "feed"): return "storefront-feed"

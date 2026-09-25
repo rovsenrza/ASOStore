@@ -5,6 +5,7 @@ struct StorefrontApp: App {
     private let apiClient: APIClient
     @State private var session: SessionStore
     @State private var router = AppRouter()
+    @State private var installations: InstallationCoordinator
 
     init() {
         #if DEBUG
@@ -16,6 +17,10 @@ struct StorefrontApp: App {
         let apiClient = APIClient.configured()
         self.apiClient = apiClient
         _session = State(initialValue: SessionStore(api: apiClient))
+        _installations = State(initialValue: InstallationCoordinator(
+            repository: PreparationRepository(api: apiClient),
+            openURL: { url in await UIApplication.shared.open(url) }
+        ))
     }
 
     var body: some Scene {
@@ -26,8 +31,13 @@ struct StorefrontApp: App {
                 .environment(\.catalog, CatalogRepository(api: apiClient, cache: .catalog))
                 .environment(session)
                 .environment(router)
-                // Cold launch: validate the stored session without blocking the UI (FULL_PLAN §11).
-                .task { await session.restore() }
+                .environment(installations)
+                // Cold launch: validate the stored session without blocking the UI (FULL_PLAN §11),
+                // then pick up installations that were in flight when the app was killed.
+                .task {
+                    await session.restore()
+                    await installations.resume()
+                }
                 .onOpenURL { url in
                     Task { await router.handle(url, session: session) }
                 }

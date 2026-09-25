@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Oswald:wght@600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/admin.css">
-  <script type="module" src="js/pages/placeholder.js"></script>
+  <script type="module" src="js/pages/jobs.js"></script>
 </head>
 <body>
   <div class="admin-shell">
@@ -30,14 +30,25 @@
     <div class="main">
       <header class="topbar"><h1>Задачи</h1></header>
       <main class="content" id="main">
-        <section class="empty-state" aria-labelledby="planned-title">
-          <h2 id="planned-title">Раздел подключается в фазе 5</h2>
-          <p>Фоновые задачи конвейера и состояние подписывающего Mac.</p>
-          <ul>
-          <li>Попытки, коды результата и классы ошибок</li>
-          <li>Ручной повтор с записью в аудит</li>
-          <li>Пульс сервиса подписи (фаза 6)</li>
-          </ul>
+        <div class="page-actions">
+          <div class="tabs" role="tablist" aria-label="Разделы">
+            <button type="button" role="tab" id="tab-runners" aria-controls="panel-runners" aria-selected="true">Подпись</button>
+            <button type="button" role="tab" id="tab-jobs" aria-controls="panel-jobs" aria-selected="false" tabindex="-1">Задачи</button>
+            <button type="button" role="tab" id="tab-installations" aria-controls="panel-installations" aria-selected="false" tabindex="-1">Установки</button>
+          </div>
+        </div>
+
+        <section id="panel-runners" role="tabpanel" aria-labelledby="tab-runners">
+          <p class="muted">Mac-серверы подписи забирают задачи сами. Если сервер не отвечает, задачи ждут в очереди и будут подписаны после его возвращения без повторной подписи.</p>
+          <div id="runners" class="widgets" role="status" aria-live="polite"></div>
+        </section>
+
+        <section id="panel-jobs" role="tabpanel" aria-labelledby="tab-jobs" hidden>
+          <div id="jobs-table"></div>
+        </section>
+
+        <section id="panel-installations" role="tabpanel" aria-labelledby="tab-installations" hidden>
+          <div id="installations-table"></div>
         </section>
       </main>
     </div>

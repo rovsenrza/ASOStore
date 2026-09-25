@@ -8,7 +8,9 @@ use App\Http\Controllers\Api\V1\Admin\AppVersionController;
 use App\Http\Controllers\Api\V1\Admin\ArtifactController;
 use App\Http\Controllers\Api\V1\Admin\AuditLogController;
 use App\Http\Controllers\Api\V1\Admin\DeviceController as AdminDeviceController;
+use App\Http\Controllers\Api\V1\Admin\InstallationController as AdminInstallationController;
 use App\Http\Controllers\Api\V1\Admin\JobController;
+use App\Http\Controllers\Api\V1\Admin\RunnerController;
 use App\Http\Controllers\Api\V1\Admin\TaxonomyController;
 use App\Http\Controllers\Api\V1\Admin\UploadController;
 use App\Http\Controllers\Api\V1\Admin\UserController;
@@ -19,6 +21,8 @@ use App\Http\Controllers\Api\V1\Customer\ClaimController;
 use App\Http\Controllers\Api\V1\Customer\DeviceController;
 use App\Http\Controllers\Api\V1\Customer\EnrollmentController;
 use App\Http\Controllers\Api\V1\Customer\FeedController;
+use App\Http\Controllers\Api\V1\Customer\InstallationController;
+use App\Http\Controllers\Api\V1\Customer\InstallDeliveryController;
 use App\Http\Controllers\Api\V1\Customer\StorefrontStatusController;
 use App\Http\Controllers\Api\V1\Customer\TokenController;
 use App\Http\Controllers\Api\V1\HealthController;
@@ -57,7 +61,18 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
         ->middleware('throttle:enrollment')
         ->name('api.devices.enrollment-profile');
     Route::post('/storefront/claims', [ClaimController::class, 'store'])->middleware('throttle:claims')->name('api.storefront.claims');
+
+    // Preparation and installation (IMPLEMENTATION_PLAN §5.6, P6-BE-03)
+    Route::post('/apps/{app}/prepare', [InstallationController::class, 'prepare'])->middleware(['throttle:installs', 'idempotent'])->name('api.apps.prepare');
+    Route::post('/storefront/install', [InstallationController::class, 'installStorefront'])->middleware(['throttle:installs', 'idempotent'])->name('api.storefront.install');
+    Route::get('/installations/{installation}', [InstallationController::class, 'show'])->name('api.installations.show');
+    Route::post('/installations/{installation}/authorize', [InstallationController::class, 'authorize'])->middleware(['throttle:installs', 'idempotent'])->name('api.installations.authorize');
+    Route::get('/library', [InstallationController::class, 'library'])->name('api.library');
 });
+
+// Fetched by iOS during the OTA install: the token or the URL signature is the credential.
+Route::get('/install/{token}/manifest.plist', [InstallDeliveryController::class, 'manifest'])->middleware('throttle:install-manifest')->name('api.install.manifest');
+Route::get('/downloads/installations/{installation}', [InstallDeliveryController::class, 'download'])->middleware('throttle:install-manifest')->name('api.downloads.installation');
 
 // Called by iOS itself (Profile Service), authenticated by the one-time challenge in the URL.
 Route::post('/devices/enrollment/callback', [EnrollmentController::class, 'callback'])
@@ -127,6 +142,10 @@ Route::prefix('admin')->name('api.admin.')->group(function () {
         Route::get('/jobs', [JobController::class, 'index'])->can('jobs.view')->name('jobs.index');
         Route::get('/jobs/{job}', [JobController::class, 'show'])->can('jobs.view')->name('jobs.show');
         Route::post('/jobs/{job}/retry', [JobController::class, 'retry'])->can('jobs.manage')->middleware('idempotent')->name('jobs.retry');
+        Route::get('/runners', [RunnerController::class, 'index'])->can('jobs.view')->name('runners.index');
+        Route::patch('/runners/{runner}', [RunnerController::class, 'update'])->can('teams.manage')->name('runners.update');
+        Route::get('/installations', [AdminInstallationController::class, 'index'])->can('installations.view')->name('installations.index');
+        Route::get('/installations/{installation}', [AdminInstallationController::class, 'show'])->can('installations.view')->name('installations.show');
         Route::get('/categories', [TaxonomyController::class, 'categories'])->can('catalog.view')->name('categories.index');
         Route::post('/categories', [TaxonomyController::class, 'storeCategory'])->can('catalog.manage')->name('categories.store');
         Route::patch('/categories/{category}', [TaxonomyController::class, 'updateCategory'])->can('catalog.manage')->name('categories.update');

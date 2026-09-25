@@ -27,7 +27,7 @@ nonisolated enum InstallState: Hashable, Sendable {
         }
     }
 
-    /// Whether the CTA can start something. Phase 6 connects the actions.
+    /// Whether the CTA can start something (InstallationCoordinator.act).
     var isActionable: Bool {
         switch self {
         case .get, .readyToInstall, .updateAvailable, .failed: true

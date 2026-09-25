@@ -6,10 +6,12 @@ use App\Http\Middleware\EnsureAccountActive;
 use App\Http\Middleware\Idempotent;
 use App\Http\Middleware\RequireStaffSession;
 use App\Http\Middleware\SecurityHeaders;
+use App\Http\Middleware\VerifyWorkerSignature;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Routing\Middleware\SubstituteBindings;
+use Illuminate\Support\Facades\Route;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -18,6 +20,12 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
         apiPrefix: 'api/v1',
+        then: function (): void {
+            Route::prefix('api/worker/v1')
+                ->name('worker.')
+                ->middleware([AssignRequestId::class, 'throttle:worker', VerifyWorkerSignature::class, SubstituteBindings::class])
+                ->group(base_path('routes/worker.php'));
+        },
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prepend(AssignRequestId::class);

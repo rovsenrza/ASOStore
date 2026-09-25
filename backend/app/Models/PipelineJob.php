@@ -14,6 +14,10 @@ use Illuminate\Support\Carbon;
 
 /**
  * @property PipelineJobStatus $status
+ * @property string $type
+ * @property array<string, mixed>|null $payload
+ * @property string|null $lease_owner
+ * @property Carbon|null $lease_expires_at
  * @property int $attempt
  * @property int $max_attempts
  * @property string $correlation_id

@@ -1,0 +1,16 @@
+{
+  "data": {
+    "id": "01j8zq4m6r2x9d3k5v7w1y0b2c",
+    "status": "READY_TO_INSTALL",
+    "status_reason": null,
+    "app": { "id": "01m3by6km065c4v6e72eecghqw", "name": "Focus Notes", "icon_url": null },
+    "version": "1.0.0",
+    "build_number": "42",
+    "preparation": { "stage": "DELIVERABLE", "progress": 1.0 },
+    "delivered_at": null,
+    "created_at": "2026-09-30T10:00:00Z",
+    "updated_at": "2026-09-30T10:03:40Z"
+  },
+  "meta": { "request_id": "01j8zq4m6r2x9d3k5v7w1y0b2e" },
+  "error": null
+}

@@ -9,7 +9,6 @@ use App\Models\AuditLog;
 use App\Models\CatalogApp;
 use App\Models\PipelineJob;
 use App\Services\Artifacts\ArtifactInspectionService;
-use App\Services\Pipeline\PipelineJobService;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Tests\Support\IpaBuilder;
@@ -209,10 +208,7 @@ it('rejects a stored file whose hash no longer matches', function () {
     $artifact = inspected($data);
     Storage::disk('artifacts')->put($artifact->storage_path, 'tampered');
 
-    (new InspectArtifactJob(PipelineJob::where('public_id', $data['job_id'])->sole()->id))->handle(
-        app(PipelineJobService::class),
-        app(ArtifactInspectionService::class),
-    );
+    app()->call([new InspectArtifactJob(PipelineJob::where('public_id', $data['job_id'])->sole()->id), 'handle']);
 
     expect($artifact->refresh()->status)->toBe(ArtifactStatus::Rejected)
         ->and($artifact->status_reason)->toBe('UPLOAD_CORRUPT');

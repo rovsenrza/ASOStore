@@ -27,6 +27,10 @@ final class Abilities
         'artifacts.manage' => [RoleSlug::CatalogManager, RoleSlug::Admin],
         'jobs.view' => [RoleSlug::Support, RoleSlug::CatalogManager, RoleSlug::Admin],
         'jobs.manage' => [RoleSlug::CatalogManager, RoleSlug::Admin],
+        'installations.view' => [RoleSlug::Support, RoleSlug::CatalogManager, RoleSlug::Admin],
+        // Apple teams, certificates, runners and quota decisions (IMPLEMENTATION_PLAN §5.9: admin only).
+        'teams.view' => [RoleSlug::Admin],
+        'teams.manage' => [RoleSlug::Admin],
         'devices.view' => [RoleSlug::Support, RoleSlug::Admin],
         'devices.manage' => [RoleSlug::Admin],
         'devices.reveal-udid' => [RoleSlug::Admin],

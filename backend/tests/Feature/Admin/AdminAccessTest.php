@@ -8,6 +8,7 @@ use App\Models\AppVersion;
 use App\Models\CatalogApp;
 use App\Models\Device;
 use App\Models\PipelineJob;
+use App\Models\Runner;
 use App\Models\User;
 use Illuminate\Support\Facades\Route;
 
@@ -42,12 +43,14 @@ function concrete(string $uri): string
         '{artifact}' => 'x',
         '{document}' => 'x',
         '{job}' => 'x',
+        '{runner}' => 'x',
+        '{installation}' => 'x',
         '{number}' => '0',
     ]);
 }
 
 it('covers every admin route', function () {
-    expect(adminRoutes())->toHaveCount(48);
+    expect(adminRoutes())->toHaveCount(52);
 });
 
 it('turns away guests and customers on every admin route', function () {
@@ -74,6 +77,7 @@ it('limits each staff role to its abilities', function (RoleSlug $role, array $a
     $device = Device::factory()->create();
     $app = CatalogApp::factory()->create();
     $job = PipelineJob::factory()->create();
+    $runner = Runner::create(['key_id' => 'rk_probe', 'name' => 'probe', 'secret_encrypted' => 'x']);
     $probes = [
         'catalog.view' => ['GET', '/api/v1/admin/apps'],
         'catalog.manage' => ['PATCH', '/api/v1/admin/apps/'.$app->public_id],
@@ -81,6 +85,8 @@ it('limits each staff role to its abilities', function (RoleSlug $role, array $a
         'artifacts.manage' => ['POST', '/api/v1/admin/uploads'],
         'jobs.view' => ['GET', '/api/v1/admin/jobs'],
         'jobs.manage' => ['POST', '/api/v1/admin/jobs/'.$job->public_id.'/retry'],
+        'installations.view' => ['GET', '/api/v1/admin/installations'],
+        'teams.manage' => ['PATCH', '/api/v1/admin/runners/'.$runner->public_id],
         'devices.view' => ['GET', '/api/v1/admin/devices'],
         'devices.manage' => ['POST', '/api/v1/admin/devices/'.$device->public_id.'/sync'],
         'devices.reveal-udid' => ['POST', '/api/v1/admin/devices/'.$device->public_id.'/reveal-udid'],
@@ -102,7 +108,7 @@ it('limits each staff role to its abilities', function (RoleSlug $role, array $a
         }
     }
 })->with([
-    'support' => [RoleSlug::Support, ['users.view', 'activation-codes.view', 'audit.view', 'devices.view', 'catalog.view', 'artifacts.view', 'jobs.view']],
-    'catalog manager' => [RoleSlug::CatalogManager, ['audit.view', 'catalog.view', 'catalog.manage', 'artifacts.view', 'artifacts.manage', 'jobs.view', 'jobs.manage']],
-    'admin' => [RoleSlug::Admin, ['users.view', 'users.manage', 'activation-codes.view', 'activation-codes.manage', 'audit.view', 'catalog.view', 'catalog.manage', 'artifacts.view', 'artifacts.manage', 'jobs.view', 'jobs.manage', 'devices.view', 'devices.manage', 'devices.reveal-udid']],
+    'support' => [RoleSlug::Support, ['users.view', 'activation-codes.view', 'audit.view', 'devices.view', 'catalog.view', 'artifacts.view', 'jobs.view', 'installations.view']],
+    'catalog manager' => [RoleSlug::CatalogManager, ['audit.view', 'catalog.view', 'catalog.manage', 'artifacts.view', 'artifacts.manage', 'jobs.view', 'jobs.manage', 'installations.view']],
+    'admin' => [RoleSlug::Admin, ['users.view', 'users.manage', 'activation-codes.view', 'activation-codes.manage', 'audit.view', 'catalog.view', 'catalog.manage', 'artifacts.view', 'artifacts.manage', 'jobs.view', 'jobs.manage', 'installations.view', 'teams.view', 'teams.manage', 'devices.view', 'devices.manage', 'devices.reveal-udid']],
 ]);

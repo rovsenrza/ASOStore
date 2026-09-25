@@ -5,6 +5,7 @@ namespace App\Services\Apple;
 use App\Enums\AppleDeviceStatus;
 use App\Models\AppleCredential;
 use App\Models\AppleTeam;
+use DateTimeImmutable;
 use Firebase\JWT\JWT;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
@@ -76,10 +77,78 @@ class AppStoreConnectIntegration implements AppleIntegration
         $this->send($team, fn (PendingRequest $http) => $http->get('/devices', ['limit' => 1]));
     }
 
+    public function findCertificate(AppleTeam $team, string $serialNumber): ?string
+    {
+        $response = $this->send($team, fn (PendingRequest $http) => $http->get('/certificates', [
+            'filter[serialNumber]' => $serialNumber,
+            'limit' => 1,
+        ]));
+
+        $id = $response->json('data.0.id');
+
+        return is_string($id) ? $id : null;
+    }
+
+    public function ensureBundleId(AppleTeam $team, string $identifier, string $name): string
+    {
+        $existing = $this->send($team, fn (PendingRequest $http) => $http->get('/bundleIds', [
+            'filter[identifier]' => $identifier,
+            'filter[platform]' => 'IOS',
+            'limit' => 5,
+        ]));
+
+        // filter[identifier] is a prefix match; pick the exact one.
+        foreach ((array) $existing->json('data') as $resource) {
+            if (($resource['attributes']['identifier'] ?? null) === $identifier) {
+                return (string) $resource['id'];
+            }
+        }
+
+        $created = $this->send($team, fn (PendingRequest $http) => $http->post('/bundleIds', [
+            'data' => [
+                'type' => 'bundleIds',
+                'attributes' => ['identifier' => $identifier, 'name' => mb_substr(preg_replace('/[^A-Za-z0-9 ]/', ' ', $name) ?: 'App', 0, 60), 'platform' => 'IOS'],
+            ],
+        ]));
+
+        return (string) $created->json('data.id');
+    }
+
+    public function createAdHocProfile(AppleTeam $team, string $name, string $bundleIdResource, string $certificateId, string $appleDeviceId): AppleProfile
+    {
+        $response = $this->send($team, fn (PendingRequest $http) => $http->post('/profiles', [
+            'data' => [
+                'type' => 'profiles',
+                'attributes' => ['name' => mb_substr($name, 0, 100), 'profileType' => 'IOS_APP_ADHOC'],
+                'relationships' => [
+                    'bundleId' => ['data' => ['type' => 'bundleIds', 'id' => $bundleIdResource]],
+                    'certificates' => ['data' => [['type' => 'certificates', 'id' => $certificateId]]],
+                    'devices' => ['data' => [['type' => 'devices', 'id' => $appleDeviceId]]],
+                ],
+            ],
+        ]));
+
+        $attributes = (array) $response->json('data.attributes');
+        $expires = $attributes['expirationDate'] ?? null;
+
+        return new AppleProfile(
+            (string) $response->json('data.id'),
+            (string) ($attributes['uuid'] ?? ''),
+            (string) ($attributes['name'] ?? $name),
+            (string) ($attributes['profileContent'] ?? ''),
+            is_string($expires) ? new DateTimeImmutable($expires) : null,
+        );
+    }
+
+    public function deleteProfile(AppleTeam $team, string $profileId): void
+    {
+        $this->send($team, fn (PendingRequest $http) => $http->delete('/profiles/'.rawurlencode($profileId)), allowNotFound: true);
+    }
+
     /**
      * @param  callable(PendingRequest): Response  $request
      */
-    private function send(AppleTeam $team, callable $request, bool $allowConflict = false): Response
+    private function send(AppleTeam $team, callable $request, bool $allowConflict = false, bool $allowNotFound = false): Response
     {
         $credential = $team->activeCredential ?? throw new AppleCredentialsException('The team has no active App Store Connect key.');
 
@@ -93,7 +162,7 @@ class AppStoreConnectIntegration implements AppleIntegration
             throw new AppleRetryableException('App Store Connect is unreachable: '.$e->getMessage(), 30);
         }
 
-        if ($response->successful() || ($allowConflict && $response->status() === 409)) {
+        if ($response->successful() || ($allowConflict && $response->status() === 409) || ($allowNotFound && $response->status() === 404)) {
             return $response;
         }
 
