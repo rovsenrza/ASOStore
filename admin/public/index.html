@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Панель — [BRAND] Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Oswald:wght@600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/admin.css">
+  <script type="module" src="js/pages/dashboard.js"></script>
+</head>
+<body>
+  <div class="admin-shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html">[BRAND]<small>Операторская панель</small></a>
+      <nav aria-label="Разделы">
+        <a href="index.html">Панель</a>
+        <a href="users.html">Пользователи</a>
+        <a href="devices.html">Устройства</a>
+        <a href="apps.html">Приложения</a>
+        <a href="artifacts.html">Артефакты</a>
+        <a href="teams.html">Команды Apple</a>
+        <a href="jobs.html">Задачи</a>
+        <a href="audit.html">Аудит</a>
+      </nav>
+      <p class="sidebar-foot">Доступ по ролям. Все действия записываются в журнал аудита.</p>
+    </aside>
+    <div class="main">
+      <header class="topbar"><h1>Панель</h1></header>
+      <main class="content" id="main">
+
+        <section class="widgets" aria-label="Показатели">
+          <article class="card widget" id="widget-health">
+            <h2>Состояние API</h2>
+            <span class="value">…</span>
+            <span class="hint"></span>
+          </article>
+          <article class="card widget">
+            <h2>Пользователи и устройства</h2>
+            <span class="value muted">—</span>
+            <span class="hint">Фазы 2–3</span>
+          </article>
+          <article class="card widget">
+            <h2>Артефакты</h2>
+            <span class="value muted">—</span>
+            <span class="hint">Фаза 5</span>
+          </article>
+          <article class="card widget">
+            <h2>Квоты команд</h2>
+            <span class="value muted">—</span>
+            <span class="hint">Фаза 7</span>
+          </article>
+          <article class="card widget">
+            <h2>Очередь задач</h2>
+            <span class="value muted">—</span>
+            <span class="hint">Фаза 5</span>
+          </article>
+        </section>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

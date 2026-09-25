@@ -1,0 +1,216 @@
+{
+  "data": [
+    {
+      "id": "01m3by6py51a62p42j49xcgaze",
+      "occurred_at": "2026-09-25T09:26:36.000000Z",
+      "actor": {
+        "type": "user",
+        "id": "01m3by6pazsrpscqd9243vq10f",
+        "label": "anna@example.com"
+      },
+      "action": "storefront.claimed",
+      "subject_type": "device",
+      "subject_id": "01m3by6pvktjxbkpxj8g78tmzy",
+      "before": null,
+      "after": {
+        "device_name": "iPhone"
+      },
+      "reason": null,
+      "request_id": "01m3by6pxvtbrv6h786g0p8apv",
+      "ip": "127.0.0.1"
+    },
+    {
+      "id": "01m3by6pwgkewc2h4ceqc54gqk",
+      "occurred_at": "2026-09-25T09:26:36.000000Z",
+      "actor": {
+        "type": "system",
+        "id": null,
+        "label": "apple"
+      },
+      "action": "device_registration.status_changed",
+      "subject_type": "device_registration",
+      "subject_id": "01m3by6pvp3pa6hctx97282z9v",
+      "before": {
+        "status": "APPLE_PENDING"
+      },
+      "after": {
+        "status": "ELIGIBLE",
+        "eligible_at": "2026-09-25T09:26:36.687680Z",
+        "status_reason": null
+      },
+      "reason": null,
+      "request_id": "01m3by6pv4qf7t8k0yhnwtdzdr",
+      "ip": "127.0.0.1"
+    },
+    {
+      "id": "01m3by6pw6v41amn63jv6c1k6x",
+      "occurred_at": "2026-09-25T09:26:36.000000Z",
+      "actor": {
+        "type": "system",
+        "id": null,
+        "label": "apple"
+      },
+      "action": "device_registration.status_changed",
+      "subject_type": "device_registration",
+      "subject_id": "01m3by6pvp3pa6hctx97282z9v",
+      "before": {
+        "status": "ENROLLED"
+      },
+      "after": {
+        "status": "APPLE_PENDING",
+        "status_reason": null
+      },
+      "reason": null,
+      "request_id": "01m3by6pv4qf7t8k0yhnwtdzdr",
+      "ip": "127.0.0.1"
+    },
+    {
+      "id": "01m3by6pvqgw405fpadwc08djg",
+      "occurred_at": "2026-09-25T09:26:36.000000Z",
+      "actor": {
+        "type": "user",
+        "id": "01m3by6pazsrpscqd9243vq10f",
+        "label": "anna@example.com"
+      },
+      "action": "device.enrolled",
+      "subject_type": "device",
+      "subject_id": "01m3by6pvktjxbkpxj8g78tmzy",
+      "before": null,
+      "after": {
+        "family": "IPHONE",
+        "product": "iPhone15,2",
+        "udid_hint": "••••-6F70",
+        "os_version": "22A3354"
+      },
+      "reason": null,
+      "request_id": "01m3by6pv4qf7t8k0yhnwtdzdr",
+      "ip": "127.0.0.1"
+    },
+    {
+      "id": "01m3by6psmgev661bv67jyw4xm",
+      "occurred_at": "2026-09-25T09:26:36.000000Z",
+      "actor": {
+        "type": "user",
+        "id": "01m3by6pazsrpscqd9243vq10f",
+        "label": "anna@example.com"
+      },
+      "action": "device.enrollment_profile_issued",
+      "subject_type": "user",
+      "subject_id": "01m3by6pazsrpscqd9243vq10f",
+      "before": null,
+      "after": {
+        "signed": false
+      },
+      "reason": null,
+      "request_id": "01m3by6prqk29ey85qw3szttry",
+      "ip": "127.0.0.1"
+    },
+    {
+      "id": "01m3by6pqmq16cecem4hjpn7as",
+      "occurred_at": "2026-09-25T09:26:36.000000Z",
+      "actor": {
+        "type": "user",
+        "id": "01m3by6pazsrpscqd9243vq10f",
+        "label": "anna@example.com"
+      },
+      "action": "activation_code.redeemed",
+      "subject_type": "activation_code",
+      "subject_id": "01m3by6p6jhxve4ztfmhq2knjd",
+      "before": null,
+      "after": {
+        "plan": "standard",
+        "ends_at": "2027-09-25T09:26:36Z",
+        "subscription_id": "01m3by6pqk863r5e8hmay84cje"
+      },
+      "reason": null,
+      "request_id": "01m3by6pq6qffpfav5cb1j9k3y",
+      "ip": "127.0.0.1"
+    },
+    {
+      "id": "01m3by6pq0gm71z4vqhz0gapsn",
+      "occurred_at": "2026-09-25T09:26:36.000000Z",
+      "actor": {
+        "type": "user",
+        "id": "01m3by6pazsrpscqd9243vq10f",
+        "label": "anna@example.com"
+      },
+      "action": "auth.token_issued",
+      "subject_type": "user",
+      "subject_id": "01m3by6pazsrpscqd9243vq10f",
+      "before": null,
+      "after": {
+        "device_name": "iPhone Анны"
+      },
+      "reason": null,
+      "request_id": "01m3by6pjev7cxc5xazcr6myhs",
+      "ip": "127.0.0.1"
+    },
+    {
+      "id": "01m3by6pj3xaq5nhe3sgs1ry1r",
+      "occurred_at": "2026-09-25T09:26:36.000000Z",
+      "actor": {
+        "type": "anonymous",
+        "id": null,
+        "label": "anna@example.com"
+      },
+      "action": "auth.login_failed",
+      "subject_type": null,
+      "subject_id": null,
+      "before": null,
+      "after": null,
+      "reason": null,
+      "request_id": "01m3by6pbcshwpzf2pgzh0w46x",
+      "ip": "127.0.0.1"
+    },
+    {
+      "id": "01m3by6pb1emmh0twqmmavhhtn",
+      "occurred_at": "2026-09-25T09:26:36.000000Z",
+      "actor": {
+        "type": "user",
+        "id": "01m3by6pazsrpscqd9243vq10f",
+        "label": "anna@example.com"
+      },
+      "action": "auth.registered",
+      "subject_type": "user",
+      "subject_id": "01m3by6pazsrpscqd9243vq10f",
+      "before": null,
+      "after": null,
+      "reason": null,
+      "request_id": "01m3by6p6ycm532h4nvm47v9yn",
+      "ip": "127.0.0.1"
+    },
+    {
+      "id": "01m3by6p6mjt9nkjjrkjw0z0ey",
+      "occurred_at": "2026-09-25T09:26:35.000000Z",
+      "actor": {
+        "type": "user",
+        "id": "01m3by6kkk3w8xmxyzz57brrbk",
+        "label": "admin@storefront.test"
+      },
+      "action": "activation_code.batch_created",
+      "subject_type": null,
+      "subject_id": null,
+      "before": null,
+      "after": {
+        "plan": "standard",
+        "count": 3,
+        "batch_id": "01m3by6p6jhxve4ztfmhq2knjc",
+        "expires_at": null,
+        "duration_days": 365
+      },
+      "reason": null,
+      "request_id": "01m3by6p659mey7whe82mrbzqw",
+      "ip": "127.0.0.1"
+    }
+  ],
+  "meta": {
+    "request_id": "01j0example0request0id0000",
+    "pagination": {
+      "page": 1,
+      "per_page": 10,
+      "total": 12,
+      "last_page": 2
+    }
+  },
+  "error": null
+}

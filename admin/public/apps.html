@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Приложения — [BRAND] Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Oswald:wght@600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/admin.css">
+  <script type="module" src="js/pages/apps.js"></script>
+</head>
+<body>
+  <div class="admin-shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html">[BRAND]<small>Операторская панель</small></a>
+      <nav aria-label="Разделы">
+        <a href="index.html">Панель</a>
+        <a href="users.html">Пользователи</a>
+        <a href="devices.html">Устройства</a>
+        <a href="apps.html">Приложения</a>
+        <a href="artifacts.html">Артефакты</a>
+        <a href="teams.html">Команды Apple</a>
+        <a href="jobs.html">Задачи</a>
+        <a href="audit.html">Аудит</a>
+      </nav>
+      <p class="sidebar-foot">Доступ по ролям. Все действия записываются в журнал аудита.</p>
+    </aside>
+    <div class="main">
+      <header class="topbar"><h1>Приложения</h1></header>
+      <main class="content" id="main">
+        <div class="page-actions">
+          <div class="tabs" role="tablist" aria-label="Разделы каталога">
+            <button type="button" role="tab" id="tab-apps" aria-controls="panel-apps" aria-selected="true">Приложения</button>
+            <button type="button" role="tab" id="tab-categories" aria-controls="panel-categories" aria-selected="false" tabindex="-1">Категории</button>
+            <button type="button" role="tab" id="tab-publishers" aria-controls="panel-publishers" aria-selected="false" tabindex="-1">Издатели</button>
+          </div>
+          <button type="button" class="button button--primary" id="add-app" hidden>Добавить приложение</button>
+        </div>
+
+        <section id="panel-apps" role="tabpanel" aria-labelledby="tab-apps">
+          <div id="apps-table"></div>
+        </section>
+        <section id="panel-categories" role="tabpanel" aria-labelledby="tab-categories" hidden>
+          <div id="categories"></div>
+        </section>
+        <section id="panel-publishers" role="tabpanel" aria-labelledby="tab-publishers" hidden>
+          <div id="publishers"></div>
+        </section>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

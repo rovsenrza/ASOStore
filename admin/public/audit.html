@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Аудит — [BRAND] Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Oswald:wght@600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/admin.css">
+  <script type="module" src="js/pages/audit.js"></script>
+</head>
+<body>
+  <div class="admin-shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html">[BRAND]<small>Операторская панель</small></a>
+      <nav aria-label="Разделы">
+        <a href="index.html">Панель</a>
+        <a href="users.html">Пользователи</a>
+        <a href="devices.html">Устройства</a>
+        <a href="apps.html">Приложения</a>
+        <a href="artifacts.html">Артефакты</a>
+        <a href="teams.html">Команды Apple</a>
+        <a href="jobs.html">Задачи</a>
+        <a href="audit.html">Аудит</a>
+      </nav>
+      <p class="sidebar-foot">Доступ по ролям. Все действия записываются в журнал аудита.</p>
+    </aside>
+    <div class="main">
+      <header class="topbar"><h1>Аудит</h1></header>
+      <main class="content" id="main">
+        <p class="muted">Журнал только для чтения: записи нельзя изменить или удалить. Фильтр по действию ищет по началу названия, например <span class="mono">user.</span> или <span class="mono">auth.login</span>.</p>
+        <div id="audit-table"></div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

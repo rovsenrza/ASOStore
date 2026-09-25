@@ -1,0 +1,9 @@
+// Debug builds against a backend on this Mac (`php artisan serve`, see backend/README.md).
+#include "Shared.xcconfig"
+
+// The $() stops "//" from starting an xcconfig comment.
+API_BASE_URL = http:/$()/127.0.0.1:8000/api/v1
+
+// mock: bundled docs/api/examples fixtures. live: API_BASE_URL.
+// Debug builds can override with the launch argument `-apiMode live` or `-apiMode mock`.
+API_MODE = mock

@@ -1,0 +1,37 @@
+<?php
+
+namespace App\Services\Apple;
+
+use App\Models\AppleTeam;
+
+/**
+ * Used until an Apple Developer account is connected. Nothing is sent to
+ * Apple; enrolled devices wait with reason APPLE_NOT_CONNECTED.
+ */
+class DisabledAppleIntegration implements AppleIntegration
+{
+    public function isConfigured(AppleTeam $team): bool
+    {
+        return false;
+    }
+
+    public function findDevice(AppleTeam $team, string $udid): ?AppleDevice
+    {
+        throw new AppleException('Apple integration is disabled.', 'APPLE_NOT_CONNECTED');
+    }
+
+    public function registerDevice(AppleTeam $team, string $udid, string $name): AppleDevice
+    {
+        throw new AppleException('Apple integration is disabled.', 'APPLE_NOT_CONNECTED');
+    }
+
+    public function getDevice(AppleTeam $team, string $appleDeviceId): AppleDevice
+    {
+        throw new AppleException('Apple integration is disabled.', 'APPLE_NOT_CONNECTED');
+    }
+
+    public function verifyCredentials(AppleTeam $team): void
+    {
+        throw new AppleException('Apple integration is disabled.', 'APPLE_NOT_CONNECTED');
+    }
+}

@@ -1,0 +1,12 @@
+{
+  "data": {
+    "stage": "device_required",
+    "next_action": "enroll_device",
+    "blocking_reason": null,
+    "device": null
+  },
+  "meta": {
+    "request_id": "01j0example0request0id0000"
+  },
+  "error": null
+}

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- storefront://claim?code=… (one-time sign-in from the portal) and storefront://app/<id>. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>storefront</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>storefront</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>StorefrontAPIBaseURL</key>
+	<string>$(API_BASE_URL)</string>
+	<key>StorefrontAPIMode</key>
+	<string>$(API_MODE)</string>
+</dict>
+</plist>

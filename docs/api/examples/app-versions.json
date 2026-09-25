@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "id": "01m3by6km254jzw7sfq7b06r7y",
+      "version": "3.4.0",
+      "build_number": "340",
+      "release_notes": "Новый режим дня, быстрые виджеты и более удобная работа с тегами.",
+      "min_ios_version": "17.0",
+      "released_at": "2026-09-22T09:26:33Z"
+    }
+  ],
+  "meta": {
+    "request_id": "01j0example0request0id0000"
+  },
+  "error": null
+}

@@ -1,0 +1,17 @@
+{
+  "data": null,
+  "meta": {
+    "request_id": "01j0example0request0id0000"
+  },
+  "error": {
+    "code": "VALIDATION_FAILED",
+    "message": "Проверьте введённые данные.",
+    "details": {
+      "fields": {
+        "per_page": [
+          "Поле «размер страницы» не может быть больше 50."
+        ]
+      }
+    }
+  }
+}

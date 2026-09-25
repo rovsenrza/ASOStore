@@ -1,0 +1,26 @@
+{
+  "data": {
+    "id": "01m3by6kkk3w8xmxyzz57brrbk",
+    "name": "Администратор",
+    "email": "admin@storefront.test",
+    "roles": [
+      "admin"
+    ],
+    "permissions": [
+      "users.view",
+      "users.manage",
+      "activation-codes.view",
+      "activation-codes.manage",
+      "audit.view",
+      "catalog.view",
+      "catalog.manage",
+      "devices.view",
+      "devices.manage",
+      "devices.reveal-udid"
+    ]
+  },
+  "meta": {
+    "request_id": "01j0example0request0id0000"
+  },
+  "error": null
+}

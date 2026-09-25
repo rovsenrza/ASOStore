@@ -1,0 +1,2825 @@
+openapi: 3.1.0
+info:
+  title: "[BRAND] Storefront API"
+  version: 1.0.0-dev
+  summary: Customer, admin and worker API for the web portal, admin panel and native Storefront.
+  description: |
+    Contract-first source of truth (IMPLEMENTATION_PLAN D11). Every response uses the
+    `{data, meta, error}` envelope. Clients must branch on `error.code`, never on `error.message`.
+
+    Examples for each response live in `docs/api/examples/` and are validated against
+    these schemas by the backend test suite and decoded by the iOS test suite.
+  contact:
+    name: "[BRAND] engineering"
+servers:
+  - url: http://127.0.0.1:8000/api/v1
+    description: Local development
+tags:
+  - name: System
+  - name: Auth
+  - name: Activation
+  - name: Devices
+  - name: Storefront
+  - name: Catalog
+  - name: Admin
+paths:
+  /health:
+    get:
+      tags: [System]
+      operationId: getHealth
+      summary: 'Liveness and database check'
+      description: 'Returns 200 when the API and database answer; 503 with SERVICE_UNAVAILABLE otherwise. Used by monitoring and the admin dashboard.'
+      responses:
+        "200":
+          description: Service is healthy
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HealthResponse" }
+              examples:
+                ok: { externalValue: examples/health.json }
+        "503":
+          $ref: "#/components/responses/Error"
+
+  /storefront/feed:
+    get:
+      tags: [Storefront]
+      operationId: getStorefrontFeed
+      summary: 'Curated sections for the Today tab'
+      description: 'Featured, recently updated and category sections of published listings. Each app carries the caller''s install_state.'
+      responses:
+        "200":
+          description: Feed sections; empty sections are omitted
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/FeedResponse" }
+              examples:
+                feed: { externalValue: examples/storefront-feed.json }
+
+  /storefront/status:
+    get:
+      tags: [Storefront]
+      operationId: getStorefrontStatus
+      summary: 'Aggregated readiness and the next action for the caller'
+      description: 'Works signed out. Sign-in, activation and device stages are added in Phases 2–3.'
+      security:
+        - {}
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current stage
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StorefrontStatusResponse" }
+              examples:
+                signedOut: { externalValue: examples/storefront-status-signed-out.json }
+
+  /apps:
+    get:
+      tags: [Catalog]
+      operationId: listApps
+      summary: 'Search and browse published listings'
+      description: 'Only listings with visibility PUBLISHED are returned. Draft, hidden and deleted listings are never visible here.'
+      parameters:
+        - name: q
+          in: query
+          description: Matches name, subtitle, publisher and category title.
+          schema: { type: string, maxLength: 100 }
+        - name: category
+          in: query
+          description: Category slug.
+          schema: { type: string, maxLength: 64 }
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        "200":
+          description: One page of apps
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppListResponse" }
+              examples:
+                list: { externalValue: examples/apps-list.json }
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /apps/{id}:
+    get:
+      tags: [Catalog]
+      operationId: getApp
+      summary: 'App page'
+      description: 'Returns 404 NOT_FOUND for listings customers cannot see.'
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+      responses:
+        "200":
+          description: The app
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppDetailResponse" }
+              examples:
+                detail: { externalValue: examples/app-detail.json }
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /apps/{id}/versions:
+    get:
+      tags: [Catalog]
+      operationId: listAppVersions
+      summary: 'Version history, newest first'
+      description: 'Versions of a published listing ordered by release date, newest first.'
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+      responses:
+        "200":
+          description: Versions
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VersionListResponse" }
+              examples:
+                versions: { externalValue: examples/app-versions.json }
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /auth/register:
+    post:
+      tags: [Auth]
+      operationId: register
+      summary: 'Create a customer account (browser)'
+      description: 'Creates a customer, signs the browser session in and returns the account. Same-origin browser requests only; the native app uses /auth/tokens.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RegisterRequest" }
+      responses:
+        "201":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeResponse" }
+        "403":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: login
+      summary: 'Sign in the browser session'
+      description: 'Session cookie sign-in for the portal (Sanctum SPA). Wrong credentials return INVALID_CREDENTIALS; suspended accounts ACCOUNT_SUSPENDED.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeResponse" }
+        "403":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /auth/tokens:
+    post:
+      tags: [Auth]
+      operationId: issueTokens
+      summary: 'Issue native app tokens'
+      description: 'Returns a 15-minute access token and a 30-day rotating refresh token (IMPLEMENTATION_PLAN D3).'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TokenRequest" }
+      responses:
+        "201":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenResponse" }
+              examples:
+                example: { externalValue: examples/auth-tokens.json }
+        "403":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      operationId: refreshTokens
+      summary: 'Rotate native app tokens'
+      description: 'Spends the refresh token and returns a new pair. Reusing a spent token revokes its whole family and returns SESSION_EXPIRED.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RefreshRequest" }
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TokenResponse" }
+              examples:
+                example: { externalValue: examples/auth-tokens.json }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logout
+      summary: 'Sign out'
+      description: 'Ends the browser session, or revokes the bearer token and its refresh-token family.'
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmptyResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      operationId: getMe
+      summary: 'Current customer'
+      description: 'The signed-in account with its active subscription.'
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeResponse" }
+              examples:
+                example: { externalValue: examples/auth-me.json }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+
+  /auth/password/forgot:
+    post:
+      tags: [Auth]
+      operationId: forgotPassword
+      summary: 'Request a password reset email'
+      description: 'Always answers 202, whether or not the account exists.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ForgotPasswordRequest" }
+      responses:
+        "202":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AcceptedResponse" }
+        "422":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /auth/password/reset:
+    post:
+      tags: [Auth]
+      operationId: resetPassword
+      summary: 'Set a new password'
+      description: 'Uses the token from the reset email. Ends every session and native token of the account.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResetPasswordRequest" }
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ResetPasswordResponse" }
+        "422":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /activation/redeem:
+    post:
+      tags: [Activation]
+      operationId: redeemActivationCode
+      summary: 'Redeem an activation code'
+      description: 'Creates (or extends) the customer''s subscription. Accepts lower case, spaces and Crockford look-alikes (O→0, I/L→1).'
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RedeemRequest" }
+      responses:
+        "201":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RedeemResponse" }
+              examples:
+                example: { externalValue: examples/activation-redeem.json }
+        "401":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /admin/auth/login:
+    post:
+      tags: [Admin]
+      operationId: adminLogin
+      summary: 'Staff sign-in, step 1: password'
+      description: 'Starts a pending sign-in. The response says whether a TOTP code is expected or an authenticator must be enrolled first; the session is not authenticated until step 2.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LoginRequest" }
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminLoginStepResponse" }
+        "403":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /admin/auth/totp:
+    post:
+      tags: [Admin]
+      operationId: adminTotp
+      summary: 'Staff sign-in, step 2: TOTP code'
+      description: 'Completes the pending sign-in within 5 minutes. Codes cannot be reused.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TotpRequest" }
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminMeResponse" }
+              examples:
+                example: { externalValue: examples/admin-me.json }
+        "401":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /admin/auth/me:
+    get:
+      tags: [Admin]
+      operationId: adminMe
+      summary: 'Current operator'
+      description: 'Roles and granted permissions; the admin UI hides what is not granted.'
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminMeResponse" }
+              examples:
+                example: { externalValue: examples/admin-me.json }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+
+  /admin/auth/logout:
+    post:
+      tags: [Admin]
+      operationId: adminLogout
+      summary: 'Staff sign-out'
+      description: 'Ends the admin browser session.'
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmptyResponse" }
+
+  /admin/users:
+    get:
+      tags: [Admin]
+      operationId: adminListUsers
+      summary: 'List users'
+      description: 'Requires users.view.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 100 }
+        - name: role
+          in: query
+          schema: { $ref: "#/components/schemas/Role" }
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/UserStatus" }
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUserListResponse" }
+              examples:
+                example: { externalValue: examples/admin-users.json }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Admin]
+      operationId: adminCreateUser
+      summary: 'Create a user'
+      description: 'Requires users.manage. Emails the new user a link to set their password.'
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateUserRequest" }
+      responses:
+        "201":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUserResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /admin/users/{id}:
+    get:
+      tags: [Admin]
+      operationId: adminGetUser
+      summary: 'User detail'
+      description: 'Requires users.view. Includes subscriptions and the 20 most recent audit events about or by the user.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUserDetailResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+    patch:
+      tags: [Admin]
+      operationId: adminUpdateUser
+      summary: 'Suspend or reactivate a user'
+      description: 'Requires users.manage and a reason. Suspension ends every session and token.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateUserStatusRequest" }
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUserResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /admin/users/{id}/roles:
+    put:
+      tags: [Admin]
+      operationId: adminSetUserRoles
+      summary: 'Replace a user''s roles'
+      description: 'Requires users.manage and a reason. Admins cannot remove their own admin role.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateRolesRequest" }
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUserResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /admin/users/{id}/totp/reset:
+    post:
+      tags: [Admin]
+      operationId: adminResetTotp
+      summary: 'Reset a user''s authenticator'
+      description: 'Requires users.manage and a reason. The user enrols again at the next admin sign-in.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReasonRequest" }
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminUserResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /admin/activation-codes:
+    get:
+      tags: [Admin]
+      operationId: adminListActivationCodes
+      summary: 'List activation codes'
+      description: 'Requires activation-codes.view. Codes are never returned, only their last four characters.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/ActivationCodeStatus" }
+        - name: batch
+          in: query
+          schema: { $ref: "#/components/schemas/PublicId" }
+        - name: q
+          in: query
+          description: Last four characters.
+          schema: { type: string, maxLength: 8 }
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ActivationCodeListResponse" }
+              examples:
+                example: { externalValue: examples/admin-activation-codes.json }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+    post:
+      tags: [Admin]
+      operationId: adminCreateActivationCodes
+      summary: 'Generate activation codes'
+      description: 'Requires activation-codes.manage. The plaintext codes are in this response only. Send an Idempotency-Key so a retry does not create a second batch.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateActivationCodesRequest" }
+      responses:
+        "201":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ActivationCodeBatchResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /admin/activation-codes/{id}/revoke:
+    post:
+      tags: [Admin]
+      operationId: adminRevokeActivationCode
+      summary: 'Revoke an unused activation code'
+      description: 'Requires activation-codes.manage and a reason. Only ISSUED codes can be revoked.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ActivationCodeId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReasonRequest" }
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ActivationCodeResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /admin/audit-logs:
+    get:
+      tags: [Admin]
+      operationId: adminListAuditLogs
+      summary: 'Search the audit log'
+      description: 'Requires audit.view. `action` matches as a prefix ("user." finds every user event).'
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: action
+          in: query
+          schema: { type: string, maxLength: 96 }
+        - name: subject_type
+          in: query
+          schema: { type: string }
+        - name: subject_id
+          in: query
+          schema: { type: string }
+        - name: actor_id
+          in: query
+          schema: { $ref: "#/components/schemas/PublicId" }
+        - name: request_id
+          in: query
+          schema: { type: string }
+        - name: from
+          in: query
+          schema: { type: string, format: date-time }
+        - name: to
+          in: query
+          schema: { type: string, format: date-time }
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuditLogListResponse" }
+              examples:
+                example: { externalValue: examples/admin-audit-logs.json }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /devices/me:
+    get:
+      tags: [Devices]
+      operationId: listMyDevices
+      summary: The caller's enrolled devices
+      description: 'Newest first. UDIDs are never returned, only their last four characters.'
+      security:
+        - bearerAuth: []
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceListResponse" }
+              examples:
+                example: { externalValue: examples/devices-me.json }
+        "401":
+          $ref: "#/components/responses/Error"
+
+  /devices/enrollment-profile:
+    get:
+      tags: [Devices]
+      operationId: downloadEnrollmentProfile
+      summary: Download the enrollment profile (Safari on the iPhone)
+      description: 'Returns an iOS Profile Service .mobileconfig that asks the device for its UDID, model and iOS version and posts them to /devices/enrollment/callback with a single-use challenge (15 minutes). Requires an active subscription. Signed with the site certificate when configured.'
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: The profile
+          content:
+            application/x-apple-aspen-config:
+              schema: { type: string, format: binary }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /devices/enrollment/callback:
+    post:
+      tags: [Devices]
+      operationId: completeEnrollment
+      summary: Device answer from the enrollment profile (called by iOS)
+      description: 'The body is the DER-encoded CMS message iOS sends: a plist with UDID, PRODUCT, VERSION and CHALLENGE, signed by the device. The answer is always a redirect to /activate.html with either enrolled=<device id> or enrollment_error=<error code>.'
+      security: []
+      parameters:
+        - name: challenge
+          in: query
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/pkcs7-signature:
+            schema: { type: string, format: binary }
+      responses:
+        "301":
+          description: 'Back to the portal: /activate.html?enrolled=… or /activate.html?enrollment_error=…'
+          headers:
+            Location: { schema: { type: string } }
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /storefront/claims:
+    post:
+      tags: [Storefront]
+      operationId: createStorefrontClaim
+      summary: One-time code that binds the native app to the enrolled device
+      description: 'The portal opens the returned storefront:// URL; the app redeems the code within 10 minutes. The device must be registered with Apple (ELIGIBLE).'
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      responses:
+        "201":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClaimResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /storefront/claims/redeem:
+    post:
+      tags: [Storefront]
+      operationId: redeemStorefrontClaim
+      summary: Exchange a claim code for device-bound app tokens (native app)
+      description: 'Single use. The tokens and their refreshes stay bound to the claimed device.'
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ClaimRedeemRequest" }
+      responses:
+        "201":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ClaimRedeemResponse" }
+              examples:
+                example: { externalValue: examples/storefront-claim-redeem.json }
+        "403":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /admin/devices:
+    get:
+      tags: [Admin]
+      operationId: adminListDevices
+      summary: List devices
+      description: 'Requires devices.view. `q` matches the last four UDID characters or the owner email.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 100 }
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/DeviceRegistrationStatus" }
+        - name: family
+          in: query
+          schema: { type: string, enum: [IPHONE, IPAD, IPOD, UNKNOWN] }
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminDeviceListResponse" }
+              examples:
+                example: { externalValue: examples/admin-devices.json }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /admin/devices/{id}:
+    get:
+      tags: [Admin]
+      operationId: adminGetDevice
+      summary: Device detail with registration history
+      description: 'Requires devices.view.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminDeviceDetailResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /admin/devices/{id}/sync:
+    post:
+      tags: [Admin]
+      operationId: adminSyncDevice
+      summary: Retry the Apple registration now
+      description: 'Requires devices.manage. Queues a registration attempt with the primary team.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      responses:
+        "202":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QueuedResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /admin/devices/{id}/reveal-udid:
+    post:
+      tags: [Admin]
+      operationId: adminRevealUdid
+      summary: Show the full UDID
+      description: 'Requires devices.reveal-udid and a reason; recorded in the audit log.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/DeviceId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReasonRequest" }
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RevealUdidResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+
+  /admin/apps:
+    get:
+      tags: [Admin]
+      operationId: adminListApps
+      summary: List catalog listings
+      description: 'Requires catalog.view. Includes drafts and hidden listings; ?deleted=1 lists soft-deleted ones.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 100 }
+        - name: visibility
+          in: query
+          schema: { $ref: "#/components/schemas/AppVisibility" }
+        - name: category
+          in: query
+          schema: { type: string, maxLength: 64 }
+        - name: deleted
+          in: query
+          schema: { type: boolean }
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminAppListResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+    post:
+      tags: [Admin]
+      operationId: adminCreateApp
+      summary: Create a listing (as a draft)
+      description: 'Requires catalog.manage. New listings are DRAFT until published.'
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateAppRequest" }
+      responses:
+        "201":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminAppDetailResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /admin/apps/{id}:
+    get:
+      tags: [Admin]
+      operationId: adminGetApp
+      summary: Listing detail with media and versions
+      description: 'Requires catalog.view.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminAppDetailResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+    patch:
+      tags: [Admin]
+      operationId: adminUpdateApp
+      summary: Update a listing or change its visibility
+      description: 'Requires catalog.manage.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateAppRequest" }
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminAppDetailResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+    delete:
+      tags: [Admin]
+      operationId: adminDeleteApp
+      summary: Soft-delete a listing
+      description: 'Requires catalog.manage and a reason.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReasonRequest" }
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmptyResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /admin/apps/{id}/restore:
+    post:
+      tags: [Admin]
+      operationId: adminRestoreApp
+      summary: Restore a soft-deleted listing
+      description: 'Requires catalog.manage.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminAppDetailResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /admin/apps/{id}/icon:
+    post:
+      tags: [Admin]
+      operationId: adminUploadIcon
+      summary: Upload the listing icon
+      description: 'Requires catalog.manage. A square PNG/JPEG/WebP of at least 512×512, stored as a 512×512 PNG.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [icon]
+              properties:
+                icon: { type: string, format: binary }
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IconResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /admin/apps/{id}/screenshots:
+    post:
+      tags: [Admin]
+      operationId: adminAddScreenshot
+      summary: Add a screenshot
+      description: 'Requires catalog.manage. Up to 10 per listing; large images are resized.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [screenshot]
+              properties:
+                screenshot: { type: string, format: binary }
+      responses:
+        "201":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScreenshotResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /admin/apps/{id}/screenshots/order:
+    put:
+      tags: [Admin]
+      operationId: adminReorderScreenshots
+      summary: Reorder screenshots
+      description: 'Requires catalog.manage.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [order]
+              properties:
+                order:
+                  type: array
+                  items: { $ref: "#/components/schemas/PublicId" }
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ScreenshotListResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /admin/apps/{id}/screenshots/{screenshot}:
+    delete:
+      tags: [Admin]
+      operationId: adminDeleteScreenshot
+      summary: Remove a screenshot
+      description: 'Requires catalog.manage.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+        - name: screenshot
+          in: path
+          required: true
+          schema: { $ref: "#/components/schemas/PublicId" }
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EmptyResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+
+  /admin/apps/{id}/versions:
+    post:
+      tags: [Admin]
+      operationId: adminCreateVersion
+      summary: Add a version and its release notes
+      description: 'Requires catalog.manage. Uploaded IPAs create versions automatically (Phase 5).'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/AppId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateVersionRequest" }
+      responses:
+        "201":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VersionResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /admin/app-versions/{version}:
+    patch:
+      tags: [Admin]
+      operationId: adminUpdateVersion
+      summary: Update release notes or metadata of a version
+      description: 'Requires catalog.manage.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: version
+          in: path
+          required: true
+          schema: { $ref: "#/components/schemas/PublicId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateVersionRequest" }
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VersionResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /admin/categories:
+    get:
+      tags: [Admin]
+      operationId: adminListCategories
+      summary: List categories
+      description: 'Requires catalog.view.'
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminCategoryListResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+
+    post:
+      tags: [Admin]
+      operationId: adminCreateCategory
+      summary: Create a category
+      description: 'Requires catalog.manage.'
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateCategoryRequest" }
+      responses:
+        "201":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminCategoryResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /admin/categories/{category}:
+    patch:
+      tags: [Admin]
+      operationId: adminUpdateCategory
+      summary: Update a category
+      description: 'Requires catalog.manage.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: category
+          in: path
+          required: true
+          schema: { $ref: "#/components/schemas/PublicId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateCategoryRequest" }
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminCategoryResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /admin/publishers:
+    get:
+      tags: [Admin]
+      operationId: adminListPublishers
+      summary: List publishers
+      description: 'Requires catalog.view.'
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminPublisherListResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+
+    post:
+      tags: [Admin]
+      operationId: adminCreatePublisher
+      summary: Create a publisher
+      description: 'Requires catalog.manage.'
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreatePublisherRequest" }
+      responses:
+        "201":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminPublisherResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+  /admin/publishers/{publisher}:
+    patch:
+      tags: [Admin]
+      operationId: adminUpdatePublisher
+      summary: Update a publisher
+      description: 'Requires catalog.manage.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: publisher
+          in: path
+          required: true
+          schema: { $ref: "#/components/schemas/PublicId" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdatePublisherRequest" }
+      responses:
+        "200":
+          description: Success
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminPublisherResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: 'Sanctum access token (native app). Browsers use the session cookie instead.'
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: brand_session
+      description: 'Laravel session cookie for same-origin browser requests (Sanctum SPA). Mutating requests also send X-XSRF-TOKEN from the XSRF-TOKEN cookie (GET /sanctum/csrf-cookie).'
+
+  headers:
+    RequestId:
+      description: 'Echoes a well-formed client X-Request-Id or returns a generated one. Quote it in support tickets.'
+      schema: { type: string }
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: 'Retries with the same key and body replay the first response (Idempotent-Replayed header); a different body returns IDEMPOTENCY_CONFLICT. Kept 24 hours.'
+      schema: { type: string, pattern: "^[A-Za-z0-9._:-]{8,128}$" }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    PerPage:
+      name: per_page
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100 }
+    UserId:
+      name: id
+      in: path
+      required: true
+      description: 'User public ID (ULID).'
+      schema: { $ref: "#/components/schemas/PublicId" }
+    DeviceId:
+      name: id
+      in: path
+      required: true
+      description: Device public ID (ULID).
+      schema: { $ref: "#/components/schemas/PublicId" }
+    ActivationCodeId:
+      name: id
+      in: path
+      required: true
+      description: 'Activation code public ID (ULID).'
+      schema: { $ref: "#/components/schemas/PublicId" }
+    AppId:
+      name: id
+      in: path
+      required: true
+      description: 'App public ID (ULID).'
+      schema: { $ref: "#/components/schemas/PublicId" }
+
+  responses:
+    Error:
+      description: 'Error envelope'
+      headers:
+        X-Request-Id: { $ref: "#/components/headers/RequestId" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorResponse" }
+          examples:
+            notFound: { externalValue: examples/error-not-found.json }
+            validation: { externalValue: examples/error-validation.json }
+
+  schemas:
+    PublicId:
+      type: string
+      description: 'Lower-case ULID.'
+      pattern: "^[0-9a-hjkmnp-tv-z]{26}$"
+
+    Timestamp:
+      type: string
+      format: date-time
+
+    Meta:
+      type: object
+      required: [request_id]
+      properties:
+        request_id: { type: string }
+        pagination: { $ref: "#/components/schemas/Pagination" }
+
+    Pagination:
+      type: object
+      required: [page, per_page, total, last_page]
+      properties:
+        page: { type: integer, minimum: 1 }
+        per_page: { type: integer, minimum: 1 }
+        total: { type: integer, minimum: 0 }
+        last_page: { type: integer, minimum: 1 }
+
+    ErrorCode:
+      type: string
+      description: 'Stable machine-readable code (IMPLEMENTATION_PLAN §5.2). New codes may be added; clients must treat unknown codes as INTERNAL.'
+      enum:
+        - VALIDATION_FAILED
+        - UNAUTHENTICATED
+        - SESSION_EXPIRED
+        - INVALID_CREDENTIALS
+        - ACCOUNT_SUSPENDED
+        - TOTP_REQUIRED
+        - TOTP_INVALID
+        - FORBIDDEN
+        - NOT_FOUND
+        - METHOD_NOT_ALLOWED
+        - CONFLICT
+        - ILLEGAL_STATE_TRANSITION
+        - RATE_LIMITED
+        - ACTIVATION_INVALID
+        - ACTIVATION_ALREADY_USED
+        - ENROLLMENT_CHALLENGE_EXPIRED
+        - DEVICE_NOT_ELIGIBLE
+        - DEVICE_LIMIT_REACHED
+        - DEVICE_OWNED_ELSEWHERE
+        - ENROLLMENT_PAYLOAD_INVALID
+        - APPLE_NOT_CONNECTED
+        - CLAIM_INVALID
+        - DEVICE_PENDING_APPLE
+        - QUOTA_EXHAUSTED
+        - NO_ELIGIBLE_TEAM
+        - ARTIFACT_NOT_INSTALLABLE
+        - INCOMPATIBLE_DEVICE
+        - INSTALL_TOKEN_EXPIRED
+        - DUPLICATE_ARTIFACT
+        - VERSION_EXISTS
+        - ENCRYPTED_BINARY
+        - IDEMPOTENCY_CONFLICT
+        - APPLE_UNAVAILABLE
+        - SERVICE_UNAVAILABLE
+        - INTERNAL
+
+    Error:
+      type: object
+      required: [code, message, details]
+      properties:
+        code: { $ref: "#/components/schemas/ErrorCode" }
+        message:
+          type: string
+          description: Russian fallback text. Display only when the client has no copy for `code`.
+        details:
+          type: object
+          description: Code-specific details. VALIDATION_FAILED carries `fields` (field → messages).
+
+    ErrorResponse:
+      type: object
+      required: [data, meta, error]
+      properties:
+        data: { type: "null" }
+        meta: { $ref: "#/components/schemas/Meta" }
+        error: { $ref: "#/components/schemas/Error" }
+
+    Health:
+      type: object
+      required: [status, version, time, checks]
+      properties:
+        status: { type: string, enum: [ok] }
+        version: { type: string }
+        time: { $ref: "#/components/schemas/Timestamp" }
+        checks:
+          type: object
+          additionalProperties: { type: string }
+
+    HealthResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/Health" }
+
+    SuccessEnvelope:
+      type: object
+      required: [data, meta, error]
+      properties:
+        meta: { $ref: "#/components/schemas/Meta" }
+        error: { type: "null" }
+
+    InstallState:
+      type: object
+      description: |
+        The install CTA for this app and the calling device. Clients render the CTA from
+        this object only (FULL_PLAN §11).
+          - unavailable: no installable artifact exists
+          - not_eligible: an artifact exists but this user/device cannot install it yet (see reason)
+          - get / preparing / ready_to_install / delivered / update_available / failed
+      required: [status, reason, progress, installation_id]
+      properties:
+        status:
+          type: string
+          enum: [unavailable, not_eligible, get, preparing, ready_to_install, delivered, update_available, failed]
+        reason:
+          oneOf:
+            - $ref: "#/components/schemas/ErrorCode"
+            - type: "null"
+        progress:
+          description: 0–1 while preparing, otherwise null.
+          type: [number, "null"]
+          minimum: 0
+          maximum: 1
+        installation_id:
+          oneOf:
+            - $ref: "#/components/schemas/PublicId"
+            - type: "null"
+
+    CategoryRef:
+      type: object
+      required: [id, slug, title]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        slug: { type: string }
+        title: { type: string }
+
+    Category:
+      type: object
+      required: [id, slug, title, subtitle]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        slug: { type: string }
+        title: { type: string }
+        subtitle: { type: [string, "null"] }
+        app_count: { type: integer, minimum: 0 }
+
+    PublisherRef:
+      type: object
+      required: [id, name]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        name: { type: string }
+        website: { type: [string, "null"] }
+
+    LatestVersion:
+      type: object
+      required: [version, build_number, min_ios_version, released_at, size_bytes]
+      properties:
+        version: { type: string }
+        build_number: { type: string }
+        min_ios_version: { type: [string, "null"] }
+        released_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        size_bytes:
+          description: Size of the published artifact; null while nothing is published.
+          type: [integer, "null"]
+          minimum: 0
+
+    AppSummary:
+      type: object
+      required: [id, slug, name, subtitle, category, publisher, icon_url, age_rating, latest_version, install_state]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        slug: { type: string }
+        name: { type: string }
+        subtitle: { type: [string, "null"] }
+        category: { $ref: "#/components/schemas/CategoryRef" }
+        publisher: { $ref: "#/components/schemas/PublisherRef" }
+        icon_url: { type: [string, "null"] }
+        age_rating: { type: string }
+        latest_version:
+          oneOf:
+            - $ref: "#/components/schemas/LatestVersion"
+            - type: "null"
+        install_state: { $ref: "#/components/schemas/InstallState" }
+
+    Screenshot:
+      type: object
+      required: [url, width, height]
+      properties:
+        url: { type: string }
+        width: { type: integer }
+        height: { type: integer }
+
+    AppDetail:
+      allOf:
+        - $ref: "#/components/schemas/AppSummary"
+        - type: object
+          required: [description, release_notes, screenshots, support_url, privacy_url]
+          properties:
+            description: { type: [string, "null"] }
+            release_notes: { type: [string, "null"] }
+            support_url: { type: [string, "null"] }
+            privacy_url: { type: [string, "null"] }
+            screenshots:
+              type: array
+              items: { $ref: "#/components/schemas/Screenshot" }
+
+    Version:
+      type: object
+      required: [id, version, build_number, release_notes, min_ios_version, released_at]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        version: { type: string }
+        build_number: { type: string }
+        release_notes: { type: [string, "null"] }
+        min_ios_version: { type: [string, "null"] }
+        released_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+
+    FeedSection:
+      type: object
+      required: [id, kind, title]
+      properties:
+        id: { type: string }
+        kind:
+          type: string
+          description: featured (first app is the hero), carousel, categories. Unknown kinds must be skipped by clients.
+        title: { type: string }
+        apps:
+          type: array
+          items: { $ref: "#/components/schemas/AppSummary" }
+        categories:
+          type: array
+          items: { $ref: "#/components/schemas/Category" }
+
+    Feed:
+      type: object
+      required: [sections]
+      properties:
+        sections:
+          type: array
+          items: { $ref: "#/components/schemas/FeedSection" }
+
+    StorefrontStatus:
+      type: object
+      required: [stage, next_action, blocking_reason, device]
+      properties:
+        stage:
+          type: string
+          enum: [signed_out, activation_required, device_required, device_pending, storefront_ready, storefront_installed, blocked]
+        next_action:
+          type: string
+          enum: [sign_in, redeem_activation, enroll_device, wait_apple, install_storefront, open_storefront, blocked]
+        blocking_reason:
+          oneOf:
+            - $ref: "#/components/schemas/ErrorCode"
+            - type: "null"
+        device:
+          description: The most recently enrolled device, once there is one.
+          oneOf:
+            - $ref: "#/components/schemas/DeviceSummary"
+            - type: "null"
+
+    FeedResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/Feed" }
+
+    StorefrontStatusResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/StorefrontStatus" }
+
+    AppListResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/AppSummary" }
+            meta:
+              allOf:
+                - $ref: "#/components/schemas/Meta"
+                - required: [pagination]
+
+    AppDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/AppDetail" }
+
+    VersionListResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/Version" }
+
+    Role:
+      type: string
+      enum: [customer, support, catalog_manager, admin]
+
+    UserStatus:
+      type: string
+      enum: [ACTIVE, SUSPENDED]
+
+    ActivationCodeStatus:
+      type: string
+      enum: [ISSUED, REDEEMED, EXPIRED, REVOKED]
+
+    Permission:
+      type: string
+      enum: [users.view, users.manage, activation-codes.view, activation-codes.manage, audit.view, catalog.view, catalog.manage, devices.view, devices.manage, devices.reveal-udid]
+
+    Subscription:
+      type: object
+      required: [id, plan, status, starts_at, ends_at]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        plan: { type: string }
+        status: { type: string, enum: [ACTIVE, CANCELLED] }
+        starts_at: { $ref: "#/components/schemas/Timestamp" }
+        ends_at:
+          description: Null means no end date.
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+
+    Me:
+      type: object
+      required: [id, name, email, roles, subscription, created_at]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        name: { type: string }
+        email: { type: string, format: email }
+        roles:
+          type: array
+          items: { $ref: "#/components/schemas/Role" }
+        subscription:
+          oneOf:
+            - $ref: "#/components/schemas/Subscription"
+            - type: "null"
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+
+    TokenPair:
+      type: object
+      required: [token_type, access_token, access_token_expires_at, refresh_token, refresh_token_expires_at, user]
+      properties:
+        token_type: { type: string, enum: [Bearer] }
+        access_token: { type: string }
+        access_token_expires_at: { $ref: "#/components/schemas/Timestamp" }
+        refresh_token: { type: string }
+        refresh_token_expires_at: { $ref: "#/components/schemas/Timestamp" }
+        user: { $ref: "#/components/schemas/Me" }
+
+    AdminMe:
+      type: object
+      required: [id, name, email, roles, permissions]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        name: { type: string }
+        email: { type: string, format: email }
+        roles:
+          type: array
+          items: { $ref: "#/components/schemas/Role" }
+        permissions:
+          type: array
+          items: { $ref: "#/components/schemas/Permission" }
+
+    AdminLoginStep:
+      type: object
+      required: [next_step, enrollment]
+      properties:
+        next_step: { type: string, enum: [totp, totp_enrollment] }
+        enrollment:
+          description: Present for totp_enrollment only. Show the QR code or secret once; never store it client-side.
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [secret, otpauth_uri, qr_svg]
+              properties:
+                secret: { type: string }
+                otpauth_uri: { type: string }
+                qr_svg: { type: string }
+
+    AdminUser:
+      type: object
+      required: [id, name, email, status, roles, totp_enabled, subscription, last_login_at, created_at]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        name: { type: string }
+        email: { type: string }
+        status: { $ref: "#/components/schemas/UserStatus" }
+        roles:
+          type: array
+          items: { $ref: "#/components/schemas/Role" }
+        totp_enabled: { type: boolean }
+        subscription:
+          oneOf:
+            - $ref: "#/components/schemas/Subscription"
+            - type: "null"
+        last_login_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+
+    AdminUserDetail:
+      allOf:
+        - $ref: "#/components/schemas/AdminUser"
+        - type: object
+          required: [subscriptions, recent_activity]
+          properties:
+            subscriptions:
+              type: array
+              items: { $ref: "#/components/schemas/Subscription" }
+            recent_activity:
+              type: array
+              items: { $ref: "#/components/schemas/AuditEntry" }
+
+    UserRef:
+      type: object
+      required: [id, email]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        email: { type: string }
+
+    ActivationCode:
+      type: object
+      required: [id, batch_id, hint, status, plan, duration_days, expires_at, note, created_by, redeemed_by, redeemed_at, created_at]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        batch_id: { $ref: "#/components/schemas/PublicId" }
+        hint:
+          type: string
+          description: Last four characters of the code.
+        status: { $ref: "#/components/schemas/ActivationCodeStatus" }
+        plan: { type: string }
+        duration_days: { type: [integer, "null"] }
+        expires_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        note: { type: [string, "null"] }
+        created_by: { $ref: "#/components/schemas/UserRef" }
+        redeemed_by:
+          oneOf:
+            - $ref: "#/components/schemas/UserRef"
+            - type: "null"
+        redeemed_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        created_at: { $ref: "#/components/schemas/Timestamp" }
+
+    ActivationCodeBatch:
+      type: object
+      required: [batch_id, codes, count]
+      properties:
+        batch_id: { $ref: "#/components/schemas/PublicId" }
+        codes:
+          type: array
+          items: { type: string, pattern: "^[0-9A-HJKMNP-TV-Z]{4}(-[0-9A-HJKMNP-TV-Z]{4}){3}$" }
+        count: { type: integer, minimum: 1 }
+
+    AuditEntry:
+      type: object
+      required: [id, occurred_at, actor, action, subject_type, subject_id, before, after, reason, request_id, ip]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        occurred_at: { type: string, description: "UTC with microseconds." }
+        actor:
+          type: object
+          required: [type, id, label]
+          properties:
+            type: { type: string, enum: [user, system, worker, anonymous] }
+            id:
+              oneOf:
+                - $ref: "#/components/schemas/PublicId"
+                - type: "null"
+            label: { type: [string, "null"] }
+        action: { type: string }
+        subject_type: { type: [string, "null"] }
+        subject_id: { type: [string, "null"] }
+        before: { type: [object, "null"] }
+        after: { type: [object, "null"] }
+        reason: { type: [string, "null"] }
+        request_id: { type: [string, "null"] }
+        ip: { type: [string, "null"] }
+
+    RegisterRequest:
+      type: object
+      required: [name, email, password]
+      properties:
+        name: { type: string, maxLength: 100 }
+        email: { type: string, format: email, maxLength: 255 }
+        password: { type: string, minLength: 10, maxLength: 200, description: "At least one letter and one digit." }
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+
+    TokenRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string }
+        device_name: { type: string, maxLength: 100 }
+
+    RefreshRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token: { type: string }
+
+    ForgotPasswordRequest:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+
+    ResetPasswordRequest:
+      type: object
+      required: [token, email, password]
+      properties:
+        token: { type: string }
+        email: { type: string, format: email }
+        password: { type: string, minLength: 10 }
+
+    RedeemRequest:
+      type: object
+      required: [code]
+      properties:
+        code: { type: string, maxLength: 32, example: "7K3M-Q9TX-2HWD-8RBN" }
+
+    TotpRequest:
+      type: object
+      required: [code]
+      properties:
+        code: { type: string, pattern: "^\\d{6}$" }
+
+    CreateUserRequest:
+      type: object
+      required: [name, email, roles]
+      properties:
+        name: { type: string, maxLength: 100 }
+        email: { type: string, format: email }
+        roles:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/Role" }
+
+    UpdateUserStatusRequest:
+      type: object
+      required: [status, reason]
+      properties:
+        status: { $ref: "#/components/schemas/UserStatus" }
+        reason: { type: string, maxLength: 500 }
+
+    UpdateRolesRequest:
+      type: object
+      required: [roles, reason]
+      properties:
+        roles:
+          type: array
+          items: { $ref: "#/components/schemas/Role" }
+        reason: { type: string, maxLength: 500 }
+
+    ReasonRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, maxLength: 500 }
+
+    CreateActivationCodesRequest:
+      type: object
+      required: [count]
+      properties:
+        count: { type: integer, minimum: 1, maximum: 500 }
+        plan: { type: string, maxLength: 32, default: standard }
+        duration_days: { type: integer, minimum: 1, maximum: 3650, description: "Omit for no end date." }
+        expires_at: { type: string, format: date-time, description: "Last moment the code can be redeemed." }
+        note: { type: string, maxLength: 255 }
+
+    EmptyResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { type: "null" }
+
+    AcceptedResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: object
+              required: [accepted]
+              properties:
+                accepted: { type: boolean, const: true }
+
+    ResetPasswordResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: object
+              required: [reset]
+              properties:
+                reset: { type: boolean, const: true }
+
+    MeResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/Me" }
+
+    TokenResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/TokenPair" }
+
+    RedeemResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: object
+              required: [subscription]
+              properties:
+                subscription: { $ref: "#/components/schemas/Subscription" }
+
+    AdminLoginStepResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/AdminLoginStep" }
+
+    AdminMeResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/AdminMe" }
+
+    AdminUserResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/AdminUser" }
+
+    AdminUserDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/AdminUserDetail" }
+
+    AdminUserListResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/AdminUser" }
+            meta:
+              allOf:
+                - $ref: "#/components/schemas/Meta"
+                - required: [pagination]
+
+    ActivationCodeResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/ActivationCode" }
+
+    ActivationCodeListResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/ActivationCode" }
+            meta:
+              allOf:
+                - $ref: "#/components/schemas/Meta"
+                - required: [pagination]
+
+    ActivationCodeBatchResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/ActivationCodeBatch" }
+
+    AuditLogListResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/AuditEntry" }
+            meta:
+              allOf:
+                - $ref: "#/components/schemas/Meta"
+                - required: [pagination]
+
+    DeviceRegistrationStatus:
+      type: string
+      enum: [ENROLLED, APPLE_PENDING, ELIGIBLE, APPLE_FAILED, QUOTA_BLOCKED, NO_ELIGIBLE_TEAM, DISABLED]
+
+    RegistrationSummary:
+      type: object
+      required: [status, reason, updated_at]
+      properties:
+        status: { $ref: "#/components/schemas/DeviceRegistrationStatus" }
+        reason:
+          type: [string, "null"]
+          description: 'e.g. APPLE_PROCESSING, APPLE_NOT_CONNECTED, QUOTA_EXHAUSTED, APPLE_UNAVAILABLE.'
+        updated_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+
+    DeviceSummary:
+      type: object
+      required: [id, product, family, os_version, udid_hint, enrolled_at, storefront_claimed, registration]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        product: { type: [string, "null"], description: "e.g. iPhone15,2" }
+        family: { type: string, enum: [IPHONE, IPAD, IPOD, UNKNOWN] }
+        os_version: { type: [string, "null"] }
+        udid_hint: { type: string, description: "Masked, e.g. ••••-6F70" }
+        enrolled_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        storefront_claimed: { type: boolean }
+        registration:
+          description: Null while no Apple team is connected.
+          oneOf:
+            - $ref: "#/components/schemas/RegistrationSummary"
+            - type: "null"
+
+    AdminDevice:
+      type: object
+      required: [id, user, udid_hint, product, family, os_version, enrolled_at, storefront_claimed_at, registration]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        user: { $ref: "#/components/schemas/UserRef" }
+        udid_hint: { type: string }
+        product: { type: [string, "null"] }
+        family: { type: string }
+        os_version: { type: [string, "null"] }
+        enrolled_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        storefront_claimed_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        registration:
+          oneOf:
+            - $ref: "#/components/schemas/RegistrationSummary"
+            - type: "null"
+
+    AdminDeviceDetail:
+      allOf:
+        - $ref: "#/components/schemas/AdminDevice"
+        - type: object
+          required: [registrations, history]
+          properties:
+            registrations:
+              type: array
+              items:
+                type: object
+                required: [id, team, status, reason, apple_device_id, attempts, registered_at, eligible_at, updated_at]
+                properties:
+                  id: { $ref: "#/components/schemas/PublicId" }
+                  team: { type: string, description: Apple Team ID }
+                  status: { $ref: "#/components/schemas/DeviceRegistrationStatus" }
+                  reason: { type: [string, "null"] }
+                  apple_device_id: { type: [string, "null"] }
+                  attempts: { type: integer, minimum: 0 }
+                  registered_at: { type: [string, "null"] }
+                  eligible_at: { type: [string, "null"] }
+                  updated_at: { type: [string, "null"] }
+            history:
+              type: array
+              items: { $ref: "#/components/schemas/AuditEntry" }
+
+    Claim:
+      type: object
+      required: [code, url, expires_at]
+      properties:
+        code: { type: string }
+        url: { type: string, description: "storefront://claim?code=…" }
+        expires_at: { $ref: "#/components/schemas/Timestamp" }
+
+    ClaimRedeemRequest:
+      type: object
+      required: [code]
+      properties:
+        code: { type: string, maxLength: 64 }
+        device_name: { type: string, maxLength: 100 }
+
+    DeviceListResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/DeviceSummary" }
+
+    ClaimResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/Claim" }
+
+    ClaimRedeemResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              allOf:
+                - $ref: "#/components/schemas/TokenPair"
+                - type: object
+                  required: [device]
+                  properties:
+                    device: { $ref: "#/components/schemas/DeviceSummary" }
+
+    AdminDeviceListResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/AdminDevice" }
+            meta:
+              allOf:
+                - $ref: "#/components/schemas/Meta"
+                - required: [pagination]
+
+    AdminDeviceDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/AdminDeviceDetail" }
+
+    QueuedResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: object
+              required: [queued]
+              properties:
+                queued: { type: boolean }
+
+    RevealUdidResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: object
+              required: [udid]
+              properties:
+                udid: { type: string }
+
+    AppVisibility:
+      type: string
+      enum: [DRAFT, HIDDEN, PUBLISHED]
+
+    SourceType:
+      type: string
+      enum: [OWN_BUILD, PARTNER_BUILD, OPEN_SOURCE_BUILD, ALTERNATIVE_MARKETPLACE_PACKAGE, USER_IMPORT, CUSTOMER_PROVIDED]
+
+    AdminApp:
+      type: object
+      required: [id, slug, name, subtitle, category, publisher, source_type, visibility, age_rating, featured_rank, bundle_identifier, icon_url, is_storefront, latest_version, has_published_artifact, deleted_at, updated_at]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        slug: { type: string }
+        name: { type: string }
+        subtitle: { type: [string, "null"] }
+        category: { $ref: "#/components/schemas/CategoryRef" }
+        publisher: { $ref: "#/components/schemas/PublisherRef" }
+        source_type: { $ref: "#/components/schemas/SourceType" }
+        visibility: { $ref: "#/components/schemas/AppVisibility" }
+        age_rating: { type: string }
+        featured_rank: { type: [integer, "null"] }
+        bundle_identifier: { type: [string, "null"] }
+        icon_url: { type: [string, "null"] }
+        is_storefront: { type: boolean }
+        latest_version: { type: [string, "null"] }
+        has_published_artifact: { type: boolean }
+        deleted_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        updated_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+
+    AdminAppDetail:
+      allOf:
+        - $ref: "#/components/schemas/AdminApp"
+        - type: object
+          required: [description, support_url, privacy_url, screenshots, versions]
+          properties:
+            description: { type: [string, "null"] }
+            support_url: { type: [string, "null"] }
+            privacy_url: { type: [string, "null"] }
+            screenshots:
+              type: array
+              items: { $ref: "#/components/schemas/AdminScreenshot" }
+            versions:
+              type: array
+              items: { $ref: "#/components/schemas/AdminVersion" }
+
+    AdminScreenshot:
+      type: object
+      required: [id, url, width, height]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        url: { type: string }
+        width: { type: integer }
+        height: { type: integer }
+
+    AdminVersion:
+      type: object
+      required: [id, version, build_number, min_ios_version, release_notes, released_at]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        version: { type: string }
+        build_number: { type: string }
+        min_ios_version: { type: [string, "null"] }
+        release_notes: { type: [string, "null"] }
+        released_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+
+    AdminCategory:
+      type: object
+      required: [id, slug, title, subtitle, sort_order, app_count]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        slug: { type: string }
+        title: { type: string }
+        subtitle: { type: [string, "null"] }
+        sort_order: { type: integer }
+        app_count: { type: integer }
+
+    AdminPublisher:
+      type: object
+      required: [id, name, website, support_email, app_count]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        name: { type: string }
+        website: { type: [string, "null"] }
+        support_email: { type: [string, "null"] }
+        app_count: { type: integer }
+
+    CreateAppRequest:
+      type: object
+      required: [name, category_id, publisher_id, source_type]
+      properties:
+        name: { type: string, maxLength: 100 }
+        slug: { type: [string, "null"], maxLength: 96 }
+        subtitle: { type: [string, "null"], maxLength: 120 }
+        description: { type: [string, "null"], maxLength: 4000 }
+        category_id: { $ref: "#/components/schemas/PublicId" }
+        publisher_id: { $ref: "#/components/schemas/PublicId" }
+        source_type: { $ref: "#/components/schemas/SourceType" }
+        visibility: { $ref: "#/components/schemas/AppVisibility" }
+        age_rating: { type: string, enum: ["4+", "9+", "12+", "17+"] }
+        featured_rank: { type: [integer, "null"], minimum: 1, maximum: 999 }
+        support_url: { type: [string, "null"] }
+        privacy_url: { type: [string, "null"] }
+
+    UpdateAppRequest:
+      allOf:
+        - $ref: "#/components/schemas/CreateAppRequest"
+        - type: object
+          properties:
+            reason: { type: [string, "null"], maxLength: 500 }
+
+    CreateVersionRequest:
+      type: object
+      required: [version, build_number]
+      properties:
+        version: { type: string, pattern: "^\\d+(\\.\\d+){0,3}$" }
+        build_number: { type: string, maxLength: 32 }
+        min_ios_version: { type: [string, "null"] }
+        release_notes: { type: [string, "null"], maxLength: 4000 }
+        released_at: { type: [string, "null"], format: date-time }
+
+    UpdateVersionRequest:
+      type: object
+      properties:
+        release_notes: { type: [string, "null"], maxLength: 4000 }
+        min_ios_version: { type: [string, "null"] }
+        released_at: { type: [string, "null"], format: date-time }
+
+    CreateCategoryRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, maxLength: 64 }
+        subtitle: { type: [string, "null"], maxLength: 120 }
+        slug: { type: [string, "null"], maxLength: 64 }
+        sort_order: { type: [integer, "null"], minimum: 0, maximum: 999 }
+
+    UpdateCategoryRequest:
+      type: object
+      properties:
+        title: { type: string, maxLength: 64 }
+        subtitle: { type: [string, "null"], maxLength: 120 }
+        sort_order: { type: integer, minimum: 0, maximum: 999 }
+
+    CreatePublisherRequest:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string, maxLength: 100 }
+        website: { type: [string, "null"] }
+        support_email: { type: [string, "null"] }
+
+    UpdatePublisherRequest:
+      type: object
+      properties:
+        name: { type: string, maxLength: 100 }
+        website: { type: [string, "null"] }
+        support_email: { type: [string, "null"] }
+
+    AdminAppListResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/AdminApp" }
+            meta:
+              allOf:
+                - $ref: "#/components/schemas/Meta"
+                - required: [pagination]
+
+    AdminAppDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/AdminAppDetail" }
+
+    IconResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: object
+              required: [icon_url]
+              properties:
+                icon_url: { type: string }
+
+    ScreenshotResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/AdminScreenshot" }
+
+    ScreenshotListResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/AdminScreenshot" }
+
+    VersionResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/AdminVersion" }
+
+    AdminCategoryResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/AdminCategory" }
+
+    AdminCategoryListResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/AdminCategory" }
+
+    AdminPublisherResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/AdminPublisher" }
+
+    AdminPublisherListResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/AdminPublisher" }

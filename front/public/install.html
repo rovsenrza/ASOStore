@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#1f211d">
+  <meta name="description" content="Установка и восстановление нативного Storefront.">
+  <title>Установка Storefront — [BRAND]</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 fill=%22%2320231f%22/><text x=%2232%22 y=%2242%22 text-anchor=%22middle%22 font-size=%2232%22 fill=%22%23f5eedf%22>B</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Oswald:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/site.css">
+  <script type="module" src="/js/pages/install.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Перейти к содержимому</a>
+  <header class="site-header">
+    <a class="brand" href="/" aria-label="[BRAND], на главную">[BRAND]</a>
+    <nav aria-label="Основная навигация">
+      <a href="/#how">Как это работает</a>
+      <a href="/install.html">Установка</a>
+      <a href="/support.html">Поддержка</a>
+      <a href="/account.html">Аккаунт</a>
+    </nav>
+    <a class="header-cta" href="/activate.html">Начать</a>
+  </header>
+
+  <main id="main">
+    <section class="page-hero" aria-labelledby="page-title">
+      <p class="eyebrow">Storefront</p>
+      <h1 id="page-title">Установка Storefront</h1>
+      <p>Когда устройство зарегистрировано и приложение подготовлено, здесь появится персональная ссылка на установку.</p>
+    </section>
+
+    <div class="page-body">
+      <section class="panel" aria-labelledby="install-title">
+        <h2 id="install-title">Ваше устройство</h2>
+        <div id="install-state" role="status" aria-live="polite"></div>
+        <div class="stage-actions">
+          <a class="primary-button" id="install-storefront" href="#" aria-disabled="true">Установить Storefront <span aria-hidden="true">→</span></a>
+        </div>
+        <div class="open-app" id="open-storefront" hidden>
+          <div class="form-status"></div>
+          <button class="secondary-button" type="button">Уже установили Storefront? Открыть приложение</button>
+          <p class="field-hint">Кнопка откроет Storefront на этом iPhone и войдёт в него без пароля. Ссылка одноразовая и действует 10 минут.</p>
+        </div>
+      </section>
+
+      <section id="recovery" aria-labelledby="recovery-title">
+        <h2 id="recovery-title">Если Storefront не открывается</h2>
+        <div class="prose">
+          <p>Эта страница всегда доступна, даже если приложение перестало запускаться. Проверьте статус устройства выше: если он изменился, следуйте подсказке.</p>
+          <p>Подробные инструкции по восстановлению появятся вместе с установкой Storefront. Если нужна помощь сейчас, откройте раздел <a href="/support.html">Поддержка</a>.</p>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="site-footer">
+    <span class="brand">[BRAND]</span>
+    <p>Веб-страница для регистрации и восстановления. Основной продукт — нативное iOS-приложение.</p>
+    <nav aria-label="Документы">
+      <a href="/pricing.html">Тарифы</a>
+      <a href="/terms.html">Условия</a>
+      <a href="/privacy.html">Конфиденциальность</a>
+    </nav>
+    <span>© <span data-year></span></span>
+  </footer>
+</body>
+</html>

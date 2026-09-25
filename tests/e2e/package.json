@@ -1,0 +1,12 @@
+{
+  "name": "storefront-e2e",
+  "private": true,
+  "type": "module",
+  "description": "Browser tests for the portal and admin panel. Run through scripts/e2e.sh.",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "data": null,
+  "meta": {
+    "request_id": "01j0example0request0id0000"
+  },
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "Запрошенный объект не найден.",
+    "details": {}
+  }
+}

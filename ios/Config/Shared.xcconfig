@@ -1,0 +1,5 @@
+// Settings shared by every build configuration of the Storefront app.
+
+// Placeholder until Phase 0 fixes the real bundle ID (IMPLEMENTATION_PLAN P0-04).
+// It becomes permanent once registered with Apple, so change it before any device registration.
+STOREFRONT_BUNDLE_ID = devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier).storefront

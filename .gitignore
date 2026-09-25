@@ -1,0 +1,45 @@
+# OS / editors
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Large media and local tool output (decide on Git LFS in Phase 0, IMPLEMENTATION_PLAN §10 Q9)
+*.MP4
+*.mp4
+.build/
+**/.playwright-cli/
+front/output/
+dist/
+
+# Backend
+backend/vendor/
+backend/node_modules/
+backend/.env
+backend/.env.testing
+backend/.phpunit.result.cache
+backend/.phpunit.cache/
+backend/storage/*.key
+backend/public/hot
+backend/public/storage
+# build-public.sh output: portal + admin copied into Laravel's docroot
+backend/public/*.html
+backend/public/css/
+backend/public/js/
+backend/public/assets/
+backend/public/shared/
+backend/public/admin/
+backend/public/mock/
+
+# iOS
+ios/**/xcuserdata/
+ios/**/DerivedData/
+*.xcuserstate
+
+# Runner
+runner/.build/
+
+# Browser tests
+tests/e2e/node_modules/
+tests/e2e/test-results/
+tests/e2e/playwright-report/

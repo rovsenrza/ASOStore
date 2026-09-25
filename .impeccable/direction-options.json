@@ -1,0 +1,92 @@
+{
+  "title": "Web bootstrap üçün vizual istiqaməti seçin",
+  "question": "Native Storefront-a aparan cihaz-qeydiyyat axınının vizual dünyasını seçin və ya yeni seçimlər istəyin.",
+  "options": [
+    {
+      "id": "assigned",
+      "label": "Lit Timetable",
+      "kicker": "THE ROLL",
+      "lineage": "Pocket airline timetable and backlit acetate rack",
+      "thesis": "Hər addım işıqlı cədvəldə dəqiq bir marşrut dayanacağı kimi görünür.",
+      "palette": ["#E8B84A", "#24313B", "#F4EBD8", "#C94B32", "#2D6B53"],
+      "materials": ["goldenrod stock", "tinted acetate", "carbon rules"],
+      "viewport": "Birinci ekranda cihazdan native Storefront-a gedən canlı marşrut, status hüceyrələri və hərəkət edən tək işıq xətti görünür.",
+      "risk": "İyerarxiya yalnız ölçü ilə qurularsa cədvəl ağır görünə bilər; weight, reversal və boşluq intizamı vacibdir.",
+      "raised": [
+        {"from": "Japanese utility grid", "raise": "Status və action məlumatları daha sıx, amma skan edilən hüceyrə sisteminə keçir."},
+        {"from": "One-bit desktop", "raise": "Pending, ready və blocked vəziyyətləri hər yerdə eyni sabit işarə lüğətindən istifadə edir."}
+      ],
+      "comp": ".impeccable/mocks/decision/assigned.webp",
+      "hero": "https://impeccable.style/worlds/cards/rw-timetable-slide-rack-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/rw-timetable-slide-rack.webp"
+    },
+    {
+      "id": "model-pick",
+      "label": "Device Field Guide",
+      "kicker": "IMPECCABLE’S PICK",
+      "lineage": "Consumer electronics setup manuals and service intake folders",
+      "thesis": "Cihaz setup-ı sakit, səhvsiz və addım-addım izlənən premium field guide olur.",
+      "palette": ["#F4F1E8", "#162522", "#2C6C58", "#D86546", "#B8C5BC"],
+      "materials": ["uncoated manual paper", "registration stamps", "precision diagrams"],
+      "viewport": "Birinci ekranda real setup marşrutu, aktiv cihaz bileti və növbəti yeganə action eyni səhifədə görünür.",
+      "risk": "Ən tanış və təhlükəsiz istiqamətdir; kifayət qədər sistem xarakteri verilməsə adi onboarding səhifəsinə çevrilə bilər.",
+      "comp": ".impeccable/mocks/decision/model-pick.webp"
+    },
+    {
+      "id": "challenger-darkroom",
+      "label": "Safelight Process",
+      "verdict": "competitive",
+      "lineage": "Photographic darkroom under amber safelight",
+      "thesis": "Registration və signing nəticəsi tədricən görünən foto kimi formalaşır.",
+      "palette": ["#1A1511", "#D77A23", "#E6D4B6", "#70665B", "#B9412E"],
+      "materials": ["amber safelight", "silver print", "enamel tray"],
+      "viewport": "Setup mərhələləri compose, expose, develop, fix və ready stansiyaları kimi ardıcıl görünür.",
+      "case": "Proses aydınlığı çox güclüdür, amma gündəlik iPhone istifadəçisi üçün identifikasiya timetable istiqamətindən zəifdir.",
+      "risk": "Qaranlıq material təhlükəsiz consumer setup əvəzinə texniki laboratoriya hissi yarada bilər.",
+      "comp": ".impeccable/mocks/decision/challenger-darkroom.webp",
+      "hero": "https://impeccable.style/worlds/cards/signals-instruments-darkroom-safelight-bay-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/signals-instruments-darkroom-safelight-bay.webp"
+    },
+    {
+      "id": "challenger-one-bit",
+      "label": "One-bit Device Desk",
+      "verdict": "declined",
+      "lineage": "Early monochrome desktop interfaces",
+      "thesis": "Hər device və install işi bir pəncərə və sabit pixel state kimi təqdim olunur.",
+      "palette": ["#FFFFFF", "#111111", "#B9B9B9"],
+      "materials": ["one-bit pixels", "dither patterns", "window chrome"],
+      "viewport": "Overlapping setup windows cihaz qeydiyyatını addım-addım göstərir.",
+      "case": "State lüğəti güclüdür, amma consumer etibarı və premium iOS mövqeyi üçün nostalji maneə yaradır.",
+      "kept": "Disabled, pending və selected vəziyyətləri üçün sərt vizual fərqləndirmə.",
+      "risk": "Məhsulu ciddi xidmət əvəzinə retro eksperiment kimi göstərə bilər.",
+      "hero": "https://impeccable.style/worlds/cards/medium-native-one-bit-desktop-hero.webp"
+    },
+    {
+      "id": "challenger-density",
+      "label": "Utility Mosaic",
+      "verdict": "declined",
+      "lineage": "Japanese high-density service web",
+      "thesis": "Plan, device, support və status məlumatları bir ekranda sıx utility mosaic yaradır.",
+      "palette": ["#FFFFFF", "#121212", "#D62F2F", "#E6E9ED"],
+      "materials": ["hairline rules", "utility tabs", "dense modules"],
+      "viewport": "Bir viewport yüzlərlə xırda siqnalı deyil, bütün setup qərarlarını kompakt şəkildə göstərir.",
+      "case": "Məlumat sıxlığı yüksəkdir, amma ilk dəfə qeydiyyatdan keçən istifadəçinin fokusunu zəiflədir.",
+      "kept": "Boş dekor əvəzinə hər sahənin konkret informasiya daşıması.",
+      "risk": "Mobil ekranda koqnitiv yük yarada bilər.",
+      "hero": "https://impeccable.style/worlds/cards/japanese-high-density-web-hero.webp"
+    }
+  ],
+  "reroll": {"registers": ["safer", "bolder"]},
+  "buildPath": {"value": "comp", "toggle": true},
+  "canon": true,
+  "canonCard": {
+    "label": "Polished category standard",
+    "thesis": "Təmiz consumer-tech landing və addım-addım setup, yüksək craft ilə.",
+    "palette": ["#FFFFFF", "#111827", "#2563EB", "#E5E7EB"],
+    "materials": ["clean grid", "device mockups", "soft product surfaces"],
+    "viewport": "Böyük headline, iPhone mockup və bir əsas Start setup CTA-sı.",
+    "risk": "Funksionaldır, amma rəqiblərdən seçilməməsi məhz bu istiqamətin təbiətidir.",
+    "comp": ".impeccable/mocks/decision/canon.webp"
+  },
+  "steer": true
+}

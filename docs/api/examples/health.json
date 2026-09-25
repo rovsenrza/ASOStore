@@ -1,0 +1,14 @@
+{
+  "data": {
+    "status": "ok",
+    "version": "1.0.0-dev",
+    "time": "2026-09-25T09:26:35Z",
+    "checks": {
+      "database": "ok"
+    }
+  },
+  "meta": {
+    "request_id": "01j0example0request0id0000"
+  },
+  "error": null
+}

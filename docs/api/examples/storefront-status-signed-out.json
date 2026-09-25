@@ -1,0 +1,12 @@
+{
+  "data": {
+    "stage": "signed_out",
+    "next_action": "sign_in",
+    "blocking_reason": null,
+    "device": null
+  },
+  "meta": {
+    "request_id": "01j0example0request0id0000"
+  },
+  "error": null
+}

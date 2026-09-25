@@ -1,0 +1,25 @@
+{
+  "regions": [
+    {"id":"scene","kind":"plate","grid":"D0:J9","note":"airport-window golden-hour scene and dark brass slide rack, with blank slide positions and no UI text"},
+    {"id":"ivory-rail","kind":"chrome","grid":"A0:C9","container":true,"note":"one undivided calm bible-ivory left rail occupying roughly one quarter of the viewport"},
+    {"id":"brand","kind":"text","grid":"A0:A0","note":"[BRAND] condensed black wordmark placeholder"},
+    {"id":"nav","kind":"text","grid":"B0:C0","note":"three compact Russian navigation links"},
+    {"id":"language","kind":"control","grid":"H0:I0","note":"small RU language control on dark scene"},
+    {"id":"headline","kind":"text","grid":"A1:C4","note":"large condensed multiline Russian headline on ivory"},
+    {"id":"intro","kind":"text","grid":"A5:C5","note":"short Russian supporting paragraph"},
+    {"id":"primary-cta","kind":"control","grid":"A6:C6","note":"dark bottle-green wide setup button with arrow"},
+    {"id":"demo-label","kind":"text","grid":"A7:A7","note":"DEMO status label in compact uppercase"},
+    {"id":"progress","kind":"control","grid":"A7:C8","note":"four-stop horizontal progress rail with registration active"},
+    {"id":"left-footer","kind":"text","grid":"A9:C9","note":"small reliability and placeholder notes"},
+    {"id":"device-slide","kind":"control","grid":"D1:E7","note":"first dark raked timetable slide for device state"},
+    {"id":"device-slide-text","kind":"text","grid":"D2:E6","note":"device step number, title, checklist and ready status"},
+    {"id":"registration-slide","kind":"control","grid":"F1:G7","note":"illuminated ivory active registration slide with vermilion header"},
+    {"id":"registration-slide-text","kind":"text","grid":"F1:G7","note":"registration step number, title, checklist and active status"},
+    {"id":"storefront-slide","kind":"control","grid":"H2:I8","note":"third dark raked timetable slide for Storefront preparation"},
+    {"id":"storefront-slide-text","kind":"text","grid":"H2:I7","note":"Storefront title, checklist and waiting status"},
+    {"id":"install-slide","kind":"control","grid":"I2:J8","note":"fourth dark raked timetable slide for installation"},
+    {"id":"install-slide-text","kind":"text","grid":"I2:J7","note":"installation title, checklist and waiting status"},
+    {"id":"rack-caption","kind":"text","grid":"D8:G9","note":"small English physical-rack caption preserved as decorative material"},
+    {"id":"scene-footer","kind":"text","grid":"H9:J9","note":"small establishment mark and globe symbol"}
+  ]
+}

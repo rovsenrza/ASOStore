@@ -1,0 +1,46 @@
+{
+  "data": [
+    {
+      "id": "01m3by6pazsrpscqd9243vq10f",
+      "name": "Анна Смирнова",
+      "email": "anna@example.com",
+      "status": "ACTIVE",
+      "roles": [
+        "customer"
+      ],
+      "totp_enabled": false,
+      "subscription": {
+        "id": "01m3by6pqk863r5e8hmay84cje",
+        "plan": "standard",
+        "status": "ACTIVE",
+        "starts_at": "2026-09-25T09:26:36Z",
+        "ends_at": "2027-09-25T09:26:36Z"
+      },
+      "last_login_at": "2026-09-25T09:26:36Z",
+      "created_at": "2026-09-25T09:26:36Z"
+    },
+    {
+      "id": "01m3by6kkk3w8xmxyzz57brrbk",
+      "name": "Администратор",
+      "email": "admin@storefront.test",
+      "status": "ACTIVE",
+      "roles": [
+        "admin"
+      ],
+      "totp_enabled": true,
+      "subscription": null,
+      "last_login_at": "2026-09-25T09:26:35Z",
+      "created_at": "2026-09-25T09:26:33Z"
+    }
+  ],
+  "meta": {
+    "request_id": "01j0example0request0id0000",
+    "pagination": {
+      "page": 1,
+      "per_page": 25,
+      "total": 2,
+      "last_page": 1
+    }
+  },
+  "error": null
+}

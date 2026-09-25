@@ -1,0 +1,9 @@
+// Release-optimised build against the staging backend.
+#include "Shared.xcconfig"
+
+// Placeholder host until the domain is chosen in Phase 0 (.invalid never resolves).
+API_BASE_URL = https:/$()/staging.storefront.invalid/api/v1
+API_MODE = live
+
+// Mock fixtures are the only loose JSON resources; keep them out of non-debug builds.
+EXCLUDED_SOURCE_FILE_NAMES = *.json

@@ -1,0 +1,68 @@
+{
+  "data": [
+    {
+      "id": "01m3by6p6kwjmybs1cpnsaqn59",
+      "batch_id": "01m3by6p6jhxve4ztfmhq2knjc",
+      "hint": "Y2VN",
+      "status": "ISSUED",
+      "plan": "standard",
+      "duration_days": 365,
+      "expires_at": null,
+      "note": "Пилотная партия",
+      "created_by": {
+        "id": "01m3by6kkk3w8xmxyzz57brrbk",
+        "email": "admin@storefront.test"
+      },
+      "redeemed_by": null,
+      "redeemed_at": null,
+      "created_at": "2026-09-25T09:26:35Z"
+    },
+    {
+      "id": "01m3by6p6kwjmybs1cpnsaqn58",
+      "batch_id": "01m3by6p6jhxve4ztfmhq2knjc",
+      "hint": "WDH9",
+      "status": "ISSUED",
+      "plan": "standard",
+      "duration_days": 365,
+      "expires_at": null,
+      "note": "Пилотная партия",
+      "created_by": {
+        "id": "01m3by6kkk3w8xmxyzz57brrbk",
+        "email": "admin@storefront.test"
+      },
+      "redeemed_by": null,
+      "redeemed_at": null,
+      "created_at": "2026-09-25T09:26:35Z"
+    },
+    {
+      "id": "01m3by6p6jhxve4ztfmhq2knjd",
+      "batch_id": "01m3by6p6jhxve4ztfmhq2knjc",
+      "hint": "4Q1H",
+      "status": "REDEEMED",
+      "plan": "standard",
+      "duration_days": 365,
+      "expires_at": null,
+      "note": "Пилотная партия",
+      "created_by": {
+        "id": "01m3by6kkk3w8xmxyzz57brrbk",
+        "email": "admin@storefront.test"
+      },
+      "redeemed_by": {
+        "id": "01m3by6pazsrpscqd9243vq10f",
+        "email": "anna@example.com"
+      },
+      "redeemed_at": "2026-09-25T09:26:36Z",
+      "created_at": "2026-09-25T09:26:35Z"
+    }
+  ],
+  "meta": {
+    "request_id": "01j0example0request0id0000",
+    "pagination": {
+      "page": 1,
+      "per_page": 25,
+      "total": 3,
+      "last_page": 1
+    }
+  },
+  "error": null
+}

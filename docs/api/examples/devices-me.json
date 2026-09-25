@@ -1,0 +1,22 @@
+{
+  "data": [
+    {
+      "id": "01m3by6pvktjxbkpxj8g78tmzy",
+      "product": "iPhone15,2",
+      "family": "IPHONE",
+      "os_version": "22A3354",
+      "udid_hint": "••••-6F70",
+      "enrolled_at": "2026-09-25T09:26:36Z",
+      "storefront_claimed": false,
+      "registration": {
+        "status": "ELIGIBLE",
+        "reason": null,
+        "updated_at": "2026-09-25T09:26:36Z"
+      }
+    }
+  ],
+  "meta": {
+    "request_id": "01j0example0request0id0000"
+  },
+  "error": null
+}

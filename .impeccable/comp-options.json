@@ -1,0 +1,40 @@
+{
+  "title": "Композиция первого экрана",
+  "question": "Визуальный мир зафиксирован. Выберите композицию, по которой будет построен HTML/CSS интерфейс.",
+  "options": [
+    {
+      "id": "comp-1",
+      "label": "Rack + маршрут",
+      "thesis": "Крупный заголовок слева, физическая стойка этапов справа и маршрут под первым экраном.",
+      "palette": ["#E8B84A", "#24313B", "#F4EBD8", "#C94B32", "#2D6B53"],
+      "materials": ["goldenrod", "tinted acetate", "carbon rules"],
+      "viewport": "Самая кинематографичная композиция; русский текст будет применён в коде.",
+      "risk": "Фотографический rack сложнее точно перевести в responsive CSS.",
+      "comp": ".impeccable/mocks/comp-1.webp"
+    },
+    {
+      "id": "comp-2",
+      "label": "Табло маршрута",
+      "thesis": "Заголовок и CTA сразу переходят в большое операционное табло с четырьмя состояниями.",
+      "palette": ["#E8B84A", "#18211F", "#F4EBD8", "#D9472E", "#59A66C"],
+      "materials": ["departure board", "lit brass", "ivory stock"],
+      "viewport": "Лучше всего объясняет механизм и переносится на desktop и mobile.",
+      "risk": "Высокая плотность требует строгой типографики на маленьких экранах.",
+      "comp": ".impeccable/mocks/comp-2.webp"
+    },
+    {
+      "id": "comp-3",
+      "label": "Активный слайд",
+      "thesis": "Один активный этап светится в центре, соседние этапы задают понятный путь вперёд.",
+      "palette": ["#E8B84A", "#202826", "#F4EBD8", "#B73022", "#164E3C"],
+      "materials": ["slide rack", "registration card", "lit rail"],
+      "viewport": "Самая сильная композиция для интерактивного пошагового setup.",
+      "risk": "На desktop остаётся меньше места для объясняющего контента.",
+      "comp": ".impeccable/mocks/comp-3.webp"
+    }
+  ],
+  "reroll": false,
+  "canon": false,
+  "steer": false,
+  "buildPath": {"value": "comp", "toggle": false}
+}

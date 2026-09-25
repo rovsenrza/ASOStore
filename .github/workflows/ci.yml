@@ -1,0 +1,141 @@
+# Phase 1 CI (IMPLEMENTATION_PLAN P1-OPS-02). GitHub Actions is the default until
+# the CI system is confirmed in Phase 0.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend (Pint, Larastan, Pest on MySQL 8)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+          MYSQL_DATABASE: storefront_test
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: pdo_mysql, zip, intl, sodium, mbstring
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist --no-progress
+      - run: cp .env.example .env && php artisan key:generate
+      - run: ./vendor/bin/pint --test
+      - run: ./vendor/bin/phpstan analyse --memory-limit=1G --no-progress
+      - run: ./vendor/bin/pest
+
+  contract:
+    name: OpenAPI lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npx --yes @stoplight/spectral-cli@6 lint docs/api/openapi.yaml --ruleset .spectral.yaml --fail-severity=warn
+
+  web:
+    name: Portal and admin smoke
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+          MYSQL_DATABASE: storefront
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: pdo_mysql, zip, intl, sodium, mbstring
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Start backend
+        working-directory: backend
+        run: |
+          composer install --no-interaction --prefer-dist --no-progress
+          cp .env.example .env && php artisan key:generate
+          sed -i "s|^STOREFRONT_UDID_HMAC_KEY=.*|STOREFRONT_UDID_HMAC_KEY=$(php -r 'echo base64_encode(random_bytes(32));')|" .env
+          php artisan migrate --seed --force
+          php artisan serve --port=8000 > /tmp/serve.log 2>&1 &
+      - run: ./scripts/build-public.sh
+      - run: node scripts/web-smoke.mjs
+        env:
+          BASE_URL: http://127.0.0.1:8000
+          CHROME_BIN: google-chrome
+
+  e2e:
+    name: Browser end-to-end (Playwright)
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          extensions: pdo_mysql, zip, intl, sodium, mbstring
+          coverage: none
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Prepare backend
+        working-directory: backend
+        run: |
+          composer install --no-interaction --prefer-dist --no-progress
+          cp .env.example .env && php artisan key:generate
+          sed -i "s|^STOREFRONT_UDID_HMAC_KEY=.*|STOREFRONT_UDID_HMAC_KEY=$(php -r 'echo base64_encode(random_bytes(32));')|" .env
+      - name: Install Playwright
+        working-directory: tests/e2e
+        run: npm ci && npx playwright install --with-deps chromium
+      - run: ./scripts/e2e.sh
+        env:
+          MYSQL_HOST: 127.0.0.1
+          MYSQL_USER: root
+
+  ios:
+    name: iOS build and tests
+    # Needs an image whose Xcode supports the project format (Xcode 27, objectVersion 90).
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pick an iPhone simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for r in sorted(d, reverse=True) if 'iOS' in r for x in d[r] if x['name'].startswith('iPhone')))")
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+      - working-directory: ios
+        run: >-
+          xcodebuild test
+          -project Storefront.xcodeproj
+          -scheme Storefront
+          -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}"
+          CODE_SIGNING_ALLOWED=NO

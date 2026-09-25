@@ -1,0 +1,22 @@
+{
+  "data": {
+    "id": "01m3by6pazsrpscqd9243vq10f",
+    "name": "Анна Смирнова",
+    "email": "anna@example.com",
+    "roles": [
+      "customer"
+    ],
+    "subscription": {
+      "id": "01m3by6pqk863r5e8hmay84cje",
+      "plan": "standard",
+      "status": "ACTIVE",
+      "starts_at": "2026-09-25T09:26:36Z",
+      "ends_at": "2027-09-25T09:26:36Z"
+    },
+    "created_at": "2026-09-25T09:26:36Z"
+  },
+  "meta": {
+    "request_id": "01j0example0request0id0000"
+  },
+  "error": null
+}

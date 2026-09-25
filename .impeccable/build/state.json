@@ -1,0 +1,110 @@
+{
+  "tool": "build-phase",
+  "version": 2,
+  "startedAt": "2026-09-23T13:08:03.033Z",
+  "comp": ".impeccable/mocks/comp-3.webp",
+  "direction": "f3d71bc4",
+  "breakpoint": "1672x941",
+  "artifact": null,
+  "phase": "plates",
+  "phases": {
+    "comps": {
+      "status": "closed",
+      "openedAt": "2026-09-23T13:08:03.033Z",
+      "closedAt": "2026-09-23T13:12:38.018Z",
+      "attempts": 1,
+      "notes": [],
+      "gate": {
+        "ok": true,
+        "reasons": [],
+        "summary": "3 comps, 1 approved",
+        "approved": ".impeccable/mocks/comp-3.webp",
+        "at": "2026-09-23T13:12:38.018Z"
+      },
+      "forced": null
+    },
+    "spec": {
+      "status": "closed",
+      "openedAt": "2026-09-23T13:12:38.122Z",
+      "closedAt": "2026-09-23T13:16:42.733Z",
+      "attempts": 2,
+      "notes": [],
+      "gate": {
+        "ok": true,
+        "reasons": [],
+        "summary": "21 regions, 1 plates, 12 text regions measured",
+        "at": "2026-09-23T13:16:42.733Z"
+      },
+      "forced": null
+    },
+    "plates": {
+      "status": "open",
+      "openedAt": "2026-09-23T13:16:42.733Z",
+      "closedAt": null,
+      "attempts": 1,
+      "notes": [],
+      "gate": {
+        "ok": false,
+        "reasons": [
+          "plate missing for scene: expected assets/plates/scene.png; produce it from /Users/User/.codex/skills/impeccable/scripts/impeccable comp-spec --crop scene with /Users/User/.codex/skills/impeccable/scripts/impeccable generate-image --ref <crop.png> --prompt-file <prompt.txt> --out <plate.png>"
+        ],
+        "summary": "0/1 plates",
+        "at": "2026-09-23T13:18:19.407Z"
+      },
+      "forced": null
+    },
+    "hero": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "sections": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "motion": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "responsive": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    },
+    "review": {
+      "status": "pending",
+      "openedAt": null,
+      "closedAt": null,
+      "attempts": 0,
+      "notes": [],
+      "gate": null,
+      "forced": null
+    }
+  },
+  "finish": null,
+  "plates": {
+    "scene": {
+      "status": "missing",
+      "score": null,
+      "size": null
+    }
+  }
+}

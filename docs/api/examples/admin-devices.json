@@ -1,0 +1,32 @@
+{
+  "data": [
+    {
+      "id": "01m3by6pvktjxbkpxj8g78tmzy",
+      "user": {
+        "id": "01m3by6pazsrpscqd9243vq10f",
+        "email": "anna@example.com"
+      },
+      "udid_hint": "••••-6F70",
+      "product": "iPhone15,2",
+      "family": "IPHONE",
+      "os_version": "22A3354",
+      "enrolled_at": "2026-09-25T09:26:36Z",
+      "storefront_claimed_at": "2026-09-25T09:26:36Z",
+      "registration": {
+        "status": "ELIGIBLE",
+        "reason": null,
+        "updated_at": "2026-09-25T09:26:36Z"
+      }
+    }
+  ],
+  "meta": {
+    "request_id": "01j0example0request0id0000",
+    "pagination": {
+      "page": 1,
+      "per_page": 25,
+      "total": 1,
+      "last_page": 1
+    }
+  },
+  "error": null
+}

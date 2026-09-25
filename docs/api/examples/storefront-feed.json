@@ -1,0 +1,514 @@
+{
+  "data": {
+    "sections": [
+      {
+        "id": "featured",
+        "kind": "featured",
+        "title": "Выбор редакции",
+        "apps": [
+          {
+            "id": "01m3by6km065c4v6e72eecghqw",
+            "slug": "focus-notes",
+            "name": "Focus Notes",
+            "subtitle": "Спокойное пространство для идей",
+            "category": {
+              "id": "01m3by6kks7bhfbxxrzb21c0rj",
+              "slug": "productivity",
+              "title": "Продуктивность"
+            },
+            "publisher": {
+              "id": "01m3by6kkybn4bbcvch60wjm5q",
+              "name": "North Studio"
+            },
+            "icon_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "3.4.0",
+              "build_number": "340",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-22T09:26:33Z",
+              "size_bytes": 88080384
+            },
+            "install_state": {
+              "status": "get",
+              "reason": null,
+              "progress": null,
+              "installation_id": null
+            }
+          },
+          {
+            "id": "01m3by6km3zg1fazns9yn6avyk",
+            "slug": "pixel-weather",
+            "name": "Pixel Weather",
+            "subtitle": "Погода без лишнего шума",
+            "category": {
+              "id": "01m3by6kkvargyeywnhe5adg5r",
+              "slug": "weather",
+              "title": "Погода"
+            },
+            "publisher": {
+              "id": "01m3by6km3zg1fazns9yn6avyj",
+              "name": "Mono Labs"
+            },
+            "icon_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "2.8.1",
+              "build_number": "281",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-13T09:26:33Z",
+              "size_bytes": 48234496
+            },
+            "install_state": {
+              "status": "preparing",
+              "reason": null,
+              "progress": 0.42,
+              "installation_id": "01j9ex4mp1e000000000000001"
+            }
+          },
+          {
+            "id": "01m3by6km5awvdwj9yaerp5xay",
+            "slug": "tempo",
+            "name": "Tempo",
+            "subtitle": "Музыка для концентрации",
+            "category": {
+              "id": "01m3by6kkwnm00rs0rvkhcc8v8",
+              "slug": "music",
+              "title": "Музыка"
+            },
+            "publisher": {
+              "id": "01m3by6km40fj8trs1m06et78z",
+              "name": "Waveform House"
+            },
+            "icon_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "5.2",
+              "build_number": "52",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-24T09:26:33Z",
+              "size_bytes": 134217728
+            },
+            "install_state": {
+              "status": "ready_to_install",
+              "reason": null,
+              "progress": null,
+              "installation_id": "01j9ex4mp1e000000000000002"
+            }
+          },
+          {
+            "id": "01m3by6km7m0agz2ybx8m1h0ae",
+            "slug": "habit-garden",
+            "name": "Habit Garden",
+            "subtitle": "Маленькие привычки каждый день",
+            "category": {
+              "id": "01m3by6kktq7k7x42cfbx2fdbd",
+              "slug": "health",
+              "title": "Здоровье"
+            },
+            "publisher": {
+              "id": "01m3by6km6j4rnkh0z91v92mvr",
+              "name": "Moss Software"
+            },
+            "icon_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "1.9",
+              "build_number": "19",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-05T09:26:33Z",
+              "size_bytes": 75497472
+            },
+            "install_state": {
+              "status": "update_available",
+              "reason": null,
+              "progress": null,
+              "installation_id": null
+            }
+          },
+          {
+            "id": "01m3by6km8pw4fjsnee0efvm5v",
+            "slug": "frame",
+            "name": "Frame",
+            "subtitle": "Редактор красивых историй",
+            "category": {
+              "id": "01m3by6kks7bhfbxxrzb21c0rk",
+              "slug": "photo-video",
+              "title": "Фото и видео"
+            },
+            "publisher": {
+              "id": "01m3by6km8pw4fjsnee0efvm5t",
+              "name": "Frame Collective"
+            },
+            "icon_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "4.1",
+              "build_number": "41",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-23T09:26:33Z",
+              "size_bytes": 225443840
+            },
+            "install_state": {
+              "status": "delivered",
+              "reason": null,
+              "progress": null,
+              "installation_id": "01j9ex4mp1e000000000000003"
+            }
+          }
+        ]
+      },
+      {
+        "id": "recently_updated",
+        "kind": "carousel",
+        "title": "Недавно обновлённые",
+        "apps": [
+          {
+            "id": "01m3by6km5awvdwj9yaerp5xay",
+            "slug": "tempo",
+            "name": "Tempo",
+            "subtitle": "Музыка для концентрации",
+            "category": {
+              "id": "01m3by6kkwnm00rs0rvkhcc8v8",
+              "slug": "music",
+              "title": "Музыка"
+            },
+            "publisher": {
+              "id": "01m3by6km40fj8trs1m06et78z",
+              "name": "Waveform House"
+            },
+            "icon_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "5.2",
+              "build_number": "52",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-24T09:26:33Z",
+              "size_bytes": 134217728
+            },
+            "install_state": {
+              "status": "ready_to_install",
+              "reason": null,
+              "progress": null,
+              "installation_id": "01j9ex4mp1e000000000000002"
+            }
+          },
+          {
+            "id": "01m3by6km8pw4fjsnee0efvm5v",
+            "slug": "frame",
+            "name": "Frame",
+            "subtitle": "Редактор красивых историй",
+            "category": {
+              "id": "01m3by6kks7bhfbxxrzb21c0rk",
+              "slug": "photo-video",
+              "title": "Фото и видео"
+            },
+            "publisher": {
+              "id": "01m3by6km8pw4fjsnee0efvm5t",
+              "name": "Frame Collective"
+            },
+            "icon_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "4.1",
+              "build_number": "41",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-23T09:26:33Z",
+              "size_bytes": 225443840
+            },
+            "install_state": {
+              "status": "delivered",
+              "reason": null,
+              "progress": null,
+              "installation_id": "01j9ex4mp1e000000000000003"
+            }
+          },
+          {
+            "id": "01m3by6km065c4v6e72eecghqw",
+            "slug": "focus-notes",
+            "name": "Focus Notes",
+            "subtitle": "Спокойное пространство для идей",
+            "category": {
+              "id": "01m3by6kks7bhfbxxrzb21c0rj",
+              "slug": "productivity",
+              "title": "Продуктивность"
+            },
+            "publisher": {
+              "id": "01m3by6kkybn4bbcvch60wjm5q",
+              "name": "North Studio"
+            },
+            "icon_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "3.4.0",
+              "build_number": "340",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-22T09:26:33Z",
+              "size_bytes": 88080384
+            },
+            "install_state": {
+              "status": "get",
+              "reason": null,
+              "progress": null,
+              "installation_id": null
+            }
+          },
+          {
+            "id": "01m3by6kmdjhx76zcp3b6srrhn",
+            "slug": "paper-scan",
+            "name": "Paper Scan",
+            "subtitle": "Сканер всегда под рукой",
+            "category": {
+              "id": "01m3by6kkwnm00rs0rvkhcc8va",
+              "slug": "utilities",
+              "title": "Утилиты"
+            },
+            "publisher": {
+              "id": "01m3by6kmdjhx76zcp3b6srrhm",
+              "name": "Quiet Tools"
+            },
+            "icon_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "3.7",
+              "build_number": "37",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-17T09:26:33Z",
+              "size_bytes": null
+            },
+            "install_state": {
+              "status": "unavailable",
+              "reason": "ARTIFACT_NOT_INSTALLABLE",
+              "progress": null,
+              "installation_id": null
+            }
+          },
+          {
+            "id": "01m3by6km3zg1fazns9yn6avyk",
+            "slug": "pixel-weather",
+            "name": "Pixel Weather",
+            "subtitle": "Погода без лишнего шума",
+            "category": {
+              "id": "01m3by6kkvargyeywnhe5adg5r",
+              "slug": "weather",
+              "title": "Погода"
+            },
+            "publisher": {
+              "id": "01m3by6km3zg1fazns9yn6avyj",
+              "name": "Mono Labs"
+            },
+            "icon_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "2.8.1",
+              "build_number": "281",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-13T09:26:33Z",
+              "size_bytes": 48234496
+            },
+            "install_state": {
+              "status": "preparing",
+              "reason": null,
+              "progress": 0.42,
+              "installation_id": "01j9ex4mp1e000000000000001"
+            }
+          },
+          {
+            "id": "01m3by6km7m0agz2ybx8m1h0ae",
+            "slug": "habit-garden",
+            "name": "Habit Garden",
+            "subtitle": "Маленькие привычки каждый день",
+            "category": {
+              "id": "01m3by6kktq7k7x42cfbx2fdbd",
+              "slug": "health",
+              "title": "Здоровье"
+            },
+            "publisher": {
+              "id": "01m3by6km6j4rnkh0z91v92mvr",
+              "name": "Moss Software"
+            },
+            "icon_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "1.9",
+              "build_number": "19",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-05T09:26:33Z",
+              "size_bytes": 75497472
+            },
+            "install_state": {
+              "status": "update_available",
+              "reason": null,
+              "progress": null,
+              "installation_id": null
+            }
+          },
+          {
+            "id": "01m3by6kma8g4hwd5cmtrgz5em",
+            "slug": "atlas",
+            "name": "Atlas",
+            "subtitle": "Маршруты для новых открытий",
+            "category": {
+              "id": "01m3by6kkvargyeywnhe5adg5q",
+              "slug": "travel",
+              "title": "Путешествия"
+            },
+            "publisher": {
+              "id": "01m3by6kma8g4hwd5cmtrgz5ek",
+              "name": "Atlas Maps"
+            },
+            "icon_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "2.3",
+              "build_number": "23",
+              "min_ios_version": "17.0",
+              "released_at": "2026-08-26T09:26:33Z",
+              "size_bytes": 171966464
+            },
+            "install_state": {
+              "status": "not_eligible",
+              "reason": "DEVICE_NOT_ELIGIBLE",
+              "progress": null,
+              "installation_id": null
+            }
+          },
+          {
+            "id": "01m3by6kmc3cz7ax7dphcaqk6t",
+            "slug": "orbit-mail",
+            "name": "Orbit Mail",
+            "subtitle": "Почта, которая не отвлекает",
+            "category": {
+              "id": "01m3by6kkwnm00rs0rvkhcc8v9",
+              "slug": "business",
+              "title": "Бизнес"
+            },
+            "publisher": {
+              "id": "01m3by6kmbsmycrw1r0vwn7r9y",
+              "name": "Orbit Systems"
+            },
+            "icon_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "6.0",
+              "build_number": "60",
+              "min_ios_version": "17.0",
+              "released_at": "2026-08-11T09:26:33Z",
+              "size_bytes": 102760448
+            },
+            "install_state": {
+              "status": "failed",
+              "reason": "INCOMPATIBLE_DEVICE",
+              "progress": null,
+              "installation_id": "01j9ex4mp1e000000000000004"
+            }
+          },
+          {
+            "id": "01m3by6kmfja67p702mm8vmy6s",
+            "slug": "lingua",
+            "name": "Lingua",
+            "subtitle": "Язык через живые диалоги",
+            "category": {
+              "id": "01m3by6kkxpgtmn68zhmrhsrcx",
+              "slug": "education",
+              "title": "Образование"
+            },
+            "publisher": {
+              "id": "01m3by6kmezq9sdkhdczbkzq3q",
+              "name": "Lingua Works"
+            },
+            "icon_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "7.4",
+              "build_number": "74",
+              "min_ios_version": "17.0",
+              "released_at": "2026-07-27T09:26:33Z",
+              "size_bytes": 196083712
+            },
+            "install_state": {
+              "status": "not_eligible",
+              "reason": "UNAUTHENTICATED",
+              "progress": null,
+              "installation_id": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "categories",
+        "kind": "categories",
+        "title": "Категории",
+        "categories": [
+          {
+            "id": "01m3by6kks7bhfbxxrzb21c0rj",
+            "slug": "productivity",
+            "title": "Продуктивность",
+            "subtitle": "Работайте умнее",
+            "app_count": 1
+          },
+          {
+            "id": "01m3by6kks7bhfbxxrzb21c0rk",
+            "slug": "photo-video",
+            "title": "Фото и видео",
+            "subtitle": "Создавайте новое",
+            "app_count": 1
+          },
+          {
+            "id": "01m3by6kktq7k7x42cfbx2fdbd",
+            "slug": "health",
+            "title": "Здоровье",
+            "subtitle": "Забота о себе",
+            "app_count": 1
+          },
+          {
+            "id": "01m3by6kkvargyeywnhe5adg5q",
+            "slug": "travel",
+            "title": "Путешествия",
+            "subtitle": "Весь мир рядом",
+            "app_count": 1
+          },
+          {
+            "id": "01m3by6kkvargyeywnhe5adg5r",
+            "slug": "weather",
+            "title": "Погода",
+            "subtitle": "Прогноз под рукой",
+            "app_count": 1
+          },
+          {
+            "id": "01m3by6kkwnm00rs0rvkhcc8v8",
+            "slug": "music",
+            "title": "Музыка",
+            "subtitle": "Звук для любого настроения",
+            "app_count": 1
+          },
+          {
+            "id": "01m3by6kkwnm00rs0rvkhcc8v9",
+            "slug": "business",
+            "title": "Бизнес",
+            "subtitle": "Работа без лишнего",
+            "app_count": 1
+          },
+          {
+            "id": "01m3by6kkwnm00rs0rvkhcc8va",
+            "slug": "utilities",
+            "title": "Утилиты",
+            "subtitle": "Полезные инструменты",
+            "app_count": 1
+          },
+          {
+            "id": "01m3by6kkxpgtmn68zhmrhsrcx",
+            "slug": "education",
+            "title": "Образование",
+            "subtitle": "Учитесь каждый день",
+            "app_count": 1
+          }
+        ]
+      }
+    ]
+  },
+  "meta": {
+    "request_id": "01j0example0request0id0000"
+  },
+  "error": null
+}

@@ -1,0 +1,42 @@
+{
+  "data": {
+    "id": "01m3by6km065c4v6e72eecghqw",
+    "slug": "focus-notes",
+    "name": "Focus Notes",
+    "subtitle": "Спокойное пространство для идей",
+    "category": {
+      "id": "01m3by6kks7bhfbxxrzb21c0rj",
+      "slug": "productivity",
+      "title": "Продуктивность"
+    },
+    "publisher": {
+      "id": "01m3by6kkybn4bbcvch60wjm5q",
+      "name": "North Studio",
+      "website": null
+    },
+    "icon_url": null,
+    "age_rating": "4+",
+    "latest_version": {
+      "version": "3.4.0",
+      "build_number": "340",
+      "min_ios_version": "17.0",
+      "released_at": "2026-09-22T09:26:33Z",
+      "size_bytes": 88080384
+    },
+    "install_state": {
+      "status": "get",
+      "reason": null,
+      "progress": null,
+      "installation_id": null
+    },
+    "description": "Собирайте мысли, планы и важные заметки в одном спокойном пространстве. Умные папки, быстрый поиск и фокус-режим помогают не терять главное.",
+    "release_notes": "Новый режим дня, быстрые виджеты и более удобная работа с тегами.",
+    "screenshots": [],
+    "support_url": null,
+    "privacy_url": null
+  },
+  "meta": {
+    "request_id": "01j0example0request0id0000"
+  },
+  "error": null
+}
