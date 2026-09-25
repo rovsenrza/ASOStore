@@ -4,7 +4,17 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
+/**
+ * @property int $attempt
+ * @property string|null $worker
+ * @property Carbon|null $started_at
+ * @property Carbon|null $finished_at
+ * @property string|null $result_code
+ * @property string|null $error_class
+ * @property string|null $error_message_redacted
+ */
 class PipelineJobAttempt extends Model
 {
     protected $fillable = [

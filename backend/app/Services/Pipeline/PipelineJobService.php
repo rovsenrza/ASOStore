@@ -2,8 +2,11 @@
 
 namespace App\Services\Pipeline;
 
+use App\Enums\ErrorCode;
 use App\Enums\PipelineJobStatus;
+use App\Exceptions\ApiException;
 use App\Exceptions\IllegalStateTransition;
+use App\Jobs\InspectArtifactJob;
 use App\Models\PipelineJob;
 use App\Models\PipelineJobAttempt;
 use App\Services\Audit\Actor;
@@ -105,6 +108,31 @@ class PipelineJobService
         $attempt->update($details + ['finished_at' => now(), 'result_code' => 'ERROR']);
 
         return $retryable;
+    }
+
+    /**
+     * Operator retry of a failed job (FULL_PLAN §9 POST /admin/jobs/{id}/retry).
+     * The job gets one more attempt; the idempotency key stays the same, so the
+     * work itself is never duplicated.
+     */
+    public function retry(PipelineJob $job, Actor $actor, string $reason): PipelineJob
+    {
+        if (! in_array($job->status, [PipelineJobStatus::FailedPermanent, PipelineJobStatus::FailedRetryable], true)) {
+            throw new IllegalStateTransition('PipelineJob', $job->status, PipelineJobStatus::Queued);
+        }
+
+        $this->states->transition($job, PipelineJobStatus::Queued, $reason, $actor, extra: ['available_at' => now()]);
+        $this->dispatch($job);
+
+        return $job;
+    }
+
+    public function dispatch(PipelineJob $job): void
+    {
+        match ($job->type) {
+            InspectArtifactJob::TYPE => InspectArtifactJob::dispatch($job->id)->afterCommit(),
+            default => throw new ApiException(ErrorCode::Conflict, 'Этот тип задачи нельзя перезапустить.', ['type' => $job->type]),
+        };
     }
 
     private function actor(): Actor

@@ -33,7 +33,7 @@ it('enrols an authenticator on the first staff sign-in', function () {
         ->assertOk()
         ->assertJsonPath('data.email', $admin->email)
         ->assertJsonPath('data.roles', ['admin'])
-        ->assertJsonPath('data.permissions', ['users.view', 'users.manage', 'activation-codes.view', 'activation-codes.manage', 'audit.view', 'catalog.view', 'catalog.manage', 'artifacts.view', 'artifacts.manage', 'devices.view', 'devices.manage', 'devices.reveal-udid']);
+        ->assertJsonPath('data.permissions', ['users.view', 'users.manage', 'activation-codes.view', 'activation-codes.manage', 'audit.view', 'catalog.view', 'catalog.manage', 'artifacts.view', 'artifacts.manage', 'jobs.view', 'jobs.manage', 'devices.view', 'devices.manage', 'devices.reveal-udid']);
 
     $this->getJson('/api/v1/admin/auth/me')->assertOk();
     expect($admin->fresh()->totp_confirmed_at)->not->toBeNull()

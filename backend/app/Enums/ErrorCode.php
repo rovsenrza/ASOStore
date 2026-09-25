@@ -43,6 +43,7 @@ enum ErrorCode: string
     case UploadCorrupt = 'UPLOAD_CORRUPT';
     case VersionExists = 'VERSION_EXISTS';
     case EncryptedBinary = 'ENCRYPTED_BINARY';
+    case SourceTypeNotPublishable = 'SOURCE_TYPE_NOT_PUBLISHABLE';
     case IdempotencyConflict = 'IDEMPOTENCY_CONFLICT';
     case AppleUnavailable = 'APPLE_UNAVAILABLE';
     case ServiceUnavailable = 'SERVICE_UNAVAILABLE';
@@ -61,6 +62,7 @@ enum ErrorCode: string
             self::Conflict, self::IllegalStateTransition, self::ActivationAlreadyUsed, self::DevicePendingApple,
             self::QuotaExhausted, self::NoEligibleTeam, self::ArtifactNotInstallable, self::DuplicateArtifact,
             self::VersionExists, self::EncryptedBinary, self::IdempotencyConflict, self::UploadCorrupt,
+            self::SourceTypeNotPublishable,
             self::DeviceLimitReached, self::DeviceOwnedElsewhere => 409,
             self::UploadIncomplete => 422,
             self::RateLimited => 429,
@@ -105,6 +107,7 @@ enum ErrorCode: string
             self::UploadCorrupt => 'Размер или контрольная сумма файла не совпадает.',
             self::VersionExists => 'Эта версия приложения уже существует.',
             self::EncryptedBinary => 'Файл зашифрован и не может быть принят.',
+            self::SourceTypeNotPublishable => 'Приложения с этим источником пока нельзя публиковать.',
             self::IdempotencyConflict => 'Повторный запрос с другими данными.',
             self::AppleUnavailable => 'Сервис Apple временно недоступен.',
             self::ServiceUnavailable => 'Сервис временно недоступен.',

@@ -2,7 +2,10 @@
 
 use App\Enums\RoleSlug;
 use App\Enums\SubscriptionStatus;
+use App\Models\AppArtifact;
 use App\Models\AppleTeam;
+use App\Models\AppVersion;
+use App\Models\CatalogApp;
 use App\Models\Role;
 use App\Models\Subscription;
 use App\Models\User;
@@ -11,6 +14,7 @@ use Database\Seeders\FakeAppleTeamSeeder;
 use Database\Seeders\RoleSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
+use Tests\Support\OpenApiContract;
 use Tests\TestCase;
 
 pest()->extend(TestCase::class)
@@ -149,3 +153,37 @@ function postEnrollment(string $challenge, array $attributes, ?string $body = nu
 }
 
 const TEST_UDID = '00008030-001A2B3C4D5E6F70';
+
+/**
+ * Uploads bytes through the chunked API; the sync queue inspects them inline.
+ *
+ * @return array<string, mixed> The complete response's data.
+ */
+function uploadIpa(User $manager, CatalogApp $app, string $bytes, ?AppVersion $version = null, string $sourceType = 'OWN_BUILD'): array
+{
+    $upload = asStaff($manager)->postJson('/api/v1/admin/uploads', [
+        'app_id' => $app->public_id,
+        'app_version_id' => $version?->public_id,
+        'filename' => 'DemoApp.ipa',
+        'size_bytes' => strlen($bytes),
+        'source_type' => $sourceType,
+        'declaration_version' => '2026-09-v1',
+        'declaration_accepted' => true,
+    ])->assertCreated()->json('data');
+
+    test()->call('PUT', "/api/v1/admin/uploads/{$upload['id']}/chunks/0", [], [], [], [
+        'CONTENT_TYPE' => 'application/octet-stream',
+        'HTTP_ACCEPT' => 'application/json',
+        'HTTP_REFERER' => 'http://localhost',
+    ], $bytes)->assertOk();
+
+    $response = test()->postJson("/api/v1/admin/uploads/{$upload['id']}/complete")->assertCreated();
+    expect(OpenApiContract::errors($response->getContent(), 'UploadedArtifactResponse'))->toBe([]);
+
+    return $response->json('data');
+}
+
+function inspected(array $data): AppArtifact
+{
+    return AppArtifact::where('public_id', $data['id'])->sole();
+}

@@ -4,58 +4,21 @@ use App\Enums\ArtifactStatus;
 use App\Enums\PipelineJobStatus;
 use App\Enums\RoleSlug;
 use App\Jobs\InspectArtifactJob;
-use App\Models\AppArtifact;
 use App\Models\AppVersion;
 use App\Models\AuditLog;
 use App\Models\CatalogApp;
 use App\Models\PipelineJob;
-use App\Models\User;
 use App\Services\Artifacts\ArtifactInspectionService;
 use App\Services\Pipeline\PipelineJobService;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Tests\Support\IpaBuilder;
-use Tests\Support\OpenApiContract;
 
 beforeEach(function () {
     Storage::fake('artifacts');
     $this->manager = userWithRoles(RoleSlug::CatalogManager);
     $this->catalogApp = CatalogApp::factory()->create();
 });
-
-/**
- * Uploads bytes through the chunked API; the sync queue inspects them inline.
- *
- * @return array<string, mixed> The complete response's data.
- */
-function uploadIpa(User $manager, CatalogApp $app, string $bytes, ?AppVersion $version = null): array
-{
-    $upload = asStaff($manager)->postJson('/api/v1/admin/uploads', [
-        'app_id' => $app->public_id,
-        'app_version_id' => $version?->public_id,
-        'filename' => 'DemoApp.ipa',
-        'size_bytes' => strlen($bytes),
-        'source_type' => 'OWN_BUILD',
-        'declaration_version' => '2026-09-v1',
-        'declaration_accepted' => true,
-    ])->assertCreated()->json('data');
-
-    test()->call('PUT', "/api/v1/admin/uploads/{$upload['id']}/chunks/0", [], [], [], [
-        'CONTENT_TYPE' => 'application/octet-stream',
-        'HTTP_ACCEPT' => 'application/json',
-        'HTTP_REFERER' => 'http://localhost',
-    ], $bytes)->assertOk();
-
-    $response = test()->postJson("/api/v1/admin/uploads/{$upload['id']}/complete")->assertCreated();
-    expect(OpenApiContract::errors($response->getContent(), 'UploadedArtifactResponse'))->toBe([]);
-
-    return $response->json('data');
-}
-
-function inspected(array $data): AppArtifact
-{
-    return AppArtifact::where('public_id', $data['id'])->sole();
-}
 
 it('moves a valid IPA to provenance review with its metadata and an audited job', function () {
     $data = uploadIpa($this->manager, $this->catalogApp, IpaBuilder::app()->build());

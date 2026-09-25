@@ -1721,6 +1721,306 @@ paths:
         "410": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
 
+  /admin/artifacts:
+    get:
+      tags: [Admin]
+      operationId: adminListArtifacts
+      summary: Review queue and artifact list
+      description: 'Requires artifacts.view. `q` matches the file name, bundle ID or exact SHA-256.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: status[]
+          in: query
+          schema:
+            type: array
+            items: { $ref: "#/components/schemas/ArtifactStatus" }
+        - name: app_id
+          in: query
+          schema: { $ref: "#/components/schemas/PublicId" }
+        - name: q
+          in: query
+          schema: { type: string, maxLength: 100 }
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminArtifactListResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /admin/artifacts/{artifact}:
+    get:
+      tags: [Admin]
+      operationId: adminGetArtifact
+      summary: Artifact detail with inspection report, reviews, documents, jobs and history
+      description: 'Requires artifacts.view. `available_actions` lists the moves the caller may make now.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ArtifactId"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminArtifactDetailResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /admin/artifacts/{artifact}/review:
+    post:
+      tags: [Admin]
+      operationId: adminReviewArtifact
+      summary: Approve or reject provenance review, or release/reject a quarantined file
+      description: |
+        Requires artifacts.manage. From PROVENANCE_REVIEW, `approve` needs every checklist item and, unless the
+        malware scan reported CLEAN, `acknowledge_scan_result`; it moves through COMPATIBILITY_CHECK to READY or
+        REJECTED (status_reason names the blocking finding). `reject` needs a reason → PROVENANCE_FAILED.
+        From QUARANTINED, `approve` releases the file back to PROVENANCE_REVIEW (reason required) and `reject` →
+        REJECTED. With STOREFRONT_INDEPENDENT_REVIEW the uploader cannot approve (403).
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ArtifactId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string, enum: [approve, reject] }
+                reason: { type: string, maxLength: 2000 }
+                checklist:
+                  type: object
+                  additionalProperties: { type: boolean }
+                  description: 'Keys from review_checklist.items in the artifact detail.'
+                acknowledge_scan_result: { type: boolean }
+      responses:
+        "200":
+          description: Decision recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminArtifactReviewResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /admin/artifacts/{artifact}/publish:
+    post:
+      tags: [Admin]
+      operationId: adminPublishArtifact
+      summary: Publish a READY artifact
+      description: 'Requires artifacts.manage. Only READY → PUBLISHED, and only for publishable source types. The previous published build of the app becomes EXPIRED (SUPERSEDED); the catalog version is created or linked.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ArtifactId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Published
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminArtifactResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /admin/artifacts/{artifact}/revoke:
+    post:
+      tags: [Admin]
+      operationId: adminRevokeArtifact
+      summary: Revoke a READY or PUBLISHED artifact
+      description: 'Requires artifacts.manage. Irreversible; the reason is audited.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ArtifactId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        $ref: "#/components/requestBodies/Reason"
+      responses:
+        "200":
+          description: Revoked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminArtifactResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /admin/artifacts/{artifact}/inspect:
+    post:
+      tags: [Admin]
+      operationId: adminReinspectArtifact
+      summary: Inspect an INSPECTION_FAILED artifact again
+      description: 'Requires artifacts.manage. Queues a new InspectArtifactJob.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ArtifactId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason: { type: string, maxLength: 2000 }
+      responses:
+        "202":
+          description: Queued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminArtifactReinspectResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /admin/artifacts/{artifact}/documents:
+    post:
+      tags: [Admin]
+      operationId: adminAddProvenanceDocument
+      summary: Attach a provenance document (license, agreement, build log)
+      description: 'Requires artifacts.manage. PDF, PNG, JPEG or plain text up to 20 MiB, stored privately.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ArtifactId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                description: { type: string, maxLength: 500 }
+      responses:
+        "201":
+          description: Stored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProvenanceDocumentResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /admin/artifacts/{artifact}/documents/{document}:
+    get:
+      tags: [Admin]
+      operationId: adminDownloadProvenanceDocument
+      summary: Download a provenance document (audited)
+      description: 'Requires artifacts.view.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ArtifactId"
+        - name: document
+          in: path
+          required: true
+          schema: { $ref: "#/components/schemas/PublicId" }
+      responses:
+        "200":
+          description: The file
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /admin/jobs:
+    get:
+      tags: [Admin]
+      operationId: adminListJobs
+      summary: Pipeline jobs
+      description: 'Requires jobs.view.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - name: status[]
+          in: query
+          schema:
+            type: array
+            items: { $ref: "#/components/schemas/PipelineJobStatus" }
+        - name: type
+          in: query
+          schema: { type: string, maxLength: 64 }
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/PerPage"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminJobListResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /admin/jobs/{job}:
+    get:
+      tags: [Admin]
+      operationId: adminGetJob
+      summary: Pipeline job with its attempts
+      description: 'Requires jobs.view.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminJobDetailResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /admin/jobs/{job}/retry:
+    post:
+      tags: [Admin]
+      operationId: adminRetryJob
+      summary: Retry a failed job once (audited)
+      description: 'Requires jobs.manage. Only FAILED_RETRYABLE or FAILED_PERMANENT jobs; the idempotency key of the work is unchanged, so the work is never duplicated.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        $ref: "#/components/requestBodies/Reason"
+      responses:
+        "202":
+          description: Queued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminJobResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
 
 components:
   securitySchemes:
@@ -1739,9 +2039,32 @@ components:
       description: 'Echoes a well-formed client X-Request-Id or returns a generated one. Quote it in support tickets.'
       schema: { type: string }
 
+  requestBodies:
+    Reason:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [reason]
+            properties:
+              reason: { type: string, maxLength: 2000 }
+
   parameters:
     UploadId:
       name: upload
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/PublicId" }
+
+    ArtifactId:
+      name: artifact
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/PublicId" }
+
+    JobId:
+      name: job
       in: path
       required: true
       schema: { $ref: "#/components/schemas/PublicId" }
@@ -1860,6 +2183,7 @@ components:
         - UPLOAD_CORRUPT
         - VERSION_EXISTS
         - ENCRYPTED_BINARY
+        - SOURCE_TYPE_NOT_PUBLISHABLE
         - IDEMPOTENCY_CONFLICT
         - APPLE_UNAVAILABLE
         - SERVICE_UNAVAILABLE
@@ -2128,7 +2452,7 @@ components:
 
     Permission:
       type: string
-      enum: [users.view, users.manage, activation-codes.view, activation-codes.manage, audit.view, catalog.view, catalog.manage, artifacts.view, artifacts.manage, devices.view, devices.manage, devices.reveal-udid]
+      enum: [users.view, users.manage, activation-codes.view, activation-codes.manage, audit.view, catalog.view, catalog.manage, artifacts.view, artifacts.manage, jobs.view, jobs.manage, devices.view, devices.manage, devices.reveal-udid]
 
     Subscription:
       type: object
@@ -3017,6 +3341,229 @@ components:
         with a machine-readable status_reason (e.g. ENCRYPTED_BINARY, VERSION_EXISTS, UNSAFE_PATH).
       enum: [UPLOADED, HASHING, INSPECTING, PROVENANCE_REVIEW, COMPATIBILITY_CHECK, READY, PUBLISHED, REJECTED,
         INSPECTION_FAILED, PROVENANCE_FAILED, QUARANTINED, REVOKED, EXPIRED]
+
+    AdminArtifact:
+      type: object
+      required: [id, app, status, status_reason, original_filename, size_bytes, sha256, source_type, bundle_identifier,
+        version, build_number, min_ios_version, compatibility_issues, malware_scan, uploaded_by, created_at, updated_at]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        app:
+          oneOf:
+            - type: object
+              required: [id, name, source_type]
+              properties:
+                id: { $ref: "#/components/schemas/PublicId" }
+                name: { type: string }
+                source_type: { type: string }
+            - type: "null"
+        status: { $ref: "#/components/schemas/ArtifactStatus" }
+        status_reason: { type: [string, "null"], description: 'Machine-readable reason, e.g. ENCRYPTED_BINARY, ARM64_MISSING, SUPERSEDED.' }
+        original_filename: { type: string }
+        size_bytes: { type: integer, minimum: 1 }
+        sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        source_type: { type: string }
+        bundle_identifier: { type: [string, "null"] }
+        version: { type: [string, "null"] }
+        build_number: { type: [string, "null"] }
+        min_ios_version: { type: [string, "null"] }
+        compatibility_issues: { type: array, items: { type: string } }
+        malware_scan: { type: [string, "null"], enum: [CLEAN, INFECTED, SCAN_UNAVAILABLE, null] }
+        uploaded_by: { type: [string, "null"] }
+        created_at: { type: [string, "null"] }
+        updated_at: { type: [string, "null"] }
+
+    AdminArtifactDetail:
+      allOf:
+        - $ref: "#/components/schemas/AdminArtifact"
+        - type: object
+          required: [declaration, app_version_id, inspection, reviews, documents, jobs, available_actions, review_checklist, history]
+          properties:
+            declaration:
+              type: object
+              required: [version, accepted_at]
+              properties:
+                version: { type: string }
+                accepted_at: { type: [string, "null"] }
+            app_version_id:
+              oneOf:
+                - $ref: "#/components/schemas/PublicId"
+                - type: "null"
+            inspection:
+              type: [object, "null"]
+              description: 'Full inspection report: archive, bundle, binaries, nested_bundles, entitlements, embedded_profile, malware_scan, compatibility_issues, failure, compatibility.'
+            reviews:
+              type: array
+              items:
+                type: object
+                required: [id, decision, from_status, to_status, reason, checklist, scan_result_acknowledged, reviewer, created_at]
+                properties:
+                  id: { $ref: "#/components/schemas/PublicId" }
+                  decision: { type: string, enum: [APPROVED, REJECTED, RELEASED] }
+                  from_status: { $ref: "#/components/schemas/ArtifactStatus" }
+                  to_status: { $ref: "#/components/schemas/ArtifactStatus" }
+                  reason: { type: [string, "null"] }
+                  checklist: { type: [object, "null"], additionalProperties: { type: boolean } }
+                  scan_result_acknowledged: { type: boolean }
+                  reviewer: { type: [string, "null"] }
+                  created_at: { type: string }
+            documents:
+              type: array
+              items: { $ref: "#/components/schemas/ProvenanceDocument" }
+            jobs:
+              type: array
+              items: { $ref: "#/components/schemas/AdminJob" }
+            available_actions:
+              type: array
+              items: { type: string, enum: [approve, reject, release, publish, revoke, inspect] }
+            review_checklist:
+              type: object
+              required: [version, items]
+              properties:
+                version: { type: string }
+                items: { type: array, items: { type: string } }
+            history:
+              type: array
+              items: { $ref: "#/components/schemas/AuditEntry" }
+
+    AdminArtifactListResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/AdminArtifact" }
+            meta:
+              allOf:
+                - $ref: "#/components/schemas/Meta"
+                - required: [pagination]
+
+    AdminArtifactResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/AdminArtifact" }
+
+    AdminArtifactDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/AdminArtifactDetail" }
+
+    AdminArtifactReviewResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: object
+              required: [review_id, decision, artifact]
+              properties:
+                review_id: { $ref: "#/components/schemas/PublicId" }
+                decision: { type: string, enum: [APPROVED, REJECTED, RELEASED] }
+                artifact: { $ref: "#/components/schemas/AdminArtifact" }
+
+    AdminArtifactReinspectResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: object
+              required: [artifact, job]
+              properties:
+                artifact: { $ref: "#/components/schemas/AdminArtifact" }
+                job: { $ref: "#/components/schemas/AdminJob" }
+
+    ProvenanceDocument:
+      type: object
+      required: [id, filename, mime_type, size_bytes, sha256, description, download_url, created_at]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        filename: { type: string }
+        mime_type: { type: string }
+        size_bytes: { type: integer, minimum: 0 }
+        sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        description: { type: [string, "null"] }
+        download_url: { type: string }
+        created_at: { type: string }
+
+    ProvenanceDocumentResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/ProvenanceDocument" }
+
+    PipelineJobStatus:
+      type: string
+      enum: [QUEUED, LEASED, RUNNING, SUCCEEDED, FAILED_RETRYABLE, FAILED_PERMANENT, CANCELLED]
+
+    AdminJob:
+      type: object
+      required: [id, type, status, attempt, max_attempts, subject, correlation_id, result_code, error_class, error_message,
+        started_at, finished_at, created_at]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        type: { type: string, examples: [InspectArtifactJob] }
+        status: { $ref: "#/components/schemas/PipelineJobStatus" }
+        attempt: { type: integer, minimum: 0 }
+        max_attempts: { type: integer, minimum: 1 }
+        subject:
+          oneOf:
+            - type: object
+              required: [type, id]
+              properties:
+                type: { type: string, enum: [artifact] }
+                id: { $ref: "#/components/schemas/PublicId" }
+            - type: "null"
+        correlation_id: { type: string }
+        result_code: { type: [string, "null"] }
+        error_class: { type: [string, "null"] }
+        error_message: { type: [string, "null"] }
+        started_at: { type: [string, "null"] }
+        finished_at: { type: [string, "null"] }
+        created_at: { type: [string, "null"] }
+
+    AdminJobListResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/AdminJob" }
+            meta:
+              allOf:
+                - $ref: "#/components/schemas/Meta"
+                - required: [pagination]
+
+    AdminJobResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/AdminJob" }
+
+    AdminJobDetailResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              allOf:
+                - $ref: "#/components/schemas/AdminJob"
+                - type: object
+                  required: [payload, attempts]
+                  properties:
+                    payload: { type: [object, "null"] }
+                    attempts:
+                      type: array
+                      items:
+                        type: object
+                        required: [attempt, worker, started_at, finished_at, result_code, error_class, error_message]
+                        properties:
+                          attempt: { type: integer, minimum: 1 }
+                          worker: { type: [string, "null"] }
+                          started_at: { type: [string, "null"] }
+                          finished_at: { type: [string, "null"] }
+                          result_code: { type: [string, "null"] }
+                          error_class: { type: [string, "null"] }
+                          error_message: { type: [string, "null"] }
 
     UploadedArtifactResponse:
       allOf:

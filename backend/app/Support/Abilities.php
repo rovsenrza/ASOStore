@@ -25,6 +25,8 @@ final class Abilities
         'catalog.manage' => [RoleSlug::CatalogManager, RoleSlug::Admin],
         'artifacts.view' => [RoleSlug::Support, RoleSlug::CatalogManager, RoleSlug::Admin],
         'artifacts.manage' => [RoleSlug::CatalogManager, RoleSlug::Admin],
+        'jobs.view' => [RoleSlug::Support, RoleSlug::CatalogManager, RoleSlug::Admin],
+        'jobs.manage' => [RoleSlug::CatalogManager, RoleSlug::Admin],
         'devices.view' => [RoleSlug::Support, RoleSlug::Admin],
         'devices.manage' => [RoleSlug::Admin],
         'devices.reveal-udid' => [RoleSlug::Admin],

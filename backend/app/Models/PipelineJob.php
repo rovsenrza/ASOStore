@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
+use Illuminate\Support\Carbon;
 
 /**
  * @property PipelineJobStatus $status
@@ -18,6 +19,8 @@ use Illuminate\Database\Eloquent\Relations\MorphTo;
  * @property string $correlation_id
  * @property string|null $result_code
  * @property string|null $error_class
+ * @property Carbon|null $started_at
+ * @property Carbon|null $finished_at
  */
 class PipelineJob extends Model
 {

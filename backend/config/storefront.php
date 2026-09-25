@@ -86,6 +86,23 @@ return [
         'feed_section_limit' => 10,
     ],
 
+    'artifacts' => [
+        // Source types that may be published (FULL_PLAN §5.1). Narrow this to match the
+        // P0-01 distribution-channel determination, e.g. "OWN_BUILD" for the pilot.
+        'publishable_source_types' => array_values(array_filter(explode(',', (string) env(
+            'STOREFRONT_PUBLISHABLE_SOURCE_TYPES',
+            'OWN_BUILD,PARTNER_BUILD,OPEN_SOURCE_BUILD,ALTERNATIVE_MARKETPLACE_PACKAGE,USER_IMPORT,CUSTOMER_PROVIDED',
+        )))),
+        // When true, the uploader of an artifact cannot approve it (four-eyes review).
+        'independent_review' => (bool) env('STOREFRONT_INDEPENDENT_REVIEW', false),
+        // Provenance review checklist (P0-02). Every item must be confirmed to approve;
+        // bump the version whenever the wording the reviewer sees changes.
+        'review_checklist_version' => '2026-09-v1',
+        'review_checklist' => ['source_verified', 'distribution_rights_confirmed', 'inspection_report_reviewed'],
+        'document_max_kilobytes' => 20 * 1024,
+        'document_mimes' => ['pdf', 'png', 'jpg', 'jpeg', 'txt'],
+    ],
+
     // IPA inspection limits (IMPLEMENTATION_PLAN §5.7). Archives are untrusted.
     'inspection' => [
         'max_entries' => (int) env('STOREFRONT_IPA_MAX_ENTRIES', 100000),

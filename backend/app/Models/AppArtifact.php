@@ -9,6 +9,9 @@ use Database\Factories\AppArtifactFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
+use Illuminate\Support\Carbon;
 
 /**
  * @property ArtifactStatus $status
@@ -16,6 +19,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property int $size_bytes
  * @property string $storage_path
  * @property string $original_filename
+ * @property SourceType $source_type
+ * @property string|null $status_reason
+ * @property string|null $bundle_identifier
+ * @property string|null $version
+ * @property string|null $build_number
+ * @property string|null $min_ios_version
+ * @property array<string, mixed>|null $inspection
+ * @property int|null $app_version_id
+ * @property Carbon $declaration_accepted_at
  *
  * An original uploaded IPA. Identity and declaration columns are immutable at
  * the database level; only status and inspection results change.
@@ -72,5 +84,29 @@ class AppArtifact extends Model
     public function uploader(): BelongsTo
     {
         return $this->belongsTo(User::class, 'uploaded_by');
+    }
+
+    /**
+     * @return HasMany<ArtifactReview, $this>
+     */
+    public function reviews(): HasMany
+    {
+        return $this->hasMany(ArtifactReview::class, 'artifact_id')->orderBy('id');
+    }
+
+    /**
+     * @return HasMany<ProvenanceDocument, $this>
+     */
+    public function documents(): HasMany
+    {
+        return $this->hasMany(ProvenanceDocument::class, 'artifact_id')->orderBy('id');
+    }
+
+    /**
+     * @return MorphMany<PipelineJob, $this>
+     */
+    public function pipelineJobs(): MorphMany
+    {
+        return $this->morphMany(PipelineJob::class, 'subject')->orderBy('id');
     }
 }
