@@ -1621,6 +1621,106 @@ paths:
         "422":
           $ref: "#/components/responses/Error"
 
+  /admin/uploads:
+    post:
+      tags: [Admin]
+      operationId: adminStartUpload
+      summary: Start a resumable IPA upload
+      description: 'Requires artifacts.manage. The declaration must be accepted before any bytes are uploaded.'
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateUploadRequest" }
+      responses:
+        "201":
+          description: Upload session created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadSessionResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /admin/uploads/{upload}:
+    get:
+      tags: [Admin]
+      operationId: adminGetUpload
+      summary: Query upload progress and missing chunks
+      description: 'Requires artifacts.view.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/UploadId"
+      responses:
+        "200":
+          description: Upload state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadSessionResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /admin/uploads/{upload}/chunks/{number}:
+    put:
+      tags: [Admin]
+      operationId: adminPutUploadChunk
+      summary: Store or idempotently replay one IPA chunk
+      description: 'Requires artifacts.manage. Chunks are 8 MiB except for the final chunk.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/UploadId"
+        - name: number
+          in: path
+          required: true
+          schema: { type: integer, minimum: 0 }
+        - name: X-Chunk-SHA256
+          in: header
+          required: false
+          schema: { type: string, pattern: '^[a-fA-F0-9]{64}$' }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: Chunk stored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadChunkResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "410": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /admin/uploads/{upload}/complete:
+    post:
+      tags: [Admin]
+      operationId: adminCompleteUpload
+      summary: Assemble chunks, verify SHA-256 and create the source artifact
+      description: 'Requires artifacts.manage. Hashing is streamed and does not load the IPA into memory.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/UploadId"
+      responses:
+        "201":
+          description: Artifact created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadedArtifactResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "410": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
 
 components:
   securitySchemes:
@@ -1640,6 +1740,12 @@ components:
       schema: { type: string }
 
   parameters:
+    UploadId:
+      name: upload
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/PublicId" }
+
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -1750,6 +1856,8 @@ components:
         - INCOMPATIBLE_DEVICE
         - INSTALL_TOKEN_EXPIRED
         - DUPLICATE_ARTIFACT
+        - UPLOAD_INCOMPLETE
+        - UPLOAD_CORRUPT
         - VERSION_EXISTS
         - ENCRYPTED_BINARY
         - IDEMPOTENCY_CONFLICT
@@ -2020,7 +2128,7 @@ components:
 
     Permission:
       type: string
-      enum: [users.view, users.manage, activation-codes.view, activation-codes.manage, audit.view, catalog.view, catalog.manage, devices.view, devices.manage, devices.reveal-udid]
+      enum: [users.view, users.manage, activation-codes.view, activation-codes.manage, audit.view, catalog.view, catalog.manage, artifacts.view, artifacts.manage, devices.view, devices.manage, devices.reveal-udid]
 
     Subscription:
       type: object
@@ -2823,3 +2931,80 @@ components:
             data:
               type: array
               items: { $ref: "#/components/schemas/AdminPublisher" }
+
+    CreateUploadRequest:
+      type: object
+      required: [app_id, filename, size_bytes, source_type, declaration_version, declaration_accepted]
+      properties:
+        app_id: { $ref: "#/components/schemas/PublicId" }
+        app_version_id:
+          oneOf:
+            - $ref: "#/components/schemas/PublicId"
+            - type: "null"
+        filename: { type: string, pattern: '\.[iI][pP][aA]$' }
+        size_bytes: { type: integer, minimum: 1, maximum: 5368709120 }
+        sha256:
+          type: [string, "null"]
+          pattern: '^[a-fA-F0-9]{64}$'
+        source_type: { $ref: "#/components/schemas/SourceType" }
+        declaration_version: { type: string, maxLength: 32 }
+        declaration_accepted: { type: boolean, const: true }
+
+    UploadSession:
+      type: object
+      required: [id, status, filename, size_bytes, chunk_size, chunk_count, received_chunks, missing_chunks, expires_at, artifact_id]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        status: { type: string, enum: [OPEN, ASSEMBLING, COMPLETED, FAILED] }
+        filename: { type: string }
+        size_bytes: { type: integer, minimum: 1 }
+        chunk_size: { type: integer, const: 8388608 }
+        chunk_count: { type: integer, minimum: 1 }
+        received_chunks:
+          type: array
+          items: { type: integer, minimum: 0 }
+        missing_chunks:
+          type: array
+          items: { type: integer, minimum: 0 }
+        expires_at: { $ref: "#/components/schemas/Timestamp" }
+        artifact_id:
+          oneOf:
+            - $ref: "#/components/schemas/PublicId"
+            - type: "null"
+
+    UploadSessionResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/UploadSession" }
+
+    UploadChunk:
+      type: object
+      required: [number, size_bytes, sha256, already_received]
+      properties:
+        number: { type: integer, minimum: 0 }
+        size_bytes: { type: integer, minimum: 1 }
+        sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        already_received: { type: boolean }
+
+    UploadChunkResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/UploadChunk" }
+
+    UploadedArtifact:
+      type: object
+      required: [id, status, sha256, size_bytes, original_filename]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        status: { type: string, enum: [UPLOADED] }
+        sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        size_bytes: { type: integer, minimum: 1 }
+        original_filename: { type: string }
+
+    UploadedArtifactResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/UploadedArtifact" }

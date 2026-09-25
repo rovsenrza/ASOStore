@@ -14,18 +14,19 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
 
 /**
  * A catalog listing. Named CatalogApp to avoid clashing with the App facade
  * alias; the table is "apps" as in FULL_PLAN §7.
  *
- * @property \App\Enums\SourceType $source_type
- * @property \App\Enums\AppVisibility $visibility
+ * @property SourceType $source_type
+ * @property AppVisibility $visibility
  * @property bool $is_storefront
  * @property int|null $featured_rank
- * @property \Illuminate\Support\Carbon|null $deleted_at
- * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property Carbon|null $deleted_at
+ * @property Carbon|null $updated_at
  */
 class CatalogApp extends Model
 {

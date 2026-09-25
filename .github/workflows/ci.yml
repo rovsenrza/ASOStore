@@ -138,4 +138,3 @@ jobs:
           -project Storefront.xcodeproj
           -scheme Storefront
           -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}"
-          CODE_SIGNING_ALLOWED=NO

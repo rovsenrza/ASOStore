@@ -11,6 +11,12 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
+ * @property ArtifactStatus $status
+ * @property string $sha256
+ * @property int $size_bytes
+ * @property string $storage_path
+ * @property string $original_filename
+ *
  * An original uploaded IPA. Identity and declaration columns are immutable at
  * the database level; only status and inspection results change.
  */

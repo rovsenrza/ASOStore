@@ -17,7 +17,11 @@ FULL_PLAN defines **what** we build and the rules we can't break. This document 
 
 ### 0.1 Status (updated 2026-09-25)
 
-**Phases 1–2 implemented; Phase 3 implemented except the steps that need the Apple Developer account; Phase 0 decisions still open.** The Apple integration sits behind a driver switch (`disabled` / `fake` / `appstoreconnect`); connecting the account is `apple:store-key` + `apple:connect` (README).
+**Phases 1–2 implemented; Phase 3 implemented except the physical-device and Apple Developer account gates; Phase 4 implementation is complete locally; Phase 0 Apple/compliance decisions remain open.** Work can proceed through Phase 5 and the account-independent parts of Phase 6 while the Apple account is pending. The Apple integration sits behind a driver switch (`disabled` / `fake` / `appstoreconnect`); connecting the account is `apple:store-key` + `apple:connect` (README).
+
+Phase 5 is in progress. P5-BE-01 is implemented: authorized 8 MiB resumable uploads, received/missing chunk discovery, idempotent chunk replay, streamed SHA-256 assembly, duplicate/corruption handling, immutable artifact creation on the private `artifacts` disk, provenance capture, RBAC, audit records and OpenAPI coverage. The next slice is IPA safety/metadata inspection and its queued job (P5-BE-02).
+
+Phase 4 verified locally: catalog CRUD, taxonomy, versions and normalized media uploads are covered by Pest; the native Today/Browse/Search/AppDetail screens use `CatalogRepository` against the API with an offline cache. The iOS suite covers content, navigation, search, empty, offline, unauthorized, expired and server-error states. Russian UI strings now have a String Catalog. `MockCatalog` remains Debug-only. The remaining Phase 4 exit-gate check is the live admin → API → Simulator journey in CI/local integration mode.
 
 Phase 3 verified: 229 Pest tests (signed enrollment answers, challenge reuse and expiry, device ownership and limits, slot reservation at the per-family limit, Apple retry/permanent/processing paths, claims, admin reveal, App Store Connect driver against recorded HTTP responses, UDID privacy), 11 Playwright journeys including iPhone enrollment, 41 iOS tests (deep links, claim sign-in). The `storefront://` scheme opens the app in the Simulator.
 
@@ -46,9 +50,9 @@ Deviations and follow-ups from Phase 1:
 - **No Sail yet (D14).** Docker was not running, so development used the local MySQL server (9.6). CI tests against MySQL 8.0. Still open: add Sail or pin MySQL 8 locally.
 - ~~Validation messages are English.~~ Russian messages for the rules in use were added in Phase 2 (`backend/lang/ru`).
 - **Web smoke uses headless Chrome directly** (`scripts/web-smoke.mjs`); interactive flows are covered by Playwright since Phase 2.
-- **iOS screens still use `MockCatalog`**; wiring them to the API is Phase 4 (P4-IOS-01). The Library tab still shows illustrative sync text; the Account tab uses real data since Phase 2.
+- **Catalog screens now use the API through `CatalogRepository`.** `MockCatalog` is Debug-only. The Library tab intentionally remains an empty-state shell until the installation API arrives in Phase 6; the Account tab uses real data since Phase 2.
 - **Bundle ID and API hosts are placeholders** (`ios/Config/*.xcconfig`) pending P0-04.
-- **CI is written for GitHub Actions** and has not run remotely; the repository has no remote and no commits yet.
+- **CI runs on GitHub Actions.** Simulator signing must remain enabled for Keychain tests; it uses local ad-hoc Simulator signing and does not require an Apple Developer account.
 
 ---
 

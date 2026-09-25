@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\Admin\AppVersionController;
 use App\Http\Controllers\Api\V1\Admin\AuditLogController;
 use App\Http\Controllers\Api\V1\Admin\DeviceController as AdminDeviceController;
 use App\Http\Controllers\Api\V1\Admin\TaxonomyController;
+use App\Http\Controllers\Api\V1\Admin\UploadController;
 use App\Http\Controllers\Api\V1\Admin\UserController;
 use App\Http\Controllers\Api\V1\Customer\ActivationController;
 use App\Http\Controllers\Api\V1\Customer\AppController;
@@ -109,6 +110,10 @@ Route::prefix('admin')->name('api.admin.')->group(function () {
         Route::delete('/apps/{app}/screenshots/{screenshot}', [AppMediaController::class, 'destroyScreenshot'])->can('catalog.manage')->name('apps.screenshots.destroy');
         Route::post('/apps/{app}/versions', [AppVersionController::class, 'store'])->can('catalog.manage')->name('apps.versions.store');
         Route::patch('/app-versions/{version}', [AppVersionController::class, 'update'])->can('catalog.manage')->name('app-versions.update');
+        Route::post('/uploads', [UploadController::class, 'store'])->can('artifacts.manage')->name('uploads.store');
+        Route::get('/uploads/{upload}', [UploadController::class, 'show'])->can('artifacts.view')->name('uploads.show');
+        Route::put('/uploads/{upload}/chunks/{number}', [UploadController::class, 'chunk'])->can('artifacts.manage')->whereNumber('number')->name('uploads.chunks.store');
+        Route::post('/uploads/{upload}/complete', [UploadController::class, 'complete'])->can('artifacts.manage')->name('uploads.complete');
         Route::get('/categories', [TaxonomyController::class, 'categories'])->can('catalog.view')->name('categories.index');
         Route::post('/categories', [TaxonomyController::class, 'storeCategory'])->can('catalog.manage')->name('categories.store');
         Route::patch('/categories/{category}', [TaxonomyController::class, 'updateCategory'])->can('catalog.manage')->name('categories.update');

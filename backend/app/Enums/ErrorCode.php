@@ -39,6 +39,8 @@ enum ErrorCode: string
     case IncompatibleDevice = 'INCOMPATIBLE_DEVICE';
     case InstallTokenExpired = 'INSTALL_TOKEN_EXPIRED';
     case DuplicateArtifact = 'DUPLICATE_ARTIFACT';
+    case UploadIncomplete = 'UPLOAD_INCOMPLETE';
+    case UploadCorrupt = 'UPLOAD_CORRUPT';
     case VersionExists = 'VERSION_EXISTS';
     case EncryptedBinary = 'ENCRYPTED_BINARY';
     case IdempotencyConflict = 'IDEMPOTENCY_CONFLICT';
@@ -58,8 +60,9 @@ enum ErrorCode: string
             self::InstallTokenExpired => 410,
             self::Conflict, self::IllegalStateTransition, self::ActivationAlreadyUsed, self::DevicePendingApple,
             self::QuotaExhausted, self::NoEligibleTeam, self::ArtifactNotInstallable, self::DuplicateArtifact,
-            self::VersionExists, self::EncryptedBinary, self::IdempotencyConflict,
+            self::VersionExists, self::EncryptedBinary, self::IdempotencyConflict, self::UploadCorrupt,
             self::DeviceLimitReached, self::DeviceOwnedElsewhere => 409,
+            self::UploadIncomplete => 422,
             self::RateLimited => 429,
             self::AppleUnavailable, self::AppleNotConnected, self::ServiceUnavailable => 503,
             self::Internal => 500,
@@ -98,6 +101,8 @@ enum ErrorCode: string
             self::IncompatibleDevice => 'Приложение несовместимо с этим устройством.',
             self::InstallTokenExpired => 'Ссылка на установку устарела. Запросите новую.',
             self::DuplicateArtifact => 'Такой файл уже загружен.',
+            self::UploadIncomplete => 'Загружены не все части файла.',
+            self::UploadCorrupt => 'Размер или контрольная сумма файла не совпадает.',
             self::VersionExists => 'Эта версия приложения уже существует.',
             self::EncryptedBinary => 'Файл зашифрован и не может быть принят.',
             self::IdempotencyConflict => 'Повторный запрос с другими данными.',

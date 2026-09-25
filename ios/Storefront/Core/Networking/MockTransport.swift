@@ -8,7 +8,7 @@ import Foundation
 /// states UI tests check (FULL_PLAN §11 "UI states").
 nonisolated struct MockTransport: HTTPTransport {
     enum Scenario: String, Sendable {
-        case normal, offline, empty, error
+        case normal, offline, empty, unauthorized, expired, error
 
         static func fromLaunchArguments(_ arguments: [String] = ProcessInfo.processInfo.arguments) -> Scenario {
             guard let index = arguments.firstIndex(of: "-mockScenario"), arguments.indices.contains(index + 1) else { return .normal }
@@ -61,8 +61,12 @@ nonisolated struct MockTransport: HTTPTransport {
         switch scenario {
         case .offline:
             throw URLError(.notConnectedToInternet)
+        case .unauthorized:
+            return respond(request, status: 401, body: errorBody(code: "UNAUTHENTICATED", message: "Требуется вход."))
+        case .expired:
+            return respond(request, status: 401, body: errorBody(code: "SESSION_EXPIRED", message: "Сеанс истёк."))
         case .error:
-            return respond(request, status: 500, body: Data(#"{"data":null,"meta":{"request_id":"mock-error"},"error":{"code":"INTERNAL","message":"Внутренняя ошибка.","details":{}}}"#.utf8))
+            return respond(request, status: 500, body: errorBody(code: "INTERNAL", message: "Внутренняя ошибка."))
         case .empty, .normal:
             break
         }
@@ -90,6 +94,15 @@ nonisolated struct MockTransport: HTTPTransport {
         }
 
         return respond(request, status: route == nil ? 404 : 200, body: body)
+    }
+
+    private func errorBody(code: String, message: String) -> Data {
+        let body: [String: Any] = [
+            "data": NSNull(),
+            "meta": ["request_id": "mock-error"],
+            "error": ["code": code, "message": message, "details": [:]],
+        ]
+        return (try? JSONSerialization.data(withJSONObject: body)) ?? Data()
     }
 
     /// Applies ?q= and ?category= to the apps-list fixture, like the API does.

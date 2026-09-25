@@ -47,6 +47,14 @@ return [
             'report' => false,
         ],
 
+        'artifacts' => [
+            'driver' => 'local',
+            'root' => env('ARTIFACTS_PATH', storage_path('app/artifacts')),
+            'visibility' => 'private',
+            'throw' => true,
+            'report' => true,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

@@ -2,7 +2,7 @@ import XCTest
 
 /// Catalog screens against the bundled API examples (IMPLEMENTATION_PLAN
 /// Phase 4 gate): content, navigation, search, and the empty, offline and
-/// server-error states.
+/// authentication, expiry, and server-error states.
 final class CatalogUITests: XCTestCase {
     override func setUp() {
         continueAfterFailure = false
@@ -80,6 +80,24 @@ final class CatalogUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Что-то пошло не так"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "mock-error")).firstMatch.exists)
+    }
+
+    @MainActor
+    func testUnauthorizedCatalogRequestsShowSignInState() {
+        let app = launch("unauthorized", tab: "apps")
+
+        XCTAssertTrue(app.staticTexts["Нужен вход"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Войдите в аккаунт, чтобы продолжить."].exists)
+        XCTAssertTrue(app.buttons["Повторить"].exists)
+    }
+
+    @MainActor
+    func testExpiredCatalogRequestsShowRenewalState() {
+        let app = launch("expired", tab: "apps")
+
+        XCTAssertTrue(app.staticTexts["Сеанс истёк"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Войдите снова, чтобы продолжить."].exists)
+        XCTAssertTrue(app.buttons["Повторить"].exists)
     }
 
     @MainActor
