@@ -9,31 +9,37 @@ struct StorefrontTabView: View {
         @Bindable var router = router
 
         TabView(selection: $router.selectedTab) {
-            Tab("Сегодня", systemImage: "sparkles", value: .today) {
-                TodayView()
+            Tab("Главная", systemImage: "rectangle.stack.fill", value: .home) {
+                FeedScreen(kind: .all)
             }
 
-            Tab("Приложения", systemImage: "square.grid.2x2", value: .apps) {
-                BrowseView()
+            Tab("Игры", systemImage: "gamecontroller.fill", value: .games) {
+                FeedScreen(kind: .games)
             }
 
-            Tab("Поиск", systemImage: "magnifyingglass", value: .search) {
+            Tab("Приложения", systemImage: "square.stack.3d.up.fill", value: .apps) {
+                FeedScreen(kind: .apps)
+            }
+
+            Tab("Менеджер", systemImage: "arrow.down.app.fill", value: .manager) {
+                ManagerView()
+            }
+
+            Tab("Поиск", systemImage: "magnifyingglass", value: .search, role: .search) {
                 SearchView()
             }
-
-            Tab("Медиатека", systemImage: "square.stack", value: .library) {
-                LibraryView()
-            }
-
-            Tab("Аккаунт", systemImage: "person.crop.circle", value: .account) {
-                AccountView()
+        }
+        .sheet(item: $router.sheet) { sheet in
+            switch sheet {
+            case .account: AccountSheet()
+            case .notifications: NotificationsSheet()
             }
         }
         .onChange(of: session.state) { _, state in
             showsExpiredAlert = state == .expired
         }
         .alert("Сеанс истёк", isPresented: $showsExpiredAlert) {
-            Button("Войти") { router.selectedTab = .account }
+            Button("Войти") { router.sheet = .account }
             Button("Позже", role: .cancel) {}
         } message: {
             Text("Войдите снова, чтобы продолжить работу с магазином.")

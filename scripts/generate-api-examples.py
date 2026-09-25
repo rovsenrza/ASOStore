@@ -108,7 +108,7 @@ def write(name, payload):
 
 
 def decorate(app):
-    status, reason, progress, installation = DEMO_STATES[app["slug"]]
+    status, reason, progress, installation = DEMO_STATES.get(app["slug"], ("get", None, None, None))
     app["install_state"] = {"status": status, "reason": reason, "progress": progress, "installation_id": installation}
     if app.get("latest_version"):
         app["latest_version"]["size_bytes"] = SIZES.get(app["slug"])
@@ -129,6 +129,13 @@ for section in feed["data"]["sections"]:
     for app in section.get("apps", []):
         decorate(app)
 write("storefront-feed.json", feed)
+# The Games and Apps tabs ask for one kind each.
+for kind in ("games", "apps"):
+    tab = guest.call("GET", f"/storefront/feed?kind={kind}")
+    for section in tab["data"]["sections"]:
+        for app in section.get("apps", []):
+            decorate(app)
+    write(f"storefront-feed-{kind}.json", tab)
 write("storefront-status-signed-out.json", guest.call("GET", "/storefront/status"))
 apps = guest.call("GET", "/apps?per_page=50")
 for app in apps["data"]:

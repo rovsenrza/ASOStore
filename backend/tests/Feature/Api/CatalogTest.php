@@ -6,6 +6,8 @@ use App\Models\AppCategory;
 use App\Models\AppPublisher;
 use App\Models\AppVersion;
 use App\Models\CatalogApp;
+use App\Models\Device;
+use App\Models\Installation;
 use App\Models\User;
 use Laravel\Sanctum\Sanctum;
 
@@ -86,10 +88,41 @@ it('builds the feed from featured, recently updated and category sections', func
 
     $feed = $this->getJson('/api/v1/storefront/feed')->assertOk()->json('data.sections');
 
-    expect(collect($feed)->pluck('id')->all())->toBe(['featured', 'recently_updated', 'categories'])
+    // No installations yet, so the download rankings are left out rather than invented.
+    expect(collect($feed)->pluck('id')->all())->toBe(['featured', 'recently_updated', 'new', 'categories'])
         ->and($feed[0]['apps'])->toHaveCount(1)
         ->and($feed[0]['apps'][0]['id'])->toBe($featured->public_id)
-        ->and($feed[2]['categories'][0]['app_count'])->toBe(1);
+        ->and($feed[3]['categories'][0]['app_count'])->toBe(1);
+});
+
+it('ranks by real downloads and splits games from apps', function () {
+    $games = AppCategory::factory()->create(['kind' => 'GAMES', 'title' => 'Игры']);
+    $racer = CatalogApp::factory()->create(['category_id' => $games->id, 'name' => 'Racer']);
+    $puzzle = CatalogApp::factory()->create(['category_id' => $games->id, 'name' => 'Puzzle']);
+    $notes = CatalogApp::factory()->create(['name' => 'Notes']);
+
+    $deliver = function (CatalogApp $app, int $times, int $daysAgo) {
+        $artifact = AppArtifact::factory()->for($app, 'app')->status(ArtifactStatus::Published)->create();
+        for ($i = 0; $i < $times; $i++) {
+            Installation::create([
+                'user_id' => User::factory()->create()->id, 'device_id' => Device::factory()->create()->id,
+                'app_id' => $app->id, 'artifact_id' => $artifact->id, 'status' => 'DELIVERED', 'delivered_at' => now()->subDays($daysAgo),
+            ]);
+        }
+    };
+    $deliver($racer, 3, 30);   // popular, but not recently
+    $deliver($puzzle, 1, 1);   // fewer, but this week
+    $deliver($notes, 5, 1);
+
+    $sections = collect($this->getJson('/api/v1/storefront/feed?kind=games')->assertOk()->json('data.sections'))->keyBy('id');
+
+    expect($sections['most_downloaded']['title'])->toBe('Самые скачиваемые игры')
+        ->and(collect($sections['most_downloaded']['apps'])->pluck('name')->all())->toBe(['Racer', 'Puzzle'])
+        ->and(collect($sections['trending']['apps'])->pluck('name')->all())->toBe(['Puzzle'])
+        ->and(collect($sections['categories']['categories'])->pluck('kind')->unique()->all())->toBe(['GAMES']);
+
+    $this->getJson('/api/v1/apps?kind=apps')->assertOk()->assertJsonPath('data.0.name', 'Notes')->assertJsonPath('data.0.category.kind', 'APPS');
+    $this->getJson('/api/v1/apps?kind=games&sort=new')->assertOk()->assertJsonPath('data.0.name', 'Puzzle');
 });
 
 it('omits empty feed sections', function () {

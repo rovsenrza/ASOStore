@@ -30,15 +30,17 @@ final class CatalogUITests: XCTestCase {
 
         app.staticTexts["Focus Notes"].firstMatch.tap()
         XCTAssertTrue(app.staticTexts["Об этом приложении"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["Получить Focus Notes"].exists)
+        XCTAssertTrue(app.buttons["Установить Focus Notes"].exists)
     }
 
     @MainActor
     func testSearchFindsAppsByTitle() {
         let app = launch(tab: "search")
 
-        let field = app.searchFields.firstMatch
+        let field = app.textFields["search-field"]
         XCTAssertTrue(field.waitForExistence(timeout: 10))
+        // Before typing, the «Обновлено» list is shown with its total.
+        XCTAssertTrue(app.buttons.containing(NSPredicate(format: "label CONTAINS %@", "Обновлено")).firstMatch.waitForExistence(timeout: 10))
         field.tap()
         field.typeText("почта")
 
@@ -51,6 +53,9 @@ final class CatalogUITests: XCTestCase {
         let app = launch(tab: "apps")
 
         let productivity = app.buttons["category-productivity"]
+        for _ in 0..<6 where !productivity.isHittable {
+            app.swipeUp()
+        }
         XCTAssertTrue(productivity.waitForExistence(timeout: 10))
         productivity.tap()
 
@@ -101,9 +106,31 @@ final class CatalogUITests: XCTestCase {
     }
 
     @MainActor
-    func testLibraryDoesNotInventInstalledApps() {
-        let app = launch(tab: "library")
+    func testManagerShowsServerInstallations() {
+        let app = launch(tab: "manager")
 
-        XCTAssertTrue(app.staticTexts["Здесь появятся ваши приложения"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Мои приложения"].waitForExistence(timeout: 10))
+        // Rows are combined for VoiceOver, so match inside any element's label. (The status
+        // itself can differ between runs: in-flight installations are resumed from disk.)
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Заметки Про")).firstMatch.waitForExistence(timeout: 10))
+    }
+
+    @MainActor
+    func testGamesTabShowsOnlyGames() {
+        let app = launch(tab: "games")
+
+        XCTAssertTrue(app.staticTexts["Neon Drift"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["Orbit Mail"].exists)
+    }
+
+    @MainActor
+    func testHeaderOpensTheAccountSheet() {
+        let app = launch()
+
+        let account = app.buttons["account-button"]
+        XCTAssertTrue(account.waitForExistence(timeout: 10))
+        account.tap()
+        XCTAssertTrue(app.staticTexts["Настройки приложения магазина"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Язык приложения"].exists)
     }
 }

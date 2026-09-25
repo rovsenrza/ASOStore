@@ -1,58 +1,58 @@
 {
   "data": [
     {
-      "id": "01m3by6p6kwjmybs1cpnsaqn59",
-      "batch_id": "01m3by6p6jhxve4ztfmhq2knjc",
-      "hint": "Y2VN",
+      "id": "01m3d8a4bn5cxphw061wr4hxba",
+      "batch_id": "01m3d8a4bmbt8bast85mmqe2pb",
+      "hint": "WH40",
       "status": "ISSUED",
       "plan": "standard",
       "duration_days": 365,
       "expires_at": null,
       "note": "Пилотная партия",
       "created_by": {
-        "id": "01m3by6kkk3w8xmxyzz57brrbk",
+        "id": "01m3d8a1pc5w1177mycvknef5g",
         "email": "admin@storefront.test"
       },
       "redeemed_by": null,
       "redeemed_at": null,
-      "created_at": "2026-09-25T09:26:35Z"
+      "created_at": "2026-09-25T21:42:28Z"
     },
     {
-      "id": "01m3by6p6kwjmybs1cpnsaqn58",
-      "batch_id": "01m3by6p6jhxve4ztfmhq2knjc",
-      "hint": "WDH9",
+      "id": "01m3d8a4bn5cxphw061wr4hxb9",
+      "batch_id": "01m3d8a4bmbt8bast85mmqe2pb",
+      "hint": "P3W5",
       "status": "ISSUED",
       "plan": "standard",
       "duration_days": 365,
       "expires_at": null,
       "note": "Пилотная партия",
       "created_by": {
-        "id": "01m3by6kkk3w8xmxyzz57brrbk",
+        "id": "01m3d8a1pc5w1177mycvknef5g",
         "email": "admin@storefront.test"
       },
       "redeemed_by": null,
       "redeemed_at": null,
-      "created_at": "2026-09-25T09:26:35Z"
+      "created_at": "2026-09-25T21:42:28Z"
     },
     {
-      "id": "01m3by6p6jhxve4ztfmhq2knjd",
-      "batch_id": "01m3by6p6jhxve4ztfmhq2knjc",
-      "hint": "4Q1H",
+      "id": "01m3d8a4bmbt8bast85mmqe2pc",
+      "batch_id": "01m3d8a4bmbt8bast85mmqe2pb",
+      "hint": "H4TZ",
       "status": "REDEEMED",
       "plan": "standard",
       "duration_days": 365,
       "expires_at": null,
       "note": "Пилотная партия",
       "created_by": {
-        "id": "01m3by6kkk3w8xmxyzz57brrbk",
+        "id": "01m3d8a1pc5w1177mycvknef5g",
         "email": "admin@storefront.test"
       },
       "redeemed_by": {
-        "id": "01m3by6pazsrpscqd9243vq10f",
+        "id": "01m3d8a4g8ybxfwhx0w7xna66c",
         "email": "anna@example.com"
       },
-      "redeemed_at": "2026-09-25T09:26:36Z",
-      "created_at": "2026-09-25T09:26:35Z"
+      "redeemed_at": "2026-09-25T21:42:29Z",
+      "created_at": "2026-09-25T21:42:28Z"
     }
   ],
   "meta": {

@@ -1,6 +1,6 @@
 {
   "data": {
-    "id": "01m3by6kkk3w8xmxyzz57brrbk",
+    "id": "01m3d8a1pc5w1177mycvknef5g",
     "name": "Администратор",
     "email": "admin@storefront.test",
     "roles": [
@@ -14,6 +14,13 @@
       "audit.view",
       "catalog.view",
       "catalog.manage",
+      "artifacts.view",
+      "artifacts.manage",
+      "jobs.view",
+      "jobs.manage",
+      "installations.view",
+      "teams.view",
+      "teams.manage",
       "devices.view",
       "devices.manage",
       "devices.reveal-udid"

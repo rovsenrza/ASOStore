@@ -1,37 +1,39 @@
 import SwiftUI
 
+/// One app in a list: icon, name, subtitle and the install capsule.
 struct StoreAppRow: View {
     let app: StoreApp
+    var iconSize: Double = 62
 
     var body: some View {
-        HStack(spacing: AppSpacing.standard) {
+        HStack(spacing: 14) {
             NavigationLink(value: app) {
-                HStack(spacing: AppSpacing.standard) {
-                    AppIconView(app: app, size: 64)
+                HStack(spacing: 14) {
+                    AppIconView(app: app, size: iconSize)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: iconSize * 0.22)
+                                .strokeBorder(AppPalette.separator.opacity(0.4), lineWidth: 0.5)
+                        }
 
-                    VStack(alignment: .leading, spacing: AppSpacing.compact / 2) {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text(app.name)
-                            .font(.headline)
+                            .font(.body.weight(.medium))
                             .foregroundStyle(.primary)
-
-                        Text(app.subtitle)
+                            .lineLimit(2)
+                        Text(app.subtitle.isEmpty ? app.category : app.subtitle)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
-
-                        Text(app.category)
-                            .font(.footnote)
-                            .foregroundStyle(.tertiary)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
-            Spacer(minLength: AppSpacing.compact)
-
             AppActionButton(app: app)
         }
-        .frame(minHeight: 76)
+        .frame(minHeight: iconSize + 16)
         .accessibilityElement(children: .contain)
     }
 }

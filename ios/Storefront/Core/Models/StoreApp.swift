@@ -21,6 +21,8 @@ struct StoreApp: Identifiable, Hashable {
     /// Always backend-provided; drives the CTA (FULL_PLAN §11).
     let installState: InstallState
     var iconURL: URL?
+    /// Hero card banner; placeholder artwork when nil.
+    var featureImageURL: URL?
     var screenshots: [URL] = []
     var minIOSVersion: String?
     var supportURL: URL?

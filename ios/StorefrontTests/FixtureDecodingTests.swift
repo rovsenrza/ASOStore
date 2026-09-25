@@ -19,7 +19,7 @@ struct FixtureDecodingTests {
     @Test func feed() async throws {
         let feed = try await decode("storefront-feed", as: FeedDTO.self).data
 
-        #expect(feed.sections.map(\.id) == ["featured", "recently_updated", "categories"])
+        #expect(feed.sections.map(\.id) == ["featured", "recently_updated", "new", "categories"])
         let featured = try #require(feed.sections.first?.apps)
         #expect(featured.first?.name == "Focus Notes")
         #expect(featured.first?.latestVersion?.releasedAt != nil)
@@ -29,8 +29,17 @@ struct FixtureDecodingTests {
     @Test func appsListWithPagination() async throws {
         let response = try await decode("apps-list", as: [AppSummaryDTO].self)
 
-        #expect(response.data.count == 9)
-        #expect(response.meta.pagination == Pagination(page: 1, perPage: 50, total: 9, lastPage: 1))
+        #expect(response.data.count == 13)
+        #expect(response.meta.pagination == Pagination(page: 1, perPage: 50, total: 13, lastPage: 1))
+    }
+
+    @Test func gamesFeedHasOnlyGames() async throws {
+        let feed = try await decode("storefront-feed-games", as: FeedDTO.self).data
+        let apps = feed.sections.flatMap { $0.apps ?? [] }
+
+        #expect(!apps.isEmpty)
+        #expect(apps.allSatisfy { $0.category.kind == "GAMES" })
+        #expect(feed.sections.last?.categories?.allSatisfy { $0.kind == "GAMES" } == true)
     }
 
     @Test func appDetail() async throws {

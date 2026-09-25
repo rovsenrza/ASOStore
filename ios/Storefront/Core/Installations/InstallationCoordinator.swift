@@ -58,6 +58,11 @@ final class InstallationCoordinator {
         }
     }
 
+    /// Settings → «Сразу открывать установку» (on by default).
+    static var autoOpenEnabled: Bool {
+        UserDefaults.standard.object(forKey: "autoOpenInstallLinks") as? Bool ?? true
+    }
+
     func dismissError() {
         lastError = nil
     }
@@ -131,7 +136,7 @@ final class InstallationCoordinator {
         switch installation.status {
         case "PREPARING":
             schedulePoll(installation.id, appID: appID, attempt: 0)
-        case "READY_TO_INSTALL" where autoInstall.contains(appID):
+        case "READY_TO_INSTALL" where autoInstall.contains(appID) && Self.autoOpenEnabled:
             Task { await install(installation) }
         case "AUTHORIZED", "MANIFEST_FETCHED":
             schedulePoll(installation.id, appID: appID, attempt: 2)

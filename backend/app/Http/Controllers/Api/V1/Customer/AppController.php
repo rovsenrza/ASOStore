@@ -19,15 +19,26 @@ class AppController extends Controller
         $validated = $request->validate([
             'q' => ['nullable', 'string', 'max:100'],
             'category' => ['nullable', 'string', 'max:64'],
+            'kind' => ['nullable', 'in:apps,games'],
+            // featured (default), updated (newest release first), new (newest listing first)
+            'sort' => ['nullable', 'in:featured,updated,new'],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:'.config('storefront.catalog.per_page_max')],
         ]);
 
         $query = CatalogApp::query()
             ->visibleToCustomers()
-            ->with(AppSummaryResource::RELATIONS)
-            ->orderByRaw('featured_rank IS NULL, featured_rank')
-            ->orderBy('name');
+            ->with(AppSummaryResource::RELATIONS);
+
+        match ($validated['sort'] ?? 'featured') {
+            'updated' => $query->withMax('versions', 'released_at')->orderByDesc('versions_max_released_at')->orderBy('name'),
+            'new' => $query->orderByDesc('created_at')->orderByDesc('id'),
+            default => $query->orderByRaw('featured_rank IS NULL, featured_rank')->orderBy('name'),
+        };
+
+        if (filled($validated['kind'] ?? null)) {
+            $query->whereHas('category', fn (Builder $category) => $category->where('kind', strtoupper($validated['kind'])));
+        }
 
         if (filled($validated['q'] ?? null)) {
             $term = '%'.addcslashes($validated['q'], '%_\\').'%';

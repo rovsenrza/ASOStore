@@ -32,7 +32,7 @@ class AdminAppResource extends JsonResource
             'slug' => $this->slug,
             'name' => $this->name,
             'subtitle' => $this->subtitle,
-            'category' => ['id' => $this->category->public_id, 'slug' => $this->category->slug, 'title' => $this->category->title],
+            'category' => ['id' => $this->category->public_id, 'slug' => $this->category->slug, 'title' => $this->category->title, 'kind' => $this->category->kind->value],
             'publisher' => ['id' => $this->publisher->public_id, 'name' => $this->publisher->name],
             'source_type' => $this->source_type->value,
             'visibility' => $this->visibility->value,

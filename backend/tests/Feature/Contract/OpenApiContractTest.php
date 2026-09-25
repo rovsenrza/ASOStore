@@ -42,6 +42,8 @@ dataset('examples', [
     'claim redeem' => ['storefront-claim-redeem.json', 'ClaimRedeemResponse'],
     'admin devices' => ['admin-devices.json', 'AdminDeviceListResponse'],
     'app detail support urls' => ['app-detail.json', 'AppDetailResponse'],
+    'feed games' => ['storefront-feed-games.json', 'FeedResponse'],
+    'feed apps' => ['storefront-feed-apps.json', 'FeedResponse'],
     'installation preparing' => ['installation-preparing.json', 'InstallationResponse'],
     'installation ready' => ['installation-ready.json', 'InstallationResponse'],
     'install link' => ['install-link.json', 'InstallLinkResponse'],

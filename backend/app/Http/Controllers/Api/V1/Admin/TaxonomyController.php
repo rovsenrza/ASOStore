@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\V1\Admin;
 
+use App\Enums\CategoryKind;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\AppCategory;
@@ -31,8 +32,10 @@ class TaxonomyController extends Controller
             'title' => ['required', 'string', 'max:64'],
             'subtitle' => ['nullable', 'string', 'max:120'],
             'slug' => ['nullable', 'string', 'max:64', 'alpha_dash', Rule::unique('app_categories', 'slug')],
+            'kind' => ['nullable', Rule::enum(CategoryKind::class)],
             'sort_order' => ['nullable', 'integer', 'min:0', 'max:999'],
         ]);
+        $data['kind'] ??= CategoryKind::Apps->value;
         $category = AppCategory::create($data + ['slug' => $data['slug'] ?? (Str::slug($data['title'], language: 'ru') ?: Str::lower(Str::random(8)))]);
         $this->audit->record('category.created', $category, after: ['title' => $category->title]);
 
@@ -44,6 +47,7 @@ class TaxonomyController extends Controller
         $data = $request->validate([
             'title' => ['sometimes', 'string', 'max:64'],
             'subtitle' => ['sometimes', 'nullable', 'string', 'max:120'],
+            'kind' => ['sometimes', Rule::enum(CategoryKind::class)],
             'sort_order' => ['sometimes', 'integer', 'min:0', 'max:999'],
         ]);
         $category->update($data);
@@ -94,6 +98,7 @@ class TaxonomyController extends Controller
             'slug' => $category->slug,
             'title' => $category->title,
             'subtitle' => $category->subtitle,
+            'kind' => $category->kind->value,
             'sort_order' => $category->sort_order,
             'app_count' => $category->apps_count,
         ];

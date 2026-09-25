@@ -1,11 +1,11 @@
 {
   "data": {
     "subscription": {
-      "id": "01m3by6pqk863r5e8hmay84cje",
+      "id": "01m3d8a4wrwrb4ta34qk9yys8v",
       "plan": "standard",
       "status": "ACTIVE",
-      "starts_at": "2026-09-25T09:26:36Z",
-      "ends_at": "2027-09-25T09:26:36Z"
+      "starts_at": "2026-09-25T21:42:29Z",
+      "ends_at": "2027-09-25T21:42:29Z"
     }
   },
   "meta": {

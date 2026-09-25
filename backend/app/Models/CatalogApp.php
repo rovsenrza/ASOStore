@@ -103,6 +103,24 @@ class CatalogApp extends Model
         return $this->hasMany(AppScreenshot::class, 'app_id')->orderBy('sort_order')->orderBy('id');
     }
 
+    /**
+     * @return HasMany<Installation, $this>
+     */
+    public function installations(): HasMany
+    {
+        return $this->hasMany(Installation::class, 'app_id');
+    }
+
+    /**
+     * The first screenshot, shown as the banner of hero cards.
+     *
+     * @return HasOne<AppScreenshot, $this>
+     */
+    public function coverScreenshot(): HasOne
+    {
+        return $this->hasOne(AppScreenshot::class, 'app_id')->ofMany(['sort_order' => 'min', 'id' => 'min']);
+    }
+
     public function iconUrl(): ?string
     {
         return $this->icon_path ? Storage::disk('public')->url($this->icon_path) : null;

@@ -13,6 +13,8 @@ nonisolated struct CategoryRefDTO: Codable, Hashable, Sendable {
     let id: String
     let slug: String
     let title: String
+    /// APPS or GAMES: which storefront tab the category belongs to.
+    let kind: String?
 }
 
 nonisolated struct CategoryDTO: Codable, Hashable, Sendable {
@@ -20,6 +22,7 @@ nonisolated struct CategoryDTO: Codable, Hashable, Sendable {
     let slug: String
     let title: String
     let subtitle: String?
+    let kind: String?
     let appCount: Int?
 }
 
@@ -52,6 +55,8 @@ nonisolated struct AppSummaryDTO: Codable, Hashable, Sendable, Identifiable {
     let category: CategoryRefDTO
     let publisher: PublisherRefDTO
     let iconUrl: URL?
+    /// Banner for hero cards (the first screenshot), when there is one.
+    let featureImageUrl: URL?
     let ageRating: String
     let latestVersion: LatestVersionDTO?
     let installState: InstallStateDTO

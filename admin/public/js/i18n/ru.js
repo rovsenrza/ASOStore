@@ -45,6 +45,9 @@ export default {
     failed: 'Сбой',
   },
   apps: {
+    categoryKind: 'Вкладка',
+    kindApps: 'Приложения',
+    kindGames: 'Игры',
     name: 'Название',
     category: 'Категория',
     publisher: 'Издатель',

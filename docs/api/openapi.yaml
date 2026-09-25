@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: "[BRAND] Storefront API"
+  title: "Ru AppStore API"
   version: 1.0.0-dev
   summary: Customer, admin and worker API for the web portal, admin panel and native Storefront.
   description: |
@@ -10,7 +10,7 @@ info:
     Examples for each response live in `docs/api/examples/` and are validated against
     these schemas by the backend test suite and decoded by the iOS test suite.
   contact:
-    name: "[BRAND] engineering"
+    name: "Ru AppStore engineering"
 servers:
   - url: http://127.0.0.1:8000/api/v1
     description: Local development
@@ -50,8 +50,13 @@ paths:
     get:
       tags: [Storefront]
       operationId: getStorefrontFeed
-      summary: 'Curated sections for the Today tab'
-      description: 'Featured, recently updated and category sections of published listings. Each app carries the caller''s install_state.'
+      summary: 'Curated sections for the Home, Games and Apps tabs'
+      description: 'Featured, most downloaded, trending, recently updated, new and category sections of published listings. Download rankings count delivered installations (trending: last 7 days); a section without data is omitted. Each app carries the caller''s install_state.'
+      parameters:
+        - name: kind
+          in: query
+          description: 'games or apps limits every section to categories of that kind; omitted = everything (Home tab).'
+          schema: { type: string, enum: [apps, games] }
       responses:
         "200":
           description: Feed sections; empty sections are omitted
@@ -98,6 +103,14 @@ paths:
           in: query
           description: Category slug.
           schema: { type: string, maxLength: 64 }
+        - name: kind
+          in: query
+          description: Only apps in categories of this kind.
+          schema: { type: string, enum: [apps, games] }
+        - name: sort
+          in: query
+          description: 'featured (default), updated (newest release first) or new (newest listing first).'
+          schema: { type: string, enum: [featured, updated, new], default: featured }
         - name: page
           in: query
           schema: { type: integer, minimum: 1, default: 1 }
@@ -3005,13 +3018,19 @@ components:
             - $ref: "#/components/schemas/PublicId"
             - type: "null"
 
+    CategoryKind:
+      type: string
+      description: 'Storefront tab the category belongs to.'
+      enum: [APPS, GAMES]
+
     CategoryRef:
       type: object
-      required: [id, slug, title]
+      required: [id, slug, title, kind]
       properties:
         id: { $ref: "#/components/schemas/PublicId" }
         slug: { type: string }
         title: { type: string }
+        kind: { $ref: "#/components/schemas/CategoryKind" }
 
     Category:
       type: object
@@ -3021,6 +3040,7 @@ components:
         slug: { type: string }
         title: { type: string }
         subtitle: { type: [string, "null"] }
+        kind: { $ref: "#/components/schemas/CategoryKind" }
         app_count: { type: integer, minimum: 0 }
 
     PublisherRef:
@@ -3058,6 +3078,7 @@ components:
         category: { $ref: "#/components/schemas/CategoryRef" }
         publisher: { $ref: "#/components/schemas/PublisherRef" }
         icon_url: { type: [string, "null"] }
+        feature_image_url: { type: [string, "null"], description: 'Banner for hero cards: the first screenshot, when there is one.' }
         age_rating: { type: string }
         latest_version:
           oneOf:
@@ -3842,6 +3863,7 @@ components:
         slug: { type: string }
         title: { type: string }
         subtitle: { type: [string, "null"] }
+        kind: { $ref: "#/components/schemas/CategoryKind" }
         sort_order: { type: integer }
         app_count: { type: integer }
 

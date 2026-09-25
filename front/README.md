@@ -1,6 +1,6 @@
 # Customer portal
 
-Static HTML, CSS and vanilla JavaScript; no framework and no build step. All copy is Russian; the brand stays `[BRAND]` until chosen.
+Static HTML, CSS and vanilla JavaScript; no framework and no build step. All copy is Russian; the brand is Ru AppStore (logo files in `public/assets/brand/`).
 
 - Pages: `public/*.html` (FULL_PLAN §10). Header and footer markup is repeated in each page; keep them in sync.
 - Styles: `public/css/site.css` (tokens in `:root`).

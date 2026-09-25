@@ -1,23 +1,30 @@
 import Foundation
 import Observation
 
-/// App-wide navigation state: the selected tab and deep-link outcomes.
+/// App-wide navigation state: the selected tab, the header sheets and deep-link outcomes.
 @Observable
 final class AppRouter {
     var selectedTab: StorefrontTab
+    /// Account or notifications, opened from the header capsule.
+    var sheet: StoreSheet?
     /// Shown as an alert when a deep link cannot be completed.
     var alertMessage: String?
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
-        var tab = StorefrontTab.today
+        var tab = StorefrontTab.home
+        var sheet: StoreSheet?
         #if DEBUG
-        if let index = arguments.firstIndex(of: "-demoTab"),
-           arguments.indices.contains(index + 1),
-           let requested = StorefrontTab(rawValue: arguments[index + 1]) {
-            tab = requested
+        if let index = arguments.firstIndex(of: "-demoTab"), arguments.indices.contains(index + 1) {
+            let requested = arguments[index + 1]
+            if let requestedTab = StorefrontTab(rawValue: requested) {
+                tab = requestedTab
+            } else {
+                sheet = StoreSheet(rawValue: requested)
+            }
         }
         #endif
         selectedTab = tab
+        self.sheet = sheet
     }
 
     func handle(_ url: URL, session: SessionStore) async {
@@ -25,7 +32,7 @@ final class AppRouter {
 
         switch link {
         case .claim(let code):
-            selectedTab = .account
+            sheet = .account
             do {
                 try await session.redeemClaim(code: code)
             } catch let error as APIError {

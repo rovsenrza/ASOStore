@@ -1,26 +1,28 @@
 {
   "data": {
-    "id": "01m3by6km065c4v6e72eecghqw",
+    "id": "01m3d8a1ptc03fqsj1c62tdxr4",
     "slug": "focus-notes",
     "name": "Focus Notes",
     "subtitle": "Спокойное пространство для идей",
     "category": {
-      "id": "01m3by6kks7bhfbxxrzb21c0rj",
+      "id": "01m3d8a1phf2wsqvrrk4h9cwpx",
       "slug": "productivity",
-      "title": "Продуктивность"
+      "title": "Продуктивность",
+      "kind": "APPS"
     },
     "publisher": {
-      "id": "01m3by6kkybn4bbcvch60wjm5q",
+      "id": "01m3d8a1prb8djvzwf0q1b1fbr",
       "name": "North Studio",
       "website": null
     },
     "icon_url": null,
+    "feature_image_url": null,
     "age_rating": "4+",
     "latest_version": {
       "version": "3.4.0",
       "build_number": "340",
       "min_ios_version": "17.0",
-      "released_at": "2026-09-22T09:26:33Z",
+      "released_at": "2026-09-22T21:42:26Z",
       "size_bytes": 88080384
     },
     "install_state": {

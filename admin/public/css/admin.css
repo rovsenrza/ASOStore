@@ -204,3 +204,7 @@ label.field select, label.field textarea { font-size: .9rem; font-weight: 400; l
 .upload-row__head, .upload-row__foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--space-2); align-items: center; }
 .upload-row progress { width: 100%; height: 8px; }
 .upload-row__status { display: inline-flex; flex-wrap: wrap; gap: var(--space-1); align-items: center; }
+/* Brand mark (Ru AppStore) */
+.sidebar .brand { display: grid; grid-template-columns: 32px 1fr; column-gap: 10px; align-items: center; letter-spacing: .04em; }
+.sidebar .brand img { grid-row: span 2; border-radius: 50%; }
+.login-card h1 img { display: block; margin-bottom: var(--space-3); border-radius: 50%; }

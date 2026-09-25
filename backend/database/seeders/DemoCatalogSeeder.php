@@ -27,6 +27,9 @@ class DemoCatalogSeeder extends Seeder
         ['business', 'Бизнес', 'Работа без лишнего'],
         ['utilities', 'Утилиты', 'Полезные инструменты'],
         ['education', 'Образование', 'Учитесь каждый день'],
+        ['games-arcade', 'Аркады', 'Короткие партии', 'GAMES'],
+        ['games-puzzle', 'Головоломки', 'Для ума', 'GAMES'],
+        ['games-racing', 'Гонки', 'Скорость и дрифт', 'GAMES'],
     ];
 
     /**
@@ -60,15 +63,29 @@ class DemoCatalogSeeder extends Seeder
         ['lingua', 'Lingua', 'Язык через живые диалоги', 'education', 'Lingua Works',
             'Короткие ежедневные уроки, разговорные ситуации и персональный словарь.',
             'Новый курс испанского и тренировка произношения.', '7.4', null, 60],
+        // Fictional demo games for the Игры tab.
+        ['neon-drift', 'Neon Drift', 'Дрифт по ночному городу', 'games-racing', 'Nightline Games',
+            'Аркадные гонки с дрифтом по неоновым трассам, настройкой машин и заездами на время.',
+            'Новая трасса «Порт» и три автомобиля.', '2.1', 6, 4],
+        ['block-quest', 'Block Quest', 'Собирай, строй, исследуй', 'games-arcade', 'Cubic Studio',
+            'Исследуйте мир из блоков, стройте базы и открывайте новые биомы.',
+            'Подводный биом и улучшенное освещение.', '1.12', 7, 6],
+        ['word-garden', 'Word Garden', 'Слова вырастают в сад', 'games-puzzle', 'Moss Software',
+            'Составляйте слова из букв и выращивайте свой сад. Сотни уровней без спешки.',
+            'Ежедневные задания и тёмная тема.', '3.0', null, 9],
+        ['sky-hopper', 'Sky Hopper', 'Прыжки по облакам', 'games-arcade', 'Paper Plane',
+            'Лёгкая аркада на одну руку: прыгайте всё выше и собирайте звёзды.',
+            'Новые скины и режим испытаний.', '1.4', null, 15],
     ];
 
     public function run(): void
     {
         $categories = [];
-        foreach (self::CATEGORIES as $order => [$slug, $title, $subtitle]) {
+        foreach (self::CATEGORIES as $order => $category) {
+            [$slug, $title, $subtitle] = $category;
             $categories[$slug] = AppCategory::updateOrCreate(
                 ['slug' => $slug],
-                ['title' => $title, 'subtitle' => $subtitle, 'sort_order' => $order],
+                ['title' => $title, 'subtitle' => $subtitle, 'kind' => $category[3] ?? 'APPS', 'sort_order' => $order],
             );
         }
 

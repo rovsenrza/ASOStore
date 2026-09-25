@@ -7,13 +7,38 @@ nonisolated struct Fetched<Value: Sendable>: Sendable {
     let isStale: Bool
 }
 
+/// Which part of the catalog a tab shows.
+nonisolated enum CatalogKind: String, Sendable {
+    case all, games, apps
+
+    var queryValue: String? {
+        self == .all ? nil : rawValue
+    }
+}
+
+nonisolated enum CatalogSort: String, Sendable {
+    case featured, updated, new
+}
+
 /// Catalog reads for the native app (FULL_PLAN §11 "CatalogRepository").
 nonisolated struct CatalogRepository: Sendable {
     let api: APIClient
     let cache: ResponseCache
 
-    func feed() async throws -> Fetched<FeedDTO> {
-        try await cached("feed") { try await api.get("/storefront/feed", as: FeedDTO.self).data }
+    /// Curated sections for one tab: everything (Home), or only games or apps.
+    func feed(_ kind: CatalogKind = .all) async throws -> Fetched<FeedDTO> {
+        let query = kind.queryValue.map { [URLQueryItem(name: "kind", value: $0)] } ?? []
+        return try await cached("feed-\(kind.rawValue)") { try await api.get("/storefront/feed", query: query, as: FeedDTO.self).data }
+    }
+
+    /// One sorted page of apps plus the total count (Search: «Обновлено» / «Новое»).
+    func page(sort: CatalogSort, kind: CatalogKind = .all, perPage: Int = 50) async throws -> (apps: [AppSummaryDTO], total: Int) {
+        var query = [URLQueryItem(name: "sort", value: sort.rawValue), URLQueryItem(name: "per_page", value: String(perPage))]
+        if let kind = kind.queryValue {
+            query.append(URLQueryItem(name: "kind", value: kind))
+        }
+        let response = try await api.get("/apps", query: query, as: [AppSummaryDTO].self)
+        return (response.data, response.meta.pagination?.total ?? response.data.count)
     }
 
     func app(id: String) async throws -> Fetched<AppDetailDTO> {

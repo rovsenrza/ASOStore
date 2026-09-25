@@ -1,0 +1,382 @@
+{
+  "data": {
+    "sections": [
+      {
+        "id": "featured",
+        "kind": "featured",
+        "title": "Выбор редакции",
+        "apps": [
+          {
+            "id": "01m3d8a1qmx2vkd6djd7phtgkq",
+            "slug": "neon-drift",
+            "name": "Neon Drift",
+            "subtitle": "Дрифт по ночному городу",
+            "category": {
+              "id": "01m3d8a1pqsr9gnz27mfcs7348",
+              "slug": "games-racing",
+              "title": "Гонки",
+              "kind": "GAMES"
+            },
+            "publisher": {
+              "id": "01m3d8a1qjvz5wer61ng477ehq",
+              "name": "Nightline Games"
+            },
+            "icon_url": null,
+            "feature_image_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "2.1",
+              "build_number": "21",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-21T21:42:26Z",
+              "size_bytes": null
+            },
+            "install_state": {
+              "status": "get",
+              "reason": null,
+              "progress": null,
+              "installation_id": null
+            }
+          },
+          {
+            "id": "01m3d8a1qq7gjrg0nfs7b73xkc",
+            "slug": "block-quest",
+            "name": "Block Quest",
+            "subtitle": "Собирай, строй, исследуй",
+            "category": {
+              "id": "01m3d8a1ppdsf81db1mc50vzwc",
+              "slug": "games-arcade",
+              "title": "Аркады",
+              "kind": "GAMES"
+            },
+            "publisher": {
+              "id": "01m3d8a1qps5j6nfq9q4nqf5tg",
+              "name": "Cubic Studio"
+            },
+            "icon_url": null,
+            "feature_image_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "1.12",
+              "build_number": "112",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-19T21:42:26Z",
+              "size_bytes": null
+            },
+            "install_state": {
+              "status": "get",
+              "reason": null,
+              "progress": null,
+              "installation_id": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "recently_updated",
+        "kind": "carousel",
+        "title": "Недавно обновлённые",
+        "apps": [
+          {
+            "id": "01m3d8a1qmx2vkd6djd7phtgkq",
+            "slug": "neon-drift",
+            "name": "Neon Drift",
+            "subtitle": "Дрифт по ночному городу",
+            "category": {
+              "id": "01m3d8a1pqsr9gnz27mfcs7348",
+              "slug": "games-racing",
+              "title": "Гонки",
+              "kind": "GAMES"
+            },
+            "publisher": {
+              "id": "01m3d8a1qjvz5wer61ng477ehq",
+              "name": "Nightline Games"
+            },
+            "icon_url": null,
+            "feature_image_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "2.1",
+              "build_number": "21",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-21T21:42:26Z",
+              "size_bytes": null
+            },
+            "install_state": {
+              "status": "get",
+              "reason": null,
+              "progress": null,
+              "installation_id": null
+            }
+          },
+          {
+            "id": "01m3d8a1qq7gjrg0nfs7b73xkc",
+            "slug": "block-quest",
+            "name": "Block Quest",
+            "subtitle": "Собирай, строй, исследуй",
+            "category": {
+              "id": "01m3d8a1ppdsf81db1mc50vzwc",
+              "slug": "games-arcade",
+              "title": "Аркады",
+              "kind": "GAMES"
+            },
+            "publisher": {
+              "id": "01m3d8a1qps5j6nfq9q4nqf5tg",
+              "name": "Cubic Studio"
+            },
+            "icon_url": null,
+            "feature_image_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "1.12",
+              "build_number": "112",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-19T21:42:26Z",
+              "size_bytes": null
+            },
+            "install_state": {
+              "status": "get",
+              "reason": null,
+              "progress": null,
+              "installation_id": null
+            }
+          },
+          {
+            "id": "01m3d8a1qt1qvxqwhkzxqvv40m",
+            "slug": "word-garden",
+            "name": "Word Garden",
+            "subtitle": "Слова вырастают в сад",
+            "category": {
+              "id": "01m3d8a1ppdsf81db1mc50vzwd",
+              "slug": "games-puzzle",
+              "title": "Головоломки",
+              "kind": "GAMES"
+            },
+            "publisher": {
+              "id": "01m3d8a1q2dp7bnm9mb9byagtt",
+              "name": "Moss Software"
+            },
+            "icon_url": null,
+            "feature_image_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "3.0",
+              "build_number": "30",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-16T21:42:26Z",
+              "size_bytes": null
+            },
+            "install_state": {
+              "status": "get",
+              "reason": null,
+              "progress": null,
+              "installation_id": null
+            }
+          },
+          {
+            "id": "01m3d8a1qwm9jzh3dzw3tens77",
+            "slug": "sky-hopper",
+            "name": "Sky Hopper",
+            "subtitle": "Прыжки по облакам",
+            "category": {
+              "id": "01m3d8a1ppdsf81db1mc50vzwc",
+              "slug": "games-arcade",
+              "title": "Аркады",
+              "kind": "GAMES"
+            },
+            "publisher": {
+              "id": "01m3d8a1qwm9jzh3dzw3tens76",
+              "name": "Paper Plane"
+            },
+            "icon_url": null,
+            "feature_image_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "1.4",
+              "build_number": "14",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-10T21:42:26Z",
+              "size_bytes": null
+            },
+            "install_state": {
+              "status": "get",
+              "reason": null,
+              "progress": null,
+              "installation_id": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "new",
+        "kind": "carousel",
+        "title": "Новые",
+        "apps": [
+          {
+            "id": "01m3d8a1qwm9jzh3dzw3tens77",
+            "slug": "sky-hopper",
+            "name": "Sky Hopper",
+            "subtitle": "Прыжки по облакам",
+            "category": {
+              "id": "01m3d8a1ppdsf81db1mc50vzwc",
+              "slug": "games-arcade",
+              "title": "Аркады",
+              "kind": "GAMES"
+            },
+            "publisher": {
+              "id": "01m3d8a1qwm9jzh3dzw3tens76",
+              "name": "Paper Plane"
+            },
+            "icon_url": null,
+            "feature_image_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "1.4",
+              "build_number": "14",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-10T21:42:26Z",
+              "size_bytes": null
+            },
+            "install_state": {
+              "status": "get",
+              "reason": null,
+              "progress": null,
+              "installation_id": null
+            }
+          },
+          {
+            "id": "01m3d8a1qt1qvxqwhkzxqvv40m",
+            "slug": "word-garden",
+            "name": "Word Garden",
+            "subtitle": "Слова вырастают в сад",
+            "category": {
+              "id": "01m3d8a1ppdsf81db1mc50vzwd",
+              "slug": "games-puzzle",
+              "title": "Головоломки",
+              "kind": "GAMES"
+            },
+            "publisher": {
+              "id": "01m3d8a1q2dp7bnm9mb9byagtt",
+              "name": "Moss Software"
+            },
+            "icon_url": null,
+            "feature_image_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "3.0",
+              "build_number": "30",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-16T21:42:26Z",
+              "size_bytes": null
+            },
+            "install_state": {
+              "status": "get",
+              "reason": null,
+              "progress": null,
+              "installation_id": null
+            }
+          },
+          {
+            "id": "01m3d8a1qq7gjrg0nfs7b73xkc",
+            "slug": "block-quest",
+            "name": "Block Quest",
+            "subtitle": "Собирай, строй, исследуй",
+            "category": {
+              "id": "01m3d8a1ppdsf81db1mc50vzwc",
+              "slug": "games-arcade",
+              "title": "Аркады",
+              "kind": "GAMES"
+            },
+            "publisher": {
+              "id": "01m3d8a1qps5j6nfq9q4nqf5tg",
+              "name": "Cubic Studio"
+            },
+            "icon_url": null,
+            "feature_image_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "1.12",
+              "build_number": "112",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-19T21:42:26Z",
+              "size_bytes": null
+            },
+            "install_state": {
+              "status": "get",
+              "reason": null,
+              "progress": null,
+              "installation_id": null
+            }
+          },
+          {
+            "id": "01m3d8a1qmx2vkd6djd7phtgkq",
+            "slug": "neon-drift",
+            "name": "Neon Drift",
+            "subtitle": "Дрифт по ночному городу",
+            "category": {
+              "id": "01m3d8a1pqsr9gnz27mfcs7348",
+              "slug": "games-racing",
+              "title": "Гонки",
+              "kind": "GAMES"
+            },
+            "publisher": {
+              "id": "01m3d8a1qjvz5wer61ng477ehq",
+              "name": "Nightline Games"
+            },
+            "icon_url": null,
+            "feature_image_url": null,
+            "age_rating": "4+",
+            "latest_version": {
+              "version": "2.1",
+              "build_number": "21",
+              "min_ios_version": "17.0",
+              "released_at": "2026-09-21T21:42:26Z",
+              "size_bytes": null
+            },
+            "install_state": {
+              "status": "get",
+              "reason": null,
+              "progress": null,
+              "installation_id": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "categories",
+        "kind": "categories",
+        "title": "Категории",
+        "categories": [
+          {
+            "id": "01m3d8a1ppdsf81db1mc50vzwc",
+            "slug": "games-arcade",
+            "title": "Аркады",
+            "subtitle": "Короткие партии",
+            "kind": "GAMES",
+            "app_count": 2
+          },
+          {
+            "id": "01m3d8a1ppdsf81db1mc50vzwd",
+            "slug": "games-puzzle",
+            "title": "Головоломки",
+            "subtitle": "Для ума",
+            "kind": "GAMES",
+            "app_count": 1
+          },
+          {
+            "id": "01m3d8a1pqsr9gnz27mfcs7348",
+            "slug": "games-racing",
+            "title": "Гонки",
+            "subtitle": "Скорость и дрифт",
+            "kind": "GAMES",
+            "app_count": 1
+          }
+        ]
+      }
+    ]
+  },
+  "meta": {
+    "request_id": "01j0example0request0id0000"
+  },
+  "error": null
+}

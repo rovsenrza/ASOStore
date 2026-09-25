@@ -33,7 +33,7 @@ struct ClaimSignInTests {
 
         await router.handle(URL(string: "storefront://claim?code=one-time")!, session: session)
 
-        #expect(router.selectedTab == .account)
+        #expect(router.sheet == .account)
         #expect(router.alertMessage == nil)
         #expect(session.user?.email == "anna@example.com")
         #expect(await session.api.authenticator.hasTokens)

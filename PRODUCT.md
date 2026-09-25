@@ -50,7 +50,7 @@ The product turns a normally opaque device-registration and signing workflow int
 
 ## Brand Commitments
 
-- The product name is intentionally undecided and must remain `[BRAND]` as a visible placeholder.
+- The product name is **Ru AppStore** (decided 2026-09-26). Logo sources are in `branding/`.
 - All user-facing web content is Russian.
 - DIYORDE is a functional reference for the bootstrap-to-native-store journey, not a visual identity to copy.
 - The primary product application is a native iOS Storefront; the web frontend must not present itself as the final store.

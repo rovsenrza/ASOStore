@@ -13,7 +13,9 @@ enum CategorySymbol {
         case "business": "briefcase.fill"
         case "utilities": "wrench.and.screwdriver.fill"
         case "education": "graduationcap.fill"
-        case "games": "gamecontroller.fill"
+        case "games", "games-arcade": "gamecontroller.fill"
+        case "games-puzzle": "puzzlepiece.fill"
+        case "games-racing": "car.fill"
         case "finance": "banknote.fill"
         case "social": "bubble.left.and.bubble.right.fill"
         default: "square.grid.2x2.fill"
@@ -36,6 +38,7 @@ extension StoreApp {
             artwork: .derived(from: summary.id),
             installState: InstallState(summary.installState),
             iconURL: summary.iconUrl,
+            featureImageURL: summary.featureImageUrl,
             minIOSVersion: summary.latestVersion?.minIosVersion
         )
     }

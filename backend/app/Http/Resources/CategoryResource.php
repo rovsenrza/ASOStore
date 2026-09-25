@@ -21,6 +21,7 @@ class CategoryResource extends JsonResource
             'slug' => $this->slug,
             'title' => $this->title,
             'subtitle' => $this->subtitle,
+            'kind' => $this->kind->value,
             'app_count' => $this->whenCounted('apps'),
         ];
     }

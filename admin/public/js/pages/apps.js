@@ -282,7 +282,13 @@ function taxonomyTable(container, columns, rows, onSave) {
   const table = el('table', {}, el('thead', {}, el('tr', {}, columns.map((c) => el('th', { scope: 'col' }, c.label)), el('th', {}))));
   const body = el('tbody');
   for (const row of rows) {
-    const inputs = columns.map((c) => (c.editable && manage ? el('input', { value: row[c.key] ?? '', type: c.type ?? 'text' }) : document.createTextNode(row[c.key] ?? '—')));
+    const inputs = columns.map((c) => {
+      if (c.editable && manage && c.options) {
+        return el('select', {}, c.options.map(([value, label]) => el('option', { value, selected: row[c.key] === value }, label)));
+      }
+      if (c.editable && manage) return el('input', { value: row[c.key] ?? '', type: c.type ?? 'text' });
+      return document.createTextNode(c.options?.find(([value]) => value === row[c.key])?.[1] ?? row[c.key] ?? '—');
+    });
     const save = manage ? el('button', {
       type: 'button', className: 'button', onclick: () => {
         const data = {};
@@ -296,11 +302,15 @@ function taxonomyTable(container, columns, rows, onSave) {
   container.replaceChildren(el('div', { className: 'data-table' }, el('div', { className: 'data-table__scroll' }, table)));
 }
 
+// Which storefront tab a category appears in (Приложения or Игры).
+const CATEGORY_KINDS = () => [['APPS', t('apps.kindApps')], ['GAMES', t('apps.kindGames')]];
+
 function renderCategories() {
   const container = document.querySelector('#categories');
   taxonomyTable(container, [
     { key: 'title', label: t('apps.categoryTitle'), editable: true },
     { key: 'subtitle', label: t('apps.categorySubtitle'), editable: true },
+    { key: 'kind', label: t('apps.categoryKind'), editable: true, options: CATEGORY_KINDS() },
     { key: 'slug', label: 'Slug' },
     { key: 'sort_order', label: t('apps.sortOrder'), editable: true, type: 'number' },
     { key: 'app_count', label: t('apps.appCount') },
@@ -310,6 +320,7 @@ function renderCategories() {
     const form = el('form', { className: 'form-grid', noValidate: true },
       field(t('apps.categoryTitle'), el('input', { name: 'title', required: true, maxLength: 64 })),
       field(t('apps.categorySubtitle'), el('input', { name: 'subtitle', maxLength: 120 })),
+      field(t('apps.categoryKind'), el('select', { name: 'kind' }, CATEGORY_KINDS().map(([value, label]) => el('option', { value }, label)))),
       el('button', { type: 'submit', className: 'button button--primary' }, t('apps.addCategory')));
     form.addEventListener('submit', (event) => {
       event.preventDefault();

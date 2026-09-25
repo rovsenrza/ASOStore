@@ -83,7 +83,13 @@ nonisolated struct MockTransport: HTTPTransport {
             return respond(request, status: 200, body: Data(#"{"data":[],"meta":{"request_id":"mock","pagination":{"page":1,"per_page":50,"total":0,"last_page":1}},"error":null}"#.utf8))
         }
 
-        let fixture = route ?? "error-not-found"
+        var fixture = route ?? "error-not-found"
+        // The Games and Apps tabs ask for one kind of feed.
+        if route == "storefront-feed",
+           let kind = request.url.flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) })?.queryItems?.first(where: { $0.name == "kind" })?.value,
+           ["games", "apps"].contains(kind) {
+            fixture = "storefront-feed-\(kind)"
+        }
         var body: Data
         if fixture == "empty" {
             body = Data(#"{"data":null,"meta":{"request_id":"mock"},"error":null}"#.utf8)

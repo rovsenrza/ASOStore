@@ -1,27 +1,27 @@
 {
   "data": [
     {
-      "id": "01m3by6py51a62p42j49xcgaze",
-      "occurred_at": "2026-09-25T09:26:36.000000Z",
+      "id": "01m3d8a5421d0q99bshzrvqjnm",
+      "occurred_at": "2026-09-25T21:42:29.000000Z",
       "actor": {
         "type": "user",
-        "id": "01m3by6pazsrpscqd9243vq10f",
-        "label": "anna@example.com"
+        "id": "01m3d8a4g8ybxfwhx0w7xna66c",
+        "label": "customer:01m3d8a4g8ybxfwhx0w7xna66c"
       },
       "action": "storefront.claimed",
       "subject_type": "device",
-      "subject_id": "01m3by6pvktjxbkpxj8g78tmzy",
+      "subject_id": "01m3d8a50ye2gayswgbwggqd2f",
       "before": null,
       "after": {
         "device_name": "iPhone"
       },
       "reason": null,
-      "request_id": "01m3by6pxvtbrv6h786g0p8apv",
+      "request_id": "01m3d8a53r1tsa1vqx2w31fmyq",
       "ip": "127.0.0.1"
     },
     {
-      "id": "01m3by6pwgkewc2h4ceqc54gqk",
-      "occurred_at": "2026-09-25T09:26:36.000000Z",
+      "id": "01m3d8a522ft319wskqysdrhaq",
+      "occurred_at": "2026-09-25T21:42:29.000000Z",
       "actor": {
         "type": "system",
         "id": null,
@@ -29,30 +29,51 @@
       },
       "action": "device_registration.status_changed",
       "subject_type": "device_registration",
-      "subject_id": "01m3by6pvp3pa6hctx97282z9v",
+      "subject_id": "01m3d8a513pm2h84qm150e7kck",
       "before": {
         "status": "APPLE_PENDING"
       },
       "after": {
         "status": "ELIGIBLE",
-        "eligible_at": "2026-09-25T09:26:36.687680Z",
+        "eligible_at": "2026-09-25T21:42:29.697476Z",
         "status_reason": null
       },
       "reason": null,
-      "request_id": "01m3by6pv4qf7t8k0yhnwtdzdr",
+      "request_id": "01m3d8a50fd2rsfm001aje811m",
       "ip": "127.0.0.1"
     },
     {
-      "id": "01m3by6pw6v41amn63jv6c1k6x",
-      "occurred_at": "2026-09-25T09:26:36.000000Z",
+      "id": "01m3d8a51scvtr55e7cd8j3pf1",
+      "occurred_at": "2026-09-25T21:42:29.000000Z",
       "actor": {
         "type": "system",
         "id": null,
-        "label": "apple"
+        "label": "quota"
+      },
+      "action": "quota.reserved",
+      "subject_type": "device_registration",
+      "subject_id": "01m3d8a513pm2h84qm150e7kck",
+      "before": null,
+      "after": {
+        "team": "FAKE000001",
+        "family": "IPHONE",
+        "remaining": 99
+      },
+      "reason": null,
+      "request_id": "01m3d8a50fd2rsfm001aje811m",
+      "ip": "127.0.0.1"
+    },
+    {
+      "id": "01m3d8a51qpmgsebq2w21hatzy",
+      "occurred_at": "2026-09-25T21:42:29.000000Z",
+      "actor": {
+        "type": "system",
+        "id": null,
+        "label": "quota"
       },
       "action": "device_registration.status_changed",
       "subject_type": "device_registration",
-      "subject_id": "01m3by6pvp3pa6hctx97282z9v",
+      "subject_id": "01m3d8a513pm2h84qm150e7kck",
       "before": {
         "status": "ENROLLED"
       },
@@ -61,20 +82,20 @@
         "status_reason": null
       },
       "reason": null,
-      "request_id": "01m3by6pv4qf7t8k0yhnwtdzdr",
+      "request_id": "01m3d8a50fd2rsfm001aje811m",
       "ip": "127.0.0.1"
     },
     {
-      "id": "01m3by6pvqgw405fpadwc08djg",
-      "occurred_at": "2026-09-25T09:26:36.000000Z",
+      "id": "01m3d8a51531q1c5dmvr0gkzp5",
+      "occurred_at": "2026-09-25T21:42:29.000000Z",
       "actor": {
         "type": "user",
-        "id": "01m3by6pazsrpscqd9243vq10f",
-        "label": "anna@example.com"
+        "id": "01m3d8a4g8ybxfwhx0w7xna66c",
+        "label": "customer:01m3d8a4g8ybxfwhx0w7xna66c"
       },
       "action": "device.enrolled",
       "subject_type": "device",
-      "subject_id": "01m3by6pvktjxbkpxj8g78tmzy",
+      "subject_id": "01m3d8a50ye2gayswgbwggqd2f",
       "before": null,
       "after": {
         "family": "IPHONE",
@@ -83,75 +104,75 @@
         "os_version": "22A3354"
       },
       "reason": null,
-      "request_id": "01m3by6pv4qf7t8k0yhnwtdzdr",
+      "request_id": "01m3d8a50fd2rsfm001aje811m",
       "ip": "127.0.0.1"
     },
     {
-      "id": "01m3by6psmgev661bv67jyw4xm",
-      "occurred_at": "2026-09-25T09:26:36.000000Z",
+      "id": "01m3d8a4z05bqvrknxsx2xaep7",
+      "occurred_at": "2026-09-25T21:42:29.000000Z",
       "actor": {
         "type": "user",
-        "id": "01m3by6pazsrpscqd9243vq10f",
-        "label": "anna@example.com"
+        "id": "01m3d8a4g8ybxfwhx0w7xna66c",
+        "label": "customer:01m3d8a4g8ybxfwhx0w7xna66c"
       },
       "action": "device.enrollment_profile_issued",
       "subject_type": "user",
-      "subject_id": "01m3by6pazsrpscqd9243vq10f",
+      "subject_id": "01m3d8a4g8ybxfwhx0w7xna66c",
       "before": null,
       "after": {
         "signed": false
       },
       "reason": null,
-      "request_id": "01m3by6prqk29ey85qw3szttry",
+      "request_id": "01m3d8a4y5jmd5k7f5vx2dpyxk",
       "ip": "127.0.0.1"
     },
     {
-      "id": "01m3by6pqmq16cecem4hjpn7as",
-      "occurred_at": "2026-09-25T09:26:36.000000Z",
+      "id": "01m3d8a4wt0d2jhmjpa9wy23z8",
+      "occurred_at": "2026-09-25T21:42:29.000000Z",
       "actor": {
         "type": "user",
-        "id": "01m3by6pazsrpscqd9243vq10f",
-        "label": "anna@example.com"
+        "id": "01m3d8a4g8ybxfwhx0w7xna66c",
+        "label": "customer:01m3d8a4g8ybxfwhx0w7xna66c"
       },
       "action": "activation_code.redeemed",
       "subject_type": "activation_code",
-      "subject_id": "01m3by6p6jhxve4ztfmhq2knjd",
+      "subject_id": "01m3d8a4bmbt8bast85mmqe2pc",
       "before": null,
       "after": {
         "plan": "standard",
-        "ends_at": "2027-09-25T09:26:36Z",
-        "subscription_id": "01m3by6pqk863r5e8hmay84cje"
+        "ends_at": "2027-09-25T21:42:29Z",
+        "subscription_id": "01m3d8a4wrwrb4ta34qk9yys8v"
       },
       "reason": null,
-      "request_id": "01m3by6pq6qffpfav5cb1j9k3y",
+      "request_id": "01m3d8a4wagge4a71s5df3qk39",
       "ip": "127.0.0.1"
     },
     {
-      "id": "01m3by6pq0gm71z4vqhz0gapsn",
-      "occurred_at": "2026-09-25T09:26:36.000000Z",
+      "id": "01m3d8a4w1crqqf50ztcy1m6de",
+      "occurred_at": "2026-09-25T21:42:29.000000Z",
       "actor": {
         "type": "user",
-        "id": "01m3by6pazsrpscqd9243vq10f",
-        "label": "anna@example.com"
+        "id": "01m3d8a4g8ybxfwhx0w7xna66c",
+        "label": "customer:01m3d8a4g8ybxfwhx0w7xna66c"
       },
       "action": "auth.token_issued",
       "subject_type": "user",
-      "subject_id": "01m3by6pazsrpscqd9243vq10f",
+      "subject_id": "01m3d8a4g8ybxfwhx0w7xna66c",
       "before": null,
       "after": {
         "device_name": "iPhone Анны"
       },
       "reason": null,
-      "request_id": "01m3by6pjev7cxc5xazcr6myhs",
+      "request_id": "01m3d8a4qk2w7va3e5knd78vjf",
       "ip": "127.0.0.1"
     },
     {
-      "id": "01m3by6pj3xaq5nhe3sgs1ry1r",
-      "occurred_at": "2026-09-25T09:26:36.000000Z",
+      "id": "01m3d8a4qab5fvag0tpbebgaxt",
+      "occurred_at": "2026-09-25T21:42:29.000000Z",
       "actor": {
         "type": "anonymous",
         "id": null,
-        "label": "anna@example.com"
+        "label": "a***@example.com"
       },
       "action": "auth.login_failed",
       "subject_type": null,
@@ -159,47 +180,24 @@
       "before": null,
       "after": null,
       "reason": null,
-      "request_id": "01m3by6pbcshwpzf2pgzh0w46x",
+      "request_id": "01m3d8a4gq5gghn68e6zdk9as3",
       "ip": "127.0.0.1"
     },
     {
-      "id": "01m3by6pb1emmh0twqmmavhhtn",
-      "occurred_at": "2026-09-25T09:26:36.000000Z",
+      "id": "01m3d8a4gbvs49ggjmy77yy39b",
+      "occurred_at": "2026-09-25T21:42:29.000000Z",
       "actor": {
         "type": "user",
-        "id": "01m3by6pazsrpscqd9243vq10f",
-        "label": "anna@example.com"
+        "id": "01m3d8a4g8ybxfwhx0w7xna66c",
+        "label": "customer:01m3d8a4g8ybxfwhx0w7xna66c"
       },
       "action": "auth.registered",
       "subject_type": "user",
-      "subject_id": "01m3by6pazsrpscqd9243vq10f",
+      "subject_id": "01m3d8a4g8ybxfwhx0w7xna66c",
       "before": null,
       "after": null,
       "reason": null,
-      "request_id": "01m3by6p6ycm532h4nvm47v9yn",
-      "ip": "127.0.0.1"
-    },
-    {
-      "id": "01m3by6p6mjt9nkjjrkjw0z0ey",
-      "occurred_at": "2026-09-25T09:26:35.000000Z",
-      "actor": {
-        "type": "user",
-        "id": "01m3by6kkk3w8xmxyzz57brrbk",
-        "label": "admin@storefront.test"
-      },
-      "action": "activation_code.batch_created",
-      "subject_type": null,
-      "subject_id": null,
-      "before": null,
-      "after": {
-        "plan": "standard",
-        "count": 3,
-        "batch_id": "01m3by6p6jhxve4ztfmhq2knjc",
-        "expires_at": null,
-        "duration_days": 365
-      },
-      "reason": null,
-      "request_id": "01m3by6p659mey7whe82mrbzqw",
+      "request_id": "01m3d8a4c3k3vytemgys5w00js",
       "ip": "127.0.0.1"
     }
   ],
@@ -208,7 +206,7 @@
     "pagination": {
       "page": 1,
       "per_page": 10,
-      "total": 12,
+      "total": 13,
       "last_page": 2
     }
   },

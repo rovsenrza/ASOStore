@@ -1,7 +1,7 @@
 {
   "data": [
     {
-      "id": "01m3by6pazsrpscqd9243vq10f",
+      "id": "01m3d8a4g8ybxfwhx0w7xna66c",
       "name": "Анна Смирнова",
       "email": "anna@example.com",
       "status": "ACTIVE",
@@ -10,17 +10,19 @@
       ],
       "totp_enabled": false,
       "subscription": {
-        "id": "01m3by6pqk863r5e8hmay84cje",
+        "id": "01m3d8a4wrwrb4ta34qk9yys8v",
         "plan": "standard",
         "status": "ACTIVE",
-        "starts_at": "2026-09-25T09:26:36Z",
-        "ends_at": "2027-09-25T09:26:36Z"
+        "starts_at": "2026-09-25T21:42:29Z",
+        "ends_at": "2027-09-25T21:42:29Z"
       },
-      "last_login_at": "2026-09-25T09:26:36Z",
-      "created_at": "2026-09-25T09:26:36Z"
+      "last_login_at": "2026-09-25T21:42:29Z",
+      "deletion_requested_at": null,
+      "erased_at": null,
+      "created_at": "2026-09-25T21:42:29Z"
     },
     {
-      "id": "01m3by6kkk3w8xmxyzz57brrbk",
+      "id": "01m3d8a1pc5w1177mycvknef5g",
       "name": "Администратор",
       "email": "admin@storefront.test",
       "status": "ACTIVE",
@@ -29,8 +31,10 @@
       ],
       "totp_enabled": true,
       "subscription": null,
-      "last_login_at": "2026-09-25T09:26:35Z",
-      "created_at": "2026-09-25T09:26:33Z"
+      "last_login_at": "2026-09-25T21:42:28Z",
+      "deletion_requested_at": null,
+      "erased_at": null,
+      "created_at": "2026-09-25T21:42:26Z"
     }
   ],
   "meta": {

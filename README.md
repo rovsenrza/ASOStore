@@ -1,4 +1,4 @@
-# [BRAND] Storefront
+# Ru AppStore
 
 Monorepo for the customer web portal, the native iOS Storefront, the operator admin panel and the PHP backend.
 

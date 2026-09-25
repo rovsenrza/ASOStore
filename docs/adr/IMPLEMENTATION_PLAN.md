@@ -77,6 +77,14 @@ Implemented and verified locally; the release gate itself needs the owners' sign
 - **P8-IOS-01.** Logging audit: the two log statements carry privacy annotations and no tokens or identifiers. The physical-device matrix needs devices.
 - **P8-OPS-03.** `scripts/deploy.sh` (refuses non-production `.env`, `composer audit`, migrations, `MOCKS=0` web build, caches, queue restart); route and config caching verified. Deployment itself waits for the host (P0-05).
 
+### 0.5 Brand and native redesign (2026-09-26)
+
+- **Brand: Ru AppStore.** Source artwork and generated assets in `branding/` (transparent round logo, opaque 1024 px app icon without black corners, favicons). Applied to the portal and admin (header logo, favicons, titles), the API title, `APP_NAME`, and the iOS app (AppIcon, `BrandLogo`, display name, brand-blue AccentColor with light/dark variants).
+- **Trademark risk (new, for the owners):** "App Store" and the A-shaped glyph in the logo are Apple trademarks/trade dress. Apple can object to the name or the icon, and this business depends on Apple Developer accounts (R1). Get a legal opinion before launch; a changed name or glyph means replacing the files in `branding/`.
+- **Native redesign** after the stakeholder's reference screens, deliberately not identical to Apple's App Store: tabs Главная / Игры / Приложения / Менеджер / Поиск; logo + glass capsule (notifications, account) on every tab; brand glow behind the header; hero carousel with the app's first screenshot as banner; sections as paged columns of three rows; install capsule «Установить» (green when the build for this iPhone is ready); Менеджер = this device's installations with filters; Поиск = search field plus «Обновлено / Новое» with real totals; account as a sheet (membership, device, subscriptions, store settings, data and storage). Light and dark mode both use semantic colours.
+- **Backend for it:** `app_categories.kind` (APPS / GAMES, editable in admin), `GET /storefront/feed?kind=`, `GET /apps?kind=&sort=featured|updated|new`, `feature_image_url` on app cards, and feed sections «Самые загружаемые» / «Тенденции» computed from delivered installations (omitted while there is no data — no invented rankings). Demo seed adds three game categories with fictional games.
+- **Not built from the reference:** the «Подписать IPA / Источники / Импортировать IPA по ссылке» section of the reference Менеджер. Letting customers import and sign arbitrary IPAs on their phones is a product and compliance decision (FULL_PLAN §1.2, §5.1.1; P0-01), not a design change. The notification bell shows only real events (builds ready to install).
+
 Phase 4 verified locally: catalog CRUD, taxonomy, versions and normalized media uploads are covered by Pest; the native Today/Browse/Search/AppDetail screens use `CatalogRepository` against the API with an offline cache. The iOS suite covers content, navigation, search, empty, offline, unauthorized, expired and server-error states. Russian UI strings now have a String Catalog. `MockCatalog` remains Debug-only. The remaining Phase 4 exit-gate check is the live admin → API → Simulator journey in CI/local integration mode.
 
 Phase 3 verified: 229 Pest tests (signed enrollment answers, challenge reuse and expiry, device ownership and limits, slot reservation at the per-family limit, Apple retry/permanent/processing paths, claims, admin reveal, App Store Connect driver against recorded HTTP responses, UDID privacy), 11 Playwright journeys including iPhone enrollment, 41 iOS tests (deep links, claim sign-in). The `storefront://` scheme opens the app in the Simulator.
@@ -612,7 +620,7 @@ Slack: Phase 4 iOS/admin work and Phase 5 admin screens are off the critical pat
 | R6 | Apple API rate limits or outages | Registration and profile jobs stall | Backoff, `apple_api_429_count` metric, "Apple API outage" runbook |
 | R7 | UDID or personal-data exposure | Privacy incident | Encryption plus blind index, masking, audited reveal, log redaction test in CI, retention jobs |
 | R8 | A single runner Mac is a single point of failure | No new installs while it's down | Leases and idempotent retries, heartbeat alert, documented rebuild of a second runner |
-| R9 | Brand still undecided | Rework of identifiers | Bundle ID and domain fixed in Phase 0. Visible strings stay `[BRAND]` through a single dictionary key |
+| R9 | ~~Brand still undecided~~ Decided: Ru AppStore (2026-09-26); the name and the logo's App Store-like glyph are a trademark risk with Apple (see §0.5) | Rework of identifiers; possible Apple objection | Bundle ID and domain still fixed in Phase 0 |
 
 ---
 
