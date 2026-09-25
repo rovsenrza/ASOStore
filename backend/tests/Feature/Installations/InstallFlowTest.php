@@ -295,3 +295,18 @@ it('fails preparation clearly when no runner holds a signing certificate', funct
     $this->getJson("/api/v1/apps/{$this->catalogApp->public_id}")->assertJsonPath('data.install_state.status', 'failed');
     expect(AppArtifact::sole()->status)->toBe(ArtifactStatus::Published);
 });
+
+it('signs a fresh build after the certificate of the old one is revoked', function () {
+    runnerHeartbeat();
+    Sanctum::actingAs($this->customer);
+    $this->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare");
+    runnerSigns($this);
+    $old = SignedBuild::sole();
+    expect($old->isDeliverable())->toBeTrue();
+
+    $this->artisan('certificate:revoke', ['sha1' => CERT_SHA1])->assertFailed();
+    $this->artisan('certificate:revoke', ['sha1' => CERT_SHA1, '--reason' => 'Key leaked'])->assertSuccessful();
+
+    expect($old->refresh()->status)->toBe(SignedBuildStatus::Revoked)
+        ->and($old->status_reason)->toBe('CERTIFICATE_REVOKED');
+});

@@ -43,6 +43,15 @@
           <h2 id="account-title">Статус</h2>
           <div id="account-state" role="status" aria-live="polite"></div>
         </section>
+        <section class="panel" id="data-panel" aria-labelledby="data-title" hidden>
+          <h2 id="data-title">Ваши данные</h2>
+          <p>Можно скачать всё, что мы храним о вашем аккаунте, или попросить удалить аккаунт. Удаление выполняет сотрудник поддержки после проверки; идентификатор устройства удаляется после окончания года регистрации в Apple.</p>
+          <div class="form-status" id="data-status" role="status" aria-live="polite"></div>
+          <div class="stage-actions">
+            <button class="secondary-button" type="button" id="export-data">Скачать мои данные</button>
+            <button class="secondary-button" type="button" id="delete-account">Запросить удаление аккаунта</button>
+          </div>
+        </section>
       </div>
     </div>
   </main>

@@ -48,12 +48,13 @@ function concrete(string $uri): string
         '{team}' => 'x',
         '{eligibility}' => 'x',
         '{assignment}' => 'x',
+        '{ticket}' => 'x',
         '{number}' => '0',
     ]);
 }
 
 it('covers every admin route', function () {
-    expect(adminRoutes())->toHaveCount(65);
+    expect(adminRoutes())->toHaveCount(69);
 });
 
 it('turns away guests and customers on every admin route', function () {

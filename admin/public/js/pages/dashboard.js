@@ -43,5 +43,38 @@ async function loadQuota() {
   }
 }
 
+// FULL_PLAN §14 metrics, from the latest scheduler snapshot (P8-OPS-02).
+async function loadMetrics() {
+  if (!can('jobs.view')) return;
+  const panel = document.querySelector('#metrics-panel');
+  const list = document.querySelector('#metrics');
+  panel.hidden = false;
+  try {
+    const { data } = await api.get('/admin/metrics');
+    if (!data.length) {
+      list.replaceChildren(Object.assign(document.createElement('p'), { className: 'muted', textContent: t('metrics.empty') }));
+      return;
+    }
+    const format = (metric) => {
+      if (metric.name.endsWith('_rate')) return `${Math.round(metric.value * 1000) / 10} %`;
+      if (metric.name === 'artifact_storage_bytes') return `${(metric.value / 1024 ** 3).toFixed(2)} ГБ`;
+      return String(Math.round(metric.value * 10) / 10);
+    };
+    list.replaceChildren(...data.map((metric) => {
+      const item = document.createElement('div');
+      const term = document.createElement('dt');
+      const labels = metric.labels ? ` (${Object.values(metric.labels).join(' · ')})` : '';
+      term.textContent = (t.has(`metrics.names.${metric.name}`) ? t(`metrics.names.${metric.name}`) : metric.name) + labels;
+      const value = document.createElement('dd');
+      value.textContent = format(metric);
+      item.append(term, value);
+      return item;
+    }));
+  } catch (error) {
+    list.replaceChildren(Object.assign(document.createElement('p'), { textContent: t.error(error) }));
+  }
+}
+
 loadHealth();
 loadQuota();
+loadMetrics();

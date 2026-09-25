@@ -49,9 +49,18 @@ class SignedBuild extends Model
         ];
     }
 
+    /**
+     * Deliverable, not expired, and its certificate is still valid: a build
+     * signed with a revoked certificate would not launch (IMPLEMENTATION_PLAN R2).
+     */
     public function isDeliverable(): bool
     {
-        return $this->status === SignedBuildStatus::Deliverable && ($this->expires_at === null || $this->expires_at->isFuture());
+        if ($this->status !== SignedBuildStatus::Deliverable || ($this->expires_at !== null && $this->expires_at->isPast())) {
+            return false;
+        }
+        $certificate = $this->certificate;
+
+        return $certificate === null || ($certificate->status === 'ACTIVE' && ($certificate->expires_at === null || $certificate->expires_at->isFuture()));
     }
 
     /**

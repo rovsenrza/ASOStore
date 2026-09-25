@@ -76,7 +76,8 @@ describe('session login', function () {
 
         $event = AuditLog::sole();
         expect($event->action)->toBe('auth.login_failed')
-            ->and($event->actor_label)->toBe($user->email);
+            // Masked: audit rows are immutable and must not keep a full address (P8-SEC-02).
+            ->and($event->actor_label)->toBe(mb_substr($user->email, 0, 1).'***'.strstr($user->email, '@'));
     });
 
     it('refuses suspended accounts', function () {

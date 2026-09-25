@@ -51,6 +51,7 @@ async function load() {
   try {
     const [{ data: user }, { data: status }] = await Promise.all([api.get('/auth/me'), api.get('/storefront/status')]);
     renderProfile(user);
+    document.querySelector('#data-panel').hidden = false;
     renderStage(state, t, status.stage, { reason: status.blocking_reason });
     if (status.device) state.append(renderDevice(t, status.device));
   } catch (error) {
@@ -66,3 +67,37 @@ async function load() {
 }
 
 load();
+
+// Data export and deletion request (IMPLEMENTATION_PLAN P8-SEC-02).
+const dataStatus = document.querySelector('#data-status');
+
+document.querySelector('#export-data').addEventListener('click', async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    const { data } = await api.get('/account/export');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    link.download = 'account-data.json';
+    link.click();
+    URL.revokeObjectURL(link.href);
+    dataStatus.textContent = t('data.exported');
+  } catch (error) {
+    renderError(dataStatus, t, error);
+  } finally {
+    button.disabled = false;
+  }
+});
+
+document.querySelector('#delete-account').addEventListener('click', async (event) => {
+  if (!window.confirm(t('data.deleteConfirm'))) return;
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    await api.post('/account/deletion-request');
+    dataStatus.textContent = t('data.deleteRequested');
+  } catch (error) {
+    button.disabled = false;
+    renderError(dataStatus, t, error);
+  }
+});

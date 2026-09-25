@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api\V1\Customer;
 
-use App\Enums\ActorType;
 use App\Enums\ErrorCode;
 use App\Enums\RoleSlug;
 use App\Exceptions\ApiException;
@@ -72,7 +71,7 @@ class AuthController extends Controller
 
         $guard = Auth::guard('web');
         if (! $guard->attempt($credentials)) {
-            $this->audit->record('auth.login_failed', actor: new Actor(ActorType::Anonymous, null, $credentials['email']));
+            $this->audit->record('auth.login_failed', actor: Actor::anonymous($credentials['email']));
 
             throw new ApiException(ErrorCode::InvalidCredentials);
         }
@@ -122,7 +121,7 @@ class AuthController extends Controller
         $email = Str::lower(trim($data['email']));
 
         Password::broker()->sendResetLink(['email' => $email]);
-        $this->audit->record('auth.password_reset_requested', actor: new Actor(ActorType::Anonymous, null, $email));
+        $this->audit->record('auth.password_reset_requested', actor: Actor::anonymous($email));
 
         // Same answer whether or not the account exists.
         return ApiResponse::ok(['accepted' => true], 202);

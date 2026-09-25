@@ -12,7 +12,7 @@ const ROLES = ['customer', 'support', 'catalog_manager', 'admin'];
 
 const tabs = [...document.querySelectorAll('[role="tab"]')];
 const panels = tabs.map((tab) => document.getElementById(tab.getAttribute('aria-controls')));
-const tabAllowed = { 'tab-users': can('users.view'), 'tab-codes': can('activation-codes.view') };
+const tabAllowed = { 'tab-users': can('users.view'), 'tab-codes': can('activation-codes.view'), 'tab-tickets': can('users.view') };
 
 function selectTab(tab) {
   tabs.forEach((other, index) => {
@@ -151,9 +151,19 @@ function userActions(user, refresh) {
     await act(() => api.post(`/admin/users/${user.id}/totp/reset`, { reason }), t('users.totpReset'), refresh);
   });
 
+  // Irreversible erasure (P8-SEC-02): the operator retypes the email as confirmation.
+  const erase = el('button', { type: 'button', className: 'button button--danger', disabled: isSelf || Boolean(user.erased_at) }, t('users.erase'));
+  erase.addEventListener('click', async () => {
+    const { confirmed, reason } = await confirmAction(t, { title: t('users.eraseTitle'), message: t('users.eraseMessage', { email: user.email }), danger: true, requireReason: true });
+    if (!confirmed) return;
+    const typed = window.prompt(t('users.eraseConfirmEmail'));
+    if (typed === null) return;
+    await act(() => api.post(`/admin/users/${user.id}/erase`, { confirm_email: typed.trim(), reason }, { idempotencyKey: newIdempotencyKey('erase') }), t('users.erased'), refresh);
+  });
+
   return el('section', { className: 'card actions-card' },
     el('fieldset', { className: 'role-set' }, el('legend', {}, t('users.roles')), roleBoxes),
-    el('div', { className: 'button-row' }, saveRoles, toggleStatus, resetTotp));
+    el('div', { className: 'button-row' }, saveRoles, toggleStatus, resetTotp, erase));
 }
 
 async function act(request, successMessage, refresh) {
@@ -297,4 +307,33 @@ function showBatch(batch) {
     el('p', { className: 'notice' }, t('codes.resultWarning')),
     el('ol', { className: 'code-list mono' }, batch.codes.map((code) => el('li', {}, code))),
     el('div', { className: 'button-row' }, copy, download)));
+}
+
+/* ---------- Support tickets (P8-WEB-01) ---------- */
+
+if (can('users.view')) {
+  const tickets = createDataTable({
+    container: document.querySelector('#tickets-table'),
+    t,
+    caption: t('tickets.caption'),
+    searchable: false,
+    filters: [{ name: 'status', label: t('tickets.status'), type: 'select', options: [['OPEN', t('tickets.open')], ['CLOSED', t('tickets.closed')]] }],
+    columns: [
+      { key: 'created_at', label: t('tickets.created'), render: (ticket) => formatDateTime(ticket.created_at) },
+      { key: 'topic', label: t('tickets.topic'), render: (ticket) => t(`tickets.topics.${ticket.topic}`) },
+      { key: 'email', label: t('tickets.email') },
+      { key: 'message', label: t('tickets.message'), render: (ticket) => ticket.message.slice(0, 160) },
+      { key: 'reference_request_id', label: t('tickets.reference'), className: 'mono', render: (ticket) => ticket.reference_request_id ?? '' },
+      { key: 'actions', label: '', render: (ticket) => (ticket.status === 'OPEN' ? el('button', { type: 'button', className: 'button', onclick: async () => {
+        const { confirmed, reason } = await confirmAction(t, { title: t('tickets.closeTitle'), message: t('tickets.closeMessage'), requireReason: true });
+        if (!confirmed) return;
+        await act(() => api.post(`/admin/support-tickets/${ticket.id}/close`, { reason }), t('tickets.closedToast'), () => tickets.reload());
+      } }, t('tickets.close')) : '') },
+    ],
+    fetchPage: async ({ page, filters, signal }) => {
+      const params = new URLSearchParams({ page, status: filters.status || 'OPEN' });
+      const { data, meta } = await api.get(`/admin/support-tickets?${params}`, { signal });
+      return { rows: data, pagination: meta.pagination };
+    },
+  });
 }

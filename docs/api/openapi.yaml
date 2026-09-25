@@ -23,6 +23,8 @@ tags:
   - name: Catalog
   - name: Install
     description: 'Preparation and OTA installation (IMPLEMENTATION_PLAN §5.6). The worker API for the signing runner is documented in runner/README.md.'
+  - name: Support
+    description: 'Support requests and the customer’s own data (IMPLEMENTATION_PLAN P8-WEB-01, P8-SEC-02).'
   - name: Admin
 paths:
   /health:
@@ -2594,6 +2596,163 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
+  /support/tickets:
+    post:
+      tags: [Support]
+      operationId: createSupportTicket
+      summary: Send a support request (signed in or not)
+      description: 'Rate-limited to 10 per hour per IP. Signed-in customers do not need to send an email address.'
+      security:
+        - {}
+        - sessionCookie: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [topic, message]
+              properties:
+                email: { type: string, format: email, description: 'Required when signed out.' }
+                topic: { type: string, enum: [ACTIVATION, DEVICE, INSTALL, ACCOUNT, DATA_DELETION, OTHER] }
+                message: { type: string, minLength: 10, maxLength: 5000 }
+                reference_request_id: { type: string, maxLength: 64, description: 'The request ID shown on an error screen.' }
+      responses:
+        "201":
+          description: Ticket created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+
+  /account/export:
+    get:
+      tags: [Support]
+      operationId: exportAccountData
+      summary: Everything stored about the caller's account (UDID masked)
+      description: 'Audited. 5 requests per hour.'
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Export
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+
+  /account/deletion-request:
+    post:
+      tags: [Support]
+      operationId: requestAccountDeletion
+      summary: Ask for the account to be deleted
+      description: 'Creates (once) a DATA_DELETION support ticket; an operator performs the erasure after checks.'
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      responses:
+        "202":
+          description: Request recorded
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/Error" }
+
+  /admin/metrics:
+    get:
+      tags: [Admin]
+      operationId: adminGetMetrics
+      summary: Latest FULL_PLAN §14 metrics snapshot
+      description: 'Requires jobs.view. Snapshots are taken every five minutes by the scheduler.'
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /admin/support-tickets:
+    get:
+      tags: [Admin]
+      operationId: adminListSupportTickets
+      summary: Support tickets
+      description: 'Requires users.view.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [OPEN, CLOSED] } }
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /admin/support-tickets/{ticket}/close:
+    post:
+      tags: [Admin]
+      operationId: adminCloseSupportTicket
+      summary: Close a ticket (reason required, audited)
+      description: 'Requires users.view.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - { name: ticket, in: path, required: true, schema: { $ref: "#/components/schemas/PublicId" } }
+      requestBody:
+        $ref: "#/components/requestBodies/Reason"
+      responses:
+        "200":
+          description: Closed
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /admin/users/{user}/erase:
+    post:
+      tags: [Admin]
+      operationId: adminEraseUser
+      summary: Irreversibly erase a user's personal data
+      description: 'Requires users.manage. Revokes sessions and tokens, disables device registrations, replaces name and email. The encrypted UDID is purged by the retention job once the Apple membership year has ended.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - { name: user, in: path, required: true, schema: { $ref: "#/components/schemas/PublicId" } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirm_email, reason]
+              properties:
+                confirm_email: { type: string, description: "Must equal the user's current email." }
+                reason: { type: string, maxLength: 1000 }
+      responses:
+        "200":
+          description: Erased
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
 
 
 components:
@@ -3131,6 +3290,8 @@ components:
           oneOf:
             - $ref: "#/components/schemas/Timestamp"
             - type: "null"
+        deletion_requested_at: { type: [string, "null"], description: 'Set when the customer asked for deletion (P8-SEC-02).' }
+        erased_at: { type: [string, "null"], description: 'Set when an admin erased the account; personal data has been replaced.' }
         created_at: { $ref: "#/components/schemas/Timestamp" }
 
     AdminUserDetail:

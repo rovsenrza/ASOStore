@@ -69,7 +69,7 @@ class QuotaReconciler
                     $summary['mismatches']++;
                     // Devices added in the Apple portal by hand also use slots: flag, do not correct.
                     $this->audit->record('quota.mismatch', $team, after: ['family' => $family, 'local' => $local, 'apple' => $appleCount], actor: $actor);
-                    Log::alert('quota.mismatch', ['team' => $team->apple_team_id, 'family' => $family, 'local' => $local, 'apple' => $appleCount]);
+                    Log::channel('alerts')->alert('quota.mismatch', ['team' => $team->apple_team_id, 'family' => $family, 'local' => $local, 'apple' => $appleCount]);
                 }
             }
         }
@@ -92,7 +92,7 @@ class QuotaReconciler
 
         return $this->alertOnce("team:{$team->id}", function () use ($team, $expires, $actor) {
             $this->audit->record('team.membership_expiring', $team, after: ['expires_at' => $expires->toIso8601ZuluString()], actor: $actor);
-            Log::alert('team.membership_expiring', ['team' => $team->apple_team_id, 'expires_at' => $expires->toIso8601ZuluString()]);
+            Log::channel('alerts')->alert('team.membership_expiring', ['team' => $team->apple_team_id, 'expires_at' => $expires->toIso8601ZuluString()]);
         });
     }
 
@@ -111,7 +111,7 @@ class QuotaReconciler
                     'sha1' => $certificate->sha1_fingerprint,
                     'expires_at' => $certificate->expires_at?->toIso8601ZuluString(),
                 ], actor: $actor);
-                Log::alert('certificate.expiring', ['sha1' => $certificate->sha1_fingerprint, 'expires_at' => $certificate->expires_at?->toIso8601ZuluString()]);
+                Log::channel('alerts')->alert('certificate.expiring', ['sha1' => $certificate->sha1_fingerprint, 'expires_at' => $certificate->expires_at?->toIso8601ZuluString()]);
             });
         }
 

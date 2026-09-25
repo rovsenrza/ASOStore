@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api\V1\Customer;
 
-use App\Enums\ActorType;
 use App\Enums\ErrorCode;
 use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
@@ -38,7 +37,7 @@ class TokenController extends Controller
 
         $user = $this->credentials->verify($email, $data['password']);
         if ($user === null) {
-            $this->audit->record('auth.login_failed', actor: new Actor(ActorType::Anonymous, null, $email));
+            $this->audit->record('auth.login_failed', actor: Actor::anonymous($email));
 
             throw new ApiException(ErrorCode::InvalidCredentials);
         }

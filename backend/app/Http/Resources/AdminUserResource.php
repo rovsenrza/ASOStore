@@ -29,6 +29,8 @@ class AdminUserResource extends JsonResource
             'totp_enabled' => $this->hasConfirmedTotp(),
             'subscription' => $this->activeSubscription ? (new SubscriptionResource($this->activeSubscription))->resolve($request) : null,
             'last_login_at' => $this->last_login_at?->toIso8601ZuluString(),
+            'deletion_requested_at' => $this->deletion_requested_at?->toIso8601ZuluString(),
+            'erased_at' => $this->erased_at?->toIso8601ZuluString(),
             'created_at' => $this->created_at?->toIso8601ZuluString(),
         ];
     }

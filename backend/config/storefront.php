@@ -31,6 +31,13 @@ return [
     */
     'seed_admin_password' => env('SEED_ADMIN_PASSWORD'),
 
+    'scheduled_queue_worker' => (bool) env('STOREFRONT_SCHEDULED_QUEUE_WORKER', true),
+
+    'security' => [
+        'csp_report_only' => (bool) env('STOREFRONT_CSP_REPORT_ONLY', false),
+        'hsts_max_age' => (int) env('STOREFRONT_HSTS_MAX_AGE', 31536000),
+    ],
+
     'auth' => [
         // Native app tokens (IMPLEMENTATION_PLAN D3).
         'access_token_minutes' => 15,
@@ -104,6 +111,28 @@ return [
         'review_checklist' => ['source_verified', 'distribution_rights_confirmed', 'inspection_report_reviewed'],
         'document_max_kilobytes' => 20 * 1024,
         'document_mimes' => ['pdf', 'png', 'jpg', 'jpeg', 'txt'],
+    ],
+
+    // Defaults until the retention decision (IMPLEMENTATION_PLAN §10 Q8).
+    'retention' => [
+        'upload_session_hours' => (int) env('STOREFRONT_RETENTION_UPLOAD_HOURS', 24),
+        'rejected_artifact_days' => (int) env('STOREFRONT_RETENTION_REJECTED_ARTIFACT_DAYS', 90),
+        'signed_build_days' => (int) env('STOREFRONT_RETENTION_SIGNED_BUILD_DAYS', 30),
+        'installation_event_days' => (int) env('STOREFRONT_RETENTION_INSTALLATION_EVENT_DAYS', 365),
+    ],
+
+    // Alert thresholds (FULL_PLAN §14, IMPLEMENTATION_PLAN P8-OPS-02).
+    'alerts' => [
+        'quota_remaining_ratio' => 0.1,
+        'signing_failures_per_hour' => 3,
+        'queue_backlog' => (int) env('STOREFRONT_ALERT_QUEUE_BACKLOG', 50),
+        'storage_free_ratio' => 0.1,
+        'downloads_per_user_per_hour' => 30,
+        'enrollments_per_ip_per_hour' => 10,
+        'runner_offline_minutes' => 5,
+        'backup_max_age_hours' => 26,
+        // Where scripts/backup.sh writes its result (storage/app/backup-status.json).
+        'backup_status_file' => env('STOREFRONT_BACKUP_STATUS_FILE', storage_path('app/backup-status.json')),
     ],
 
     // IPA inspection limits (IMPLEMENTATION_PLAN §5.7). Archives are untrusted.

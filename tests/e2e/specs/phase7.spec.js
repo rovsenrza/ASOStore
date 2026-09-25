@@ -43,3 +43,37 @@ test('admin reviews Apple teams, approves an app for a team and sees runner heal
   await page.getByRole('tab', { name: 'Задачи' }).click();
   await expect(page.locator('#jobs-table')).toBeVisible();
 });
+
+// The production CSP (App\Http\Middleware\SecurityHeaders::CSP and public/.htaccess). The test
+// server does not send it for static files, so it is added here to catch violations.
+const CSP = "default-src 'self'; img-src 'self' data: blob:; style-src 'self' https://fonts.googleapis.com; "
+  + "font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; object-src 'none'; "
+  + "frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+
+test('every page works under the enforced Content Security Policy', async ({ page }) => {
+  const violations = [];
+  page.on('console', (message) => {
+    if (/Content Security Policy|Refused to/i.test(message.text())) violations.push(`${page.url()}: ${message.text()}`);
+  });
+  await page.route('**/*', async (route) => {
+    const response = await route.fetch();
+    const headers = { ...response.headers() };
+    if ((headers['content-type'] ?? '').includes('text/html')) headers['content-security-policy'] = CSP;
+    await route.fulfill({ response, headers });
+  });
+
+  for (const path of ['/', '/install.html', '/activate.html', '/account.html', '/support.html', '/privacy.html', '/admin/login.html']) {
+    await page.goto(path);
+    await expect(page.locator('main')).toBeVisible();
+  }
+  expect(violations).toEqual([]);
+});
+
+test('a signed-out visitor can reach support', async ({ page }) => {
+  await page.goto('/support.html');
+  await page.getByLabel('Эл. почта для ответа').fill('visitor@example.com');
+  await page.getByLabel('Тема').selectOption('INSTALL');
+  await page.getByLabel('Что случилось').fill('Storefront перестал открываться после обновления iOS.');
+  await page.getByRole('button', { name: 'Отправить' }).click();
+  await expect(page.getByText('Обращение отправлено')).toBeVisible();
+});

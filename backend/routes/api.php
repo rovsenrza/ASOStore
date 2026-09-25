@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\V1\Admin\AuditLogController;
 use App\Http\Controllers\Api\V1\Admin\DeviceController as AdminDeviceController;
 use App\Http\Controllers\Api\V1\Admin\InstallationController as AdminInstallationController;
 use App\Http\Controllers\Api\V1\Admin\JobController;
+use App\Http\Controllers\Api\V1\Admin\OperationsController;
 use App\Http\Controllers\Api\V1\Admin\RunnerController;
 use App\Http\Controllers\Api\V1\Admin\TaxonomyController;
 use App\Http\Controllers\Api\V1\Admin\TeamAssignmentController;
@@ -27,6 +28,7 @@ use App\Http\Controllers\Api\V1\Customer\FeedController;
 use App\Http\Controllers\Api\V1\Customer\InstallationController;
 use App\Http\Controllers\Api\V1\Customer\InstallDeliveryController;
 use App\Http\Controllers\Api\V1\Customer\StorefrontStatusController;
+use App\Http\Controllers\Api\V1\Customer\SupportController;
 use App\Http\Controllers\Api\V1\Customer\TokenController;
 use App\Http\Controllers\Api\V1\HealthController;
 use Illuminate\Support\Facades\Route;
@@ -71,7 +73,14 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::get('/installations/{installation}', [InstallationController::class, 'show'])->name('api.installations.show');
     Route::post('/installations/{installation}/authorize', [InstallationController::class, 'authorize'])->middleware(['throttle:installs', 'idempotent'])->name('api.installations.authorize');
     Route::get('/library', [InstallationController::class, 'library'])->name('api.library');
+
+    // The customer's own data (IMPLEMENTATION_PLAN P8-SEC-02)
+    Route::get('/account/export', [SupportController::class, 'export'])->middleware('throttle:account-data')->name('api.account.export');
+    Route::post('/account/deletion-request', [SupportController::class, 'requestDeletion'])->middleware('throttle:account-data')->name('api.account.deletion-request');
 });
+
+// Support requests, also from signed-out visitors (IMPLEMENTATION_PLAN P8-WEB-01).
+Route::post('/support/tickets', [SupportController::class, 'store'])->middleware('throttle:support')->name('api.support.tickets');
 
 // Fetched by iOS during the OTA install: the token or the URL signature is the credential.
 Route::get('/install/{token}/manifest.plist', [InstallDeliveryController::class, 'manifest'])->middleware('throttle:install-manifest')->name('api.install.manifest');
@@ -160,6 +169,10 @@ Route::prefix('admin')->name('api.admin.')->group(function () {
         Route::get('/quota-assignments', [TeamAssignmentController::class, 'index'])->can('teams.view')->name('quota-assignments.index');
         Route::post('/quota-assignments/{assignment}/approve', [TeamAssignmentController::class, 'approve'])->can('teams.manage')->middleware('idempotent')->name('quota-assignments.approve');
         Route::post('/quota-assignments/{assignment}/reject', [TeamAssignmentController::class, 'reject'])->can('teams.manage')->middleware('idempotent')->name('quota-assignments.reject');
+        Route::get('/metrics', [OperationsController::class, 'metrics'])->can('jobs.view')->name('metrics');
+        Route::get('/support-tickets', [OperationsController::class, 'tickets'])->can('users.view')->name('support-tickets.index');
+        Route::post('/support-tickets/{ticket}/close', [OperationsController::class, 'closeTicket'])->can('users.view')->name('support-tickets.close');
+        Route::post('/users/{user}/erase', [OperationsController::class, 'erase'])->can('users.manage')->middleware('idempotent')->name('users.erase');
         Route::get('/installations', [AdminInstallationController::class, 'index'])->can('installations.view')->name('installations.index');
         Route::get('/installations/{installation}', [AdminInstallationController::class, 'show'])->can('installations.view')->name('installations.show');
         Route::get('/categories', [TaxonomyController::class, 'categories'])->can('catalog.view')->name('categories.index');

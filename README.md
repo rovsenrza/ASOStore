@@ -15,7 +15,9 @@ Monorepo for the customer web portal, the native iOS Storefront, the operator ad
 | [admin/public/](admin/public/) | Operator panel: static HTML/CSS/vanilla JS |
 | [shared/js/](shared/js/) | API client, mock transport, i18n used by both web apps |
 | [ios/](ios/) | Native SwiftUI Storefront (`Storefront.xcodeproj`) |
-| [scripts/](scripts/) | `dev.sh` runs everything locally; `build-public.sh` publishes the web apps into Laravel's docroot; `web-smoke.mjs` checks them; `e2e.sh` runs the browser suite; `generate-api-examples.sh` rebuilds the API examples; `device-payload.php` signs a fake iPhone enrollment answer for tests |
+| [runner/](runner/) | macOS signing runner (Swift package): leases signing jobs, re-signs per device — see its README |
+| [docs/runbooks/](docs/runbooks/) | Operational runbooks; [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md); [docs/security/](docs/security/) |
+| [scripts/](scripts/) | `deploy.sh` production deploy; `backup.sh` / `restore-drill.sh` encrypted backups and the restore drill; `dev.sh` runs everything locally; `build-public.sh` publishes the web apps into Laravel's docroot; `web-smoke.mjs` checks them; `e2e.sh` runs the browser suite; `generate-api-examples.sh` rebuilds the API examples; `device-payload.php` signs a fake iPhone enrollment answer for tests |
 | [tests/e2e/](tests/e2e/) | Playwright browser journeys across portal and admin |
 
 Everything is served from one origin (IMPLEMENTATION_PLAN D1): portal at `/`, admin at `/admin/`, API at `/api/v1`.
@@ -71,7 +73,13 @@ iOS only posts the device answer to an HTTPS address it can reach. Expose the lo
 |---|---|
 | `php artisan activation:issue --count=N [--days=D] [--note=…]` | Issue activation codes (printed once) |
 | `php artisan admin:reset-totp EMAIL --reason=…` | Break-glass reset of a staff authenticator |
-| `php artisan apple:store-key PATH` / `apple:connect …` | Store the Apple key encrypted; connect the primary team |
+| `php artisan apple:store-key PATH` / `apple:connect …` | Store the Apple key encrypted; connect the primary team (more teams: Admin → Команды Apple) |
+| `php artisan runner:create NAME` | Register a signing runner; prints its worker key once (runner/README.md) |
+| `php artisan certificate:revoke SHA1 --reason=…` | Revoke a signing certificate and every build signed with it |
+| `BACKUP_PASSPHRASE=… ./scripts/backup.sh` | Encrypted DB + storage backup, verified; cron daily ([runbook](docs/runbooks/database-restore.md)) |
+| `BACKUP_PASSPHRASE=… ./scripts/restore-drill.sh` | Restore the newest backup into a throwaway DB and verify it |
+
+Cron on the server: `* * * * * cd backend && php artisan schedule:run` — runs the queue worker (D6), lease recovery, link expiry, quota reconciliation, metrics, alerts and retention.
 
 ## Checks
 
@@ -81,6 +89,7 @@ npx @stoplight/spectral-cli@6 lint docs/api/openapi.yaml --ruleset .spectral.yam
 BASE_URL=http://127.0.0.1:8000 CHROME_BIN=/path/to/chrome node scripts/web-smoke.mjs
 ./scripts/e2e.sh                    # Playwright browser journeys on a throwaway database (storefront_e2e)
 xcodebuild test -project ios/Storefront.xcodeproj -scheme Storefront -destination "platform=iOS Simulator,name=iPhone Air"
+(cd runner && swift test)          # signing runner
 ```
 
 After changing an endpoint, regenerate the shared examples from a real run (throwaway database `storefront_examples`) and let the contract tests confirm them:

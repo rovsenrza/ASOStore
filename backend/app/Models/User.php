@@ -27,6 +27,8 @@ use Laravel\Sanctum\TransientToken;
  * @property int|null $totp_last_step
  * @property Carbon|null $last_login_at
  * @property Carbon|null $email_verified_at
+ * @property Carbon|null $deletion_requested_at
+ * @property Carbon|null $erased_at
  */
 class User extends Authenticatable
 {
@@ -77,6 +79,8 @@ class User extends Authenticatable
             'totp_confirmed_at' => 'datetime',
             'totp_last_step' => 'integer',
             'last_login_at' => 'datetime',
+            'deletion_requested_at' => 'datetime',
+            'erased_at' => 'datetime',
         ];
     }
 

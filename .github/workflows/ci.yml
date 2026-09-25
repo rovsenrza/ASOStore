@@ -36,6 +36,8 @@ jobs:
           extensions: pdo_mysql, zip, intl, sodium, mbstring
           coverage: none
       - run: composer install --no-interaction --prefer-dist --no-progress
+      # Dependency audit (IMPLEMENTATION_PLAN P8-SEC-01): fails on known advisories.
+      - run: composer audit --no-interaction
       - run: cp .env.example .env && php artisan key:generate
       - run: ./vendor/bin/pint --test
       - run: ./vendor/bin/phpstan analyse --memory-limit=1G --no-progress

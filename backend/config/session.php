@@ -169,7 +169,8 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE'),
+    // Secure by default outside local development (IMPLEMENTATION_PLAN P8-SEC-01).
+    'secure' => env('SESSION_SECURE_COOKIE', ! in_array(env('APP_ENV'), ['local', 'testing'], true)),
 
     /*
     |--------------------------------------------------------------------------

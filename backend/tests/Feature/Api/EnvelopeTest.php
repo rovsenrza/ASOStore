@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\SecurityHeaders;
 use Illuminate\Support\Facades\Route;
 
 it('wraps the health check in the envelope and assigns a request id', function () {
@@ -28,12 +29,20 @@ it('replaces a malformed client request id', function () {
     expect($response->headers->get('X-Request-Id'))->toMatch('/^[0-9a-z]{26}$/');
 });
 
-it('sets baseline security headers', function () {
+it('sets security headers with an enforced CSP, and HSTS only over HTTPS', function () {
     $this->getJson('/api/v1/health')
         ->assertHeader('X-Content-Type-Options', 'nosniff')
         ->assertHeader('X-Frame-Options', 'DENY')
         ->assertHeader('Referrer-Policy', 'strict-origin-when-cross-origin')
-        ->assertHeader('Content-Security-Policy-Report-Only');
+        ->assertHeader('Content-Security-Policy', SecurityHeaders::CSP)
+        ->assertHeaderMissing('Content-Security-Policy-Report-Only')
+        ->assertHeaderMissing('Strict-Transport-Security');
+
+    $this->getJson('https://localhost/api/v1/health')
+        ->assertHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+
+    config(['storefront.security.csp_report_only' => true]);
+    $this->getJson('/api/v1/health')->assertHeader('Content-Security-Policy-Report-Only');
 });
 
 it('returns NOT_FOUND for unknown API routes', function () {

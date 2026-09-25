@@ -4,6 +4,7 @@ use App\Exceptions\ApiExceptionRenderer;
 use App\Http\Middleware\AssignRequestId;
 use App\Http\Middleware\EnsureAccountActive;
 use App\Http\Middleware\Idempotent;
+use App\Http\Middleware\RecordRequestMetrics;
 use App\Http\Middleware\RequireStaffSession;
 use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\VerifyWorkerSignature;
@@ -35,6 +36,7 @@ return Application::configure(basePath: dirname(__DIR__))
             $middleware->trustProxies(at: $proxies === '*' ? '*' : array_map('trim', explode(',', $proxies)));
         }
         $middleware->append(SecurityHeaders::class);
+        $middleware->appendToGroup('api', RecordRequestMetrics::class);
         // Same-origin browser requests get session cookies + CSRF (Sanctum SPA, IMPLEMENTATION_PLAN D2).
         $middleware->statefulApi();
         $middleware->throttleApi();

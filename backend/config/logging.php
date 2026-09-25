@@ -52,6 +52,28 @@ return [
 
     'channels' => [
 
+        // Operational alerts (FULL_PLAN §14): a dedicated file, plus Slack when a
+        // webhook is configured (LOG_ALERTS_SLACK_WEBHOOK_URL) for the on-call channel.
+        'alerts' => [
+            'driver' => 'stack',
+            'channels' => array_values(array_filter(['alerts_file', env('LOG_ALERTS_SLACK_WEBHOOK_URL') ? 'alerts_slack' : null])),
+            'ignore_exceptions' => false,
+        ],
+
+        'alerts_file' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/alerts.log'),
+            'level' => 'warning',
+            'days' => 90,
+        ],
+
+        'alerts_slack' => [
+            'driver' => 'slack',
+            'url' => env('LOG_ALERTS_SLACK_WEBHOOK_URL'),
+            'username' => 'Storefront alerts',
+            'level' => 'warning',
+        ],
+
         'stack' => [
             'driver' => 'stack',
             'channels' => explode(',', (string) env('LOG_STACK', 'single')),

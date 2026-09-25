@@ -2,6 +2,9 @@
 
 use App\Jobs\SyncDeviceRegistrationsJob;
 use App\Services\Installations\InstallationService;
+use App\Services\Operations\AlertEvaluator;
+use App\Services\Operations\MetricsCollector;
+use App\Services\Operations\RetentionService;
 use App\Services\Quotas\QuotaReconciler;
 use App\Services\Quotas\QuotaService;
 use App\Services\Signing\SigningService;
@@ -38,3 +41,18 @@ Schedule::call(fn () => app(QuotaReconciler::class)->run())
 // Slot reservations whose Apple call never came back.
 Schedule::call(fn () => app(QuotaService::class)->releaseExpired())
     ->name('quota:release-expired')->everyFiveMinutes()->withoutOverlapping();
+
+// Metrics, alerts and retention (IMPLEMENTATION_PLAN P8-OPS-02, P8-SEC-02).
+Schedule::call(fn () => app(MetricsCollector::class)->collect())
+    ->name('metrics:collect')->everyFiveMinutes()->withoutOverlapping();
+Schedule::call(fn () => app(AlertEvaluator::class)->run())
+    ->name('alerts:evaluate')->everyFiveMinutes()->withoutOverlapping();
+Schedule::call(fn () => app(RetentionService::class)->run())
+    ->name('retention:apply')->dailyAt('04:00')->withoutOverlapping();
+
+// Shared-hosting queue mode (IMPLEMENTATION_PLAN D6): cron runs a short-lived worker every
+// minute. Set STOREFRONT_SCHEDULED_QUEUE_WORKER=false when a supervised worker runs instead.
+if (config('storefront.scheduled_queue_worker')) {
+    Schedule::command('queue:work --stop-when-empty --max-time=50')
+        ->name('queue:work-scheduled')->everyMinute()->withoutOverlapping()->runInBackground();
+}

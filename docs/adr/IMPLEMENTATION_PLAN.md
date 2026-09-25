@@ -17,7 +17,7 @@ FULL_PLAN defines **what** we build and the rules we can't break. This document 
 
 ### 0.1 Status (updated 2026-09-25)
 
-**Phases 1–2 implemented; Phase 3 implemented except the physical-device and Apple Developer account gates; Phase 4 implementation is complete locally; Phase 0 Apple/compliance decisions remain open.** Work can proceed through Phase 5 and the account-independent parts of Phase 6 while the Apple account is pending. The Apple integration sits behind a driver switch (`disabled` / `fake` / `appstoreconnect`); connecting the account is `apple:store-key` + `apple:connect` (README).
+**Phases 1–8 implemented as far as possible without the Apple Developer account, a test iPhone and the production host; Phase 0 Apple/compliance decisions remain open.** Phase 5's admin uploader screen and DemoApp fixture are deferred (see below). Release status: [RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md). What remains is listed per phase below. The Apple integration sits behind a driver switch (`disabled` / `fake` / `appstoreconnect`); connecting the account is `apple:store-key` + `apple:connect` (README).
 
 Phase 5 is in progress. P5-BE-01 is implemented: authorized 8 MiB resumable uploads, received/missing chunk discovery, idempotent chunk replay, streamed SHA-256 assembly, duplicate/corruption handling, immutable artifact creation on the private `artifacts` disk, provenance capture, RBAC, audit records and OpenAPI coverage.
 
@@ -63,6 +63,19 @@ Implemented and tested:
 Behaviour change: at the limit with no eligible team a device is now `NO_ELIGIBLE_TEAM` (Phase 3 used `QUOTA_BLOCKED` for every exhausted case). Blocked registrations may move between the blocked states on retry but never to `ELIGIBLE` without Apple.
 
 Open: the membership limits and real device counts must be confirmed against the live Apple account; the fake driver counts every device as an iPhone.
+
+### 0.4 Phase 8 status (2026-10-02)
+
+Implemented and verified locally; the release gate itself needs the owners' sign-off and the items that depend on the Apple account, a device and the host (see [RELEASE_CHECKLIST.md](../RELEASE_CHECKLIST.md)).
+
+- **P8-SEC-01.** CSP enforced (no inline code; Google Fonts allowed) in the middleware and in `.htaccess` for static files, HSTS on HTTPS responses, `Secure` session cookies by default outside local/testing, dotfiles denied, `composer audit` in CI (clean today). A Playwright journey loads every page under the enforced CSP and fails on any violation. Rate limits cover login, register, password reset, activation, enrollment, claims, prepare/authorize, manifest/download, support and data export. Self-review against ASVS L2: [docs/security/asvs-l2-review.md](../security/asvs-l2-review.md) (open: independent pentest, breached-password check, `APP_KEY` re-encryption tool).
+- **P8-SEC-02.** Data export (`GET /account/export`, UDID masked), deletion request, admin erasure (sessions revoked, registrations disabled, personal data replaced; UDID purged by retention after the Apple membership year ends). Audit rows are immutable, so from now on customers appear in them by public ID and anonymous emails are masked. Retention job: abandoned uploads (P5-BE-04), files of rejected artifacts and dead signed builds, installation events, UDIDs of erased accounts. Spike alerts for downloads per user and enrollments per IP. `certificate:revoke` revokes builds signed with a compromised certificate, and builds are only reused while their certificate is valid.
+- **P8-OPS-01.** `scripts/backup.sh` (encrypted dump with triggers + private storage, manifest with checksums and row counts, verification, off-site rsync, retention, status file) and `scripts/restore-drill.sh`. **Drill passed** on the local database; the first run found that GTID-enabled dumps could not be restored and the backup now uses `--set-gtid-purged=OFF`.
+- **P8-OPS-02.** All ten FULL_PLAN §14 metrics every five minutes (`metric_snapshots`, dashboard panel); alerts (credentials, quota, repeated signing failures, queue backlog, runner offline, storage, spikes, backup) to the `alerts` log channel and Slack when configured, once per hour each, also audited. The D6 cron queue worker is now scheduled.
+- **P8-DOC-01.** Nine runbooks in [docs/runbooks/](../runbooks/). Tabletop exercises not yet held.
+- **P8-WEB-01.** Support form (works signed out; admin tab for tickets), data section on the account page, factual privacy draft marked as not legally approved. Terms and pricing stay placeholders.
+- **P8-IOS-01.** Logging audit: the two log statements carry privacy annotations and no tokens or identifiers. The physical-device matrix needs devices.
+- **P8-OPS-03.** `scripts/deploy.sh` (refuses non-production `.env`, `composer audit`, migrations, `MOCKS=0` web build, caches, queue restart); route and config caching verified. Deployment itself waits for the host (P0-05).
 
 Phase 4 verified locally: catalog CRUD, taxonomy, versions and normalized media uploads are covered by Pest; the native Today/Browse/Search/AppDetail screens use `CatalogRepository` against the API with an offline cache. The iOS suite covers content, navigation, search, empty, offline, unauthorized, expired and server-error states. Russian UI strings now have a String Catalog. `MockCatalog` remains Debug-only. The remaining Phase 4 exit-gate check is the live admin → API → Simulator journey in CI/local integration mode.
 
