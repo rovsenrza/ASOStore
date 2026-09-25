@@ -2,6 +2,8 @@
 
 use App\Jobs\SyncDeviceRegistrationsJob;
 use App\Services\Installations\InstallationService;
+use App\Services\Quotas\QuotaReconciler;
+use App\Services\Quotas\QuotaService;
 use App\Services\Signing\SigningService;
 use Illuminate\Support\Facades\Schedule;
 
@@ -28,3 +30,11 @@ Schedule::call(fn () => app(SigningService::class)->recoverExpiredLeases())
 // Unused install links fall back to READY_TO_INSTALL (ExpireInstallTokenJob).
 Schedule::call(fn () => app(InstallationService::class)->expireStaleAuthorizations())
     ->name('installations:expire-links')->everyMinute()->withoutOverlapping();
+
+// Quota reconciliation against Apple and expiry alerts (IMPLEMENTATION_PLAN P7-BE-04).
+Schedule::call(fn () => app(QuotaReconciler::class)->run())
+    ->name('quota:reconcile')->dailyAt('03:30')->withoutOverlapping();
+
+// Slot reservations whose Apple call never came back.
+Schedule::call(fn () => app(QuotaService::class)->releaseExpired())
+    ->name('quota:release-expired')->everyFiveMinutes()->withoutOverlapping();

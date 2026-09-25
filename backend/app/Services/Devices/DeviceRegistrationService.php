@@ -12,15 +12,16 @@ use App\Services\Apple\AppleException;
 use App\Services\Apple\AppleIntegration;
 use App\Services\Apple\AppleRetryableException;
 use App\Services\Audit\Actor;
+use App\Services\Quotas\QuotaService;
 use App\StateMachines\StateMachine;
-use Illuminate\Support\Facades\DB;
 
 /**
- * Registers enrolled devices with the primary Apple team (IMPLEMENTATION_PLAN
- * P3-BE-02..04). A device slot is reserved under a row lock on the team, so
- * concurrent registrations can never exceed the per-family limit. At the
- * limit the registration is blocked; no other team is tried (FULL_PLAN §1.3,
- * §6.2 — eligible-team selection with admin approval arrives in Phase 7).
+ * Registers enrolled devices with an Apple team (IMPLEMENTATION_PLAN P3-BE-02,
+ * P7-BE-02/03). New devices go to the primary team. A slot is reserved under a
+ * row lock on the team's quota row (QuotaService), so concurrent registrations
+ * can never exceed the per-family limit. At the limit nothing switches on its
+ * own: an eligible team is proposed for admin approval, or the device is
+ * blocked with NO_ELIGIBLE_TEAM (FULL_PLAN §1.3, §6.2).
  */
 class DeviceRegistrationService
 {
@@ -32,6 +33,7 @@ class DeviceRegistrationService
     public function __construct(
         private readonly AppleIntegration $apple,
         private readonly StateMachine $states,
+        private readonly QuotaService $quotas,
     ) {}
 
     /**
@@ -71,7 +73,7 @@ class DeviceRegistrationService
             return;
         }
 
-        if (! $this->reserveSlot($registration)) {
+        if (! in_array($this->quotas->reserve($registration), [QuotaService::RESERVED, QuotaService::ALREADY_HELD], true)) {
             return;
         }
 
@@ -122,39 +124,9 @@ class DeviceRegistrationService
         if ($registration->status->canTransitionTo(Status::AppleFailed)) {
             $this->states->transition($registration, Status::AppleFailed, $detail ?? $reason, Actor::system('apple'), extra: ['status_reason' => $reason]);
         }
-    }
-
-    private function reserveSlot(DeviceRegistration $registration): bool
-    {
-        return DB::transaction(function () use ($registration) {
-            // Serialises slot counting per team.
-            AppleTeam::query()->whereKey($registration->apple_team_id)->lockForUpdate()->first();
-            $locked = DeviceRegistration::query()->whereKey($registration->getKey())->lockForUpdate()->firstOrFail();
-
-            if ($locked->status === Status::ApplePending) {
-                return true;
-            }
-
-            $used = DeviceRegistration::query()
-                ->where('apple_team_id', $locked->apple_team_id)
-                ->where('membership_year_id', $locked->membership_year_id)
-                ->where('device_family', $locked->device_family->value)
-                ->whereIn('status', DeviceRegistration::CONSUMING_STATUSES)
-                ->whereKeyNot($locked->getKey())
-                ->count();
-
-            if ($used >= (int) config('storefront.apple.device_limit_per_family')) {
-                if ($locked->status !== Status::QuotaBlocked) {
-                    $this->states->transition($locked, Status::QuotaBlocked, 'Device limit reached for this family and membership year.', Actor::system('quota'), extra: ['status_reason' => 'QUOTA_EXHAUSTED']);
-                }
-
-                return false;
-            }
-
-            $this->states->transition($locked, Status::ApplePending, actor: Actor::system('apple'), extra: ['status_reason' => null]);
-
-            return true;
-        });
+        if ($registration->apple_device_id === null) {
+            $this->quotas->release($registration, $reason);
+        }
     }
 
     private function apply(DeviceRegistration $registration, AppleDevice $appleDevice): void
@@ -164,6 +136,8 @@ class DeviceRegistrationService
             'registered_at' => $registration->registered_at ?? now(),
             'last_synced_at' => now(),
         ])->save();
+        // Apple counts the device from now on, even if it is later disabled.
+        $this->quotas->consume($registration);
 
         match ($appleDevice->status) {
             AppleDeviceStatus::Enabled => $this->states->transition($registration, Status::Eligible, actor: Actor::system('apple'), extra: ['eligible_at' => now(), 'status_reason' => null]),

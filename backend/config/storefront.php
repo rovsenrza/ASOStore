@@ -93,6 +93,9 @@ return [
             'STOREFRONT_PUBLISHABLE_SOURCE_TYPES',
             'OWN_BUILD,PARTNER_BUILD,OPEN_SOURCE_BUILD,ALTERNATIVE_MARKETPLACE_PACKAGE,USER_IMPORT,CUSTOMER_PROVIDED',
         )))),
+        // Require an approved team_app_eligibilities row for the bundle ID before an
+        // artifact can pass COMPATIBILITY_CHECK or be signed (IMPLEMENTATION_PLAN P7-BE-03).
+        'require_team_eligibility' => (bool) env('STOREFRONT_REQUIRE_TEAM_ELIGIBILITY', true),
         // When true, the uploader of an artifact cannot approve it (four-eyes review).
         'independent_review' => (bool) env('STOREFRONT_INDEPENDENT_REVIEW', false),
         // Provenance review checklist (P0-02). Every item must be confirmed to approve;

@@ -7,6 +7,7 @@ use App\Models\AppArtifact;
 use App\Models\Certificate;
 use App\Models\Device;
 use App\Models\SigningProfile;
+use App\Models\TeamAppEligibility;
 use App\Services\Apple\AppleCredentialsException;
 use App\Services\Apple\AppleException;
 use App\Services\Apple\AppleIntegration;
@@ -38,6 +39,9 @@ class ProfileProvisioner
 
         $team = $registration->team;
         $bundle = (string) $artifact->bundle_identifier;
+        if (config('storefront.artifacts.require_team_eligibility') && ! TeamAppEligibility::allows($team->id, $bundle)) {
+            throw new SigningUnavailable('TEAM_NOT_ELIGIBLE', "Team {$team->apple_team_id} is not approved for {$bundle}.");
+        }
         $certificate = $this->certificate($team->id);
 
         $profile = SigningProfile::query()

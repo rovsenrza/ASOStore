@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\V1\Admin\ActivationCodeController;
 use App\Http\Controllers\Api\V1\Admin\AdminAuthController;
 use App\Http\Controllers\Api\V1\Admin\AppController as AdminAppController;
+use App\Http\Controllers\Api\V1\Admin\AppleTeamController;
 use App\Http\Controllers\Api\V1\Admin\AppMediaController;
 use App\Http\Controllers\Api\V1\Admin\AppVersionController;
 use App\Http\Controllers\Api\V1\Admin\ArtifactController;
@@ -12,6 +13,8 @@ use App\Http\Controllers\Api\V1\Admin\InstallationController as AdminInstallatio
 use App\Http\Controllers\Api\V1\Admin\JobController;
 use App\Http\Controllers\Api\V1\Admin\RunnerController;
 use App\Http\Controllers\Api\V1\Admin\TaxonomyController;
+use App\Http\Controllers\Api\V1\Admin\TeamAssignmentController;
+use App\Http\Controllers\Api\V1\Admin\TeamEligibilityController;
 use App\Http\Controllers\Api\V1\Admin\UploadController;
 use App\Http\Controllers\Api\V1\Admin\UserController;
 use App\Http\Controllers\Api\V1\Customer\ActivationController;
@@ -144,6 +147,19 @@ Route::prefix('admin')->name('api.admin.')->group(function () {
         Route::post('/jobs/{job}/retry', [JobController::class, 'retry'])->can('jobs.manage')->middleware('idempotent')->name('jobs.retry');
         Route::get('/runners', [RunnerController::class, 'index'])->can('jobs.view')->name('runners.index');
         Route::patch('/runners/{runner}', [RunnerController::class, 'update'])->can('teams.manage')->name('runners.update');
+        Route::get('/apple-teams', [AppleTeamController::class, 'index'])->can('teams.view')->name('apple-teams.index');
+        Route::post('/apple-teams', [AppleTeamController::class, 'store'])->can('teams.manage')->name('apple-teams.store');
+        Route::patch('/apple-teams/{team}', [AppleTeamController::class, 'update'])->can('teams.manage')->name('apple-teams.update');
+        Route::post('/apple-teams/{team}/credentials', [AppleTeamController::class, 'storeCredential'])->can('teams.manage')->name('apple-teams.credentials');
+        Route::post('/apple-teams/{team}/verify', [AppleTeamController::class, 'verify'])->can('teams.manage')->name('apple-teams.verify');
+        Route::post('/apple-teams/{team}/membership-years', [AppleTeamController::class, 'storeMembershipYear'])->can('teams.manage')->name('apple-teams.membership-years');
+        Route::post('/apple-teams/{team}/sync', [AppleTeamController::class, 'sync'])->can('teams.manage')->name('apple-teams.sync');
+        Route::get('/team-eligibilities', [TeamEligibilityController::class, 'index'])->can('teams.view')->name('team-eligibilities.index');
+        Route::post('/team-eligibilities', [TeamEligibilityController::class, 'store'])->can('teams.manage')->name('team-eligibilities.store');
+        Route::post('/team-eligibilities/{eligibility}/revoke', [TeamEligibilityController::class, 'revoke'])->can('teams.manage')->name('team-eligibilities.revoke');
+        Route::get('/quota-assignments', [TeamAssignmentController::class, 'index'])->can('teams.view')->name('quota-assignments.index');
+        Route::post('/quota-assignments/{assignment}/approve', [TeamAssignmentController::class, 'approve'])->can('teams.manage')->middleware('idempotent')->name('quota-assignments.approve');
+        Route::post('/quota-assignments/{assignment}/reject', [TeamAssignmentController::class, 'reject'])->can('teams.manage')->middleware('idempotent')->name('quota-assignments.reject');
         Route::get('/installations', [AdminInstallationController::class, 'index'])->can('installations.view')->name('installations.index');
         Route::get('/installations/{installation}', [AdminInstallationController::class, 'show'])->can('installations.view')->name('installations.show');
         Route::get('/categories', [TaxonomyController::class, 'categories'])->can('catalog.view')->name('categories.index');

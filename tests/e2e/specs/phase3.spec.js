@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { artisan, devicePayload, issueActivationCode } from './helpers-cli.js';
+import { artisan, resetAdminSignIn, devicePayload, issueActivationCode } from './helpers-cli.js';
 import { ADMIN, totp } from './helpers.js';
 
 /*
@@ -79,7 +79,7 @@ test.describe('on an iPhone in Safari', () => {
 });
 
 test('admin finds the device and reveals its UDID with a reason', async ({ page }) => {
-  artisan('admin:reset-totp', ADMIN.email, '--reason=E2E phase 3');
+  resetAdminSignIn('E2E phase 3');
 
   await page.goto('/admin/login.html');
   await page.getByLabel('Эл. почта').fill(ADMIN.email);

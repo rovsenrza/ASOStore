@@ -69,8 +69,10 @@ it('treats rejection, revocation and expiry as final for artifacts', function (A
 })->with([ArtifactStatus::Rejected, ArtifactStatus::ProvenanceFailed, ArtifactStatus::Revoked, ArtifactStatus::Expired]);
 
 it('never lets a blocked device registration become eligible without going back through Apple', function (DeviceRegistrationStatus $blocked) {
+    // A retry may find the quota situation changed (Phase 7), but never skips Apple.
     expect($blocked->canTransitionTo(DeviceRegistrationStatus::Eligible))->toBeFalse()
-        ->and($blocked->allowedTransitions())->toBe([DeviceRegistrationStatus::ApplePending]);
+        ->and($blocked->allowedTransitions()[0])->toBe(DeviceRegistrationStatus::ApplePending)
+        ->and(array_diff(array_map(fn ($to) => $to->value, $blocked->allowedTransitions()), ['APPLE_PENDING', 'QUOTA_BLOCKED', 'NO_ELIGIBLE_TEAM']))->toBe([]);
 })->with([DeviceRegistrationStatus::QuotaBlocked, DeviceRegistrationStatus::NoEligibleTeam, DeviceRegistrationStatus::AppleFailed]);
 
 it('ends installations at DELIVERED, FAILED or EXPIRED', function () {

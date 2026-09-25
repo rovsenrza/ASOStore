@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { ADMIN, totp } from './helpers.js';
-import { artisan } from './helpers-cli.js';
+import { resetAdminSignIn } from './helpers-cli.js';
 
 /*
  * Phase 4 journey: a catalog manager creates a listing, publishes it, and it
@@ -11,7 +11,7 @@ test.describe.configure({ mode: 'serial' });
 const appName = `Заметки ${Date.now()}`;
 
 async function signInAdmin(page) {
-  artisan('admin:reset-totp', ADMIN.email, '--reason=E2E phase 4');
+  resetAdminSignIn('E2E phase 4');
   await page.goto('/admin/login.html');
   await page.getByLabel('Эл. почта').fill(ADMIN.email);
   await page.getByLabel('Пароль').fill(ADMIN.password);

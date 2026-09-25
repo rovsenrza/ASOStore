@@ -8,10 +8,12 @@ use App\Models\AppVersion;
 use App\Models\CatalogApp;
 use App\Models\Role;
 use App\Models\Subscription;
+use App\Models\TeamAppEligibility;
 use App\Models\User;
 use CFPropertyList\CFTypeDetector;
 use Database\Seeders\FakeAppleTeamSeeder;
 use Database\Seeders\RoleSeeder;
+use Illuminate\Foundation\Testing\DatabaseMigrations;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Testing\TestResponse;
 use Tests\Support\OpenApiContract;
@@ -23,6 +25,11 @@ pest()->extend(TestCase::class)
 
 pest()->extend(TestCase::class)
     ->in('Unit');
+
+// Real parallel processes need committed data, so no wrapping transaction here.
+pest()->extend(TestCase::class)
+    ->use(DatabaseMigrations::class)
+    ->in('Concurrency');
 
 /**
  * A user with the given roles (seeding the role table on first use).
@@ -186,4 +193,17 @@ function uploadIpa(User $manager, CatalogApp $app, string $bytes, ?AppVersion $v
 function inspected(array $data): AppArtifact
 {
     return AppArtifact::where('public_id', $data['id'])->sole();
+}
+
+/**
+ * Approves the primary (fake) team to distribute a bundle ID (IMPLEMENTATION_PLAN P7-BE-03).
+ */
+function approveTeamFor(string $bundleIdentifier, ?AppleTeam $team = null): TeamAppEligibility
+{
+    $team ??= AppleTeam::primary() ?? connectFakeAppleTeam();
+
+    return TeamAppEligibility::query()->firstOrCreate(
+        ['apple_team_id' => $team->id, 'bundle_identifier' => $bundleIdentifier],
+        ['evidence' => 'Test fixture', 'status' => 'APPROVED', 'approved_by' => userWithRoles(RoleSlug::Admin)->id, 'approved_at' => now()],
+    );
 }

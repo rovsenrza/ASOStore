@@ -45,12 +45,15 @@ function concrete(string $uri): string
         '{job}' => 'x',
         '{runner}' => 'x',
         '{installation}' => 'x',
+        '{team}' => 'x',
+        '{eligibility}' => 'x',
+        '{assignment}' => 'x',
         '{number}' => '0',
     ]);
 }
 
 it('covers every admin route', function () {
-    expect(adminRoutes())->toHaveCount(52);
+    expect(adminRoutes())->toHaveCount(65);
 });
 
 it('turns away guests and customers on every admin route', function () {
@@ -86,6 +89,7 @@ it('limits each staff role to its abilities', function (RoleSlug $role, array $a
         'jobs.view' => ['GET', '/api/v1/admin/jobs'],
         'jobs.manage' => ['POST', '/api/v1/admin/jobs/'.$job->public_id.'/retry'],
         'installations.view' => ['GET', '/api/v1/admin/installations'],
+        'teams.view' => ['GET', '/api/v1/admin/apple-teams'],
         'teams.manage' => ['PATCH', '/api/v1/admin/runners/'.$runner->public_id],
         'devices.view' => ['GET', '/api/v1/admin/devices'],
         'devices.manage' => ['POST', '/api/v1/admin/devices/'.$device->public_id.'/sync'],

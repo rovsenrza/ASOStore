@@ -33,6 +33,7 @@ const CERT_SHA1 = 'A1B2C3D4E5F60718293A4B5C6D7E8F9012345678';
 beforeEach(function () {
     Storage::fake('artifacts');
     $this->team = connectFakeAppleTeam();
+    approveTeamFor('com.example.demo', $this->team);
 
     // A published app with an inspected, approved and published artifact.
     $manager = userWithRoles(RoleSlug::CatalogManager);

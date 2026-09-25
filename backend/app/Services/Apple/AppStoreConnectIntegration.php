@@ -140,6 +140,33 @@ class AppStoreConnectIntegration implements AppleIntegration
         );
     }
 
+    public function countDevicesByFamily(AppleTeam $team): array
+    {
+        $counts = [];
+        $query = ['filter[platform]' => 'IOS', 'fields[devices]' => 'deviceClass,status', 'limit' => 200];
+        $path = '/devices';
+
+        // Apple pages with links.next; the cap protects against a runaway loop.
+        for ($page = 0; $page < 50 && $path !== null; $page++) {
+            $response = $this->send($team, fn (PendingRequest $http) => $http->get($path, $query));
+            foreach ((array) $response->json('data') as $device) {
+                $family = match ($device['attributes']['deviceClass'] ?? null) {
+                    'IPHONE' => 'IPHONE',
+                    'IPAD' => 'IPAD',
+                    'IPOD' => 'IPOD',
+                    default => 'OTHER',
+                };
+                $counts[$family] = ($counts[$family] ?? 0) + 1;
+            }
+
+            $next = $response->json('links.next');
+            $path = is_string($next) ? (string) preg_replace('#^.*?/v1#', '', $next) : null;
+            $query = [];
+        }
+
+        return $counts;
+    }
+
     public function deleteProfile(AppleTeam $team, string $profileId): void
     {
         $this->send($team, fn (PendingRequest $http) => $http->delete('/profiles/'.rawurlencode($profileId)), allowNotFound: true);

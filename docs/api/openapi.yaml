@@ -2281,6 +2281,319 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /admin/apple-teams:
+    get:
+      tags: [Admin]
+      operationId: adminListAppleTeams
+      summary: Apple teams with credential state, membership year, quotas per family, eligibilities, certificates and profiles
+      description: 'Requires teams.view (admin). meta.pending_assignments counts team assignments waiting for a decision.'
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppleTeamListResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Admin]
+      operationId: adminCreateAppleTeam
+      summary: Record an existing Apple Developer team (PENDING_VERIFICATION)
+      description: 'Requires teams.manage. Never creates an account at Apple (FULL_PLAN §6.3).'
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [apple_team_id, name]
+              properties:
+                apple_team_id: { type: string, pattern: '^[A-Z0-9]{10}$' }
+                name: { type: string, maxLength: 255 }
+                membership_expires_at: { type: [string, "null"], format: date-time }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppleTeamResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /admin/apple-teams/{team}:
+    patch:
+      tags: [Admin]
+      operationId: adminUpdateAppleTeam
+      summary: Rename, change status or make primary (reason required, audited)
+      description: 'Requires teams.manage. ACTIVE needs a successful connection test first (409 otherwise).'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                name: { type: string }
+                status: { type: string, enum: [PENDING_VERIFICATION, ACTIVE, EXPIRING, SUSPENDED, REVOKED, DISCONNECTED] }
+                is_primary: { type: boolean }
+                membership_expires_at: { type: [string, "null"], format: date-time }
+                reason: { type: string, maxLength: 500 }
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppleTeamResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /admin/apple-teams/{team}/credentials:
+    post:
+      tags: [Admin]
+      operationId: adminReplaceTeamCredential
+      summary: Record the App Store Connect key reference for a team
+      description: 'Requires teams.manage. The .p8 key is stored on the server with `php artisan apple:store-key`; only its reference is sent here. The previous key is revoked and the team must be verified again.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [issuer_id, key_id, vault_reference]
+              properties:
+                issuer_id: { type: string }
+                key_id: { type: string, pattern: '^[A-Z0-9]{10}$' }
+                vault_reference: { type: string }
+      responses:
+        "201":
+          description: Stored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppleTeamResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /admin/apple-teams/{team}/verify:
+    post:
+      tags: [Admin]
+      operationId: adminVerifyAppleTeam
+      summary: Test the App Store Connect connection
+      description: 'Requires teams.manage. 422 APPLE_UNAVAILABLE when Apple rejects the key.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Connection works
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppleTeamResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /admin/apple-teams/{team}/membership-years:
+    post:
+      tags: [Admin]
+      operationId: adminAddMembershipYear
+      summary: Add a membership year (slots are counted per year)
+      description: 'Requires teams.manage. A year covers [starts_at, ends_at) and may not overlap another active year (409).'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [starts_at, ends_at]
+              properties:
+                starts_at: { type: string, format: date }
+                ends_at: { type: string, format: date }
+      responses:
+        "201":
+          description: Added
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AppleTeamResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /admin/apple-teams/{team}/sync:
+    post:
+      tags: [Admin]
+      operationId: adminSyncAppleTeam
+      summary: Reconcile local counters with Apple now
+      description: 'Requires teams.manage. Mismatches are audited and alerted, never corrected automatically.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/TeamId"
+      responses:
+        "200":
+          description: Reconciled
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /admin/team-eligibilities:
+    get:
+      tags: [Admin]
+      operationId: adminListTeamEligibilities
+      summary: Which team may distribute which bundle ID
+      description: 'Requires teams.view.'
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Admin]
+      operationId: adminApproveTeamEligibility
+      summary: Approve a team for a bundle ID, with evidence
+      description: 'Requires teams.manage. Without an approved eligibility an artifact fails COMPATIBILITY_CHECK with TEAM_NOT_ELIGIBLE and cannot be signed.'
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [team_id, bundle_identifier, evidence]
+              properties:
+                team_id: { $ref: "#/components/schemas/PublicId" }
+                bundle_identifier: { type: string }
+                evidence: { type: string, maxLength: 2000 }
+      responses:
+        "201":
+          description: Approved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /admin/team-eligibilities/{eligibility}/revoke:
+    post:
+      tags: [Admin]
+      operationId: adminRevokeTeamEligibility
+      summary: Revoke an eligibility (reason required)
+      description: 'Requires teams.manage.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - { name: eligibility, in: path, required: true, schema: { $ref: "#/components/schemas/PublicId" } }
+      requestBody:
+        $ref: "#/components/requestBodies/Reason"
+      responses:
+        "200":
+          description: Revoked
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /admin/quota-assignments:
+    get:
+      tags: [Admin]
+      operationId: adminListTeamAssignments
+      summary: Proposed moves of blocked devices to another eligible team
+      description: 'Requires teams.view. Defaults to PENDING.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [PENDING, APPROVED, REJECTED] } }
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /admin/quota-assignments/{assignment}/approve:
+    post:
+      tags: [Admin]
+      operationId: adminApproveTeamAssignment
+      summary: Approve a team assignment (reason required, audited)
+      description: 'Requires teams.manage. Re-checks that the team is still eligible and has free slots (NO_ELIGIBLE_TEAM otherwise), then registers the device with it through the normal quota path.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - { name: assignment, in: path, required: true, schema: { $ref: "#/components/schemas/PublicId" } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        $ref: "#/components/requestBodies/Reason"
+      responses:
+        "200":
+          description: Approved
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /admin/quota-assignments/{assignment}/reject:
+    post:
+      tags: [Admin]
+      operationId: adminRejectTeamAssignment
+      summary: Reject a team assignment (reason required, audited)
+      description: 'Requires teams.manage. The device stays blocked.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - { name: assignment, in: path, required: true, schema: { $ref: "#/components/schemas/PublicId" } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        $ref: "#/components/requestBodies/Reason"
+      responses:
+        "200":
+          description: Rejected
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
 
 
 components:
@@ -2326,6 +2639,12 @@ components:
 
     InstallationId:
       name: installation
+      in: path
+      required: true
+      schema: { $ref: "#/components/schemas/PublicId" }
+
+    TeamId:
+      name: team
       in: path
       required: true
       schema: { $ref: "#/components/schemas/PublicId" }
@@ -3884,6 +4203,72 @@ components:
                 install_url: { type: string, pattern: '^itms-services://\?action=download-manifest&url=' }
                 manifest_url: { type: string }
                 expires_at: { type: string }
+
+    AppleTeam:
+      type: object
+      required: [id, apple_team_id, name, status, is_primary, membership_expires_at, last_verified_at, credential, membership_year, quotas, eligibilities, certificates, profiles]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        apple_team_id: { type: string }
+        name: { type: string }
+        status: { type: string, enum: [PENDING_VERIFICATION, ACTIVE, EXPIRING, SUSPENDED, REVOKED, DISCONNECTED] }
+        is_primary: { type: boolean }
+        membership_expires_at: { type: [string, "null"] }
+        last_verified_at: { type: [string, "null"] }
+        credential:
+          type: [object, "null"]
+          properties:
+            key_id: { type: string }
+            issuer_id: { type: string }
+            last_verified_at: { type: [string, "null"] }
+        membership_year:
+          type: [object, "null"]
+          properties:
+            starts_at: { type: string }
+            ends_at: { type: string }
+        quotas:
+          type: array
+          items:
+            type: object
+            required: [family, limit, registered, reserved, remaining, apple_registered, last_synced_at]
+            properties:
+              family: { type: string, enum: [IPHONE, IPAD, IPOD, UNKNOWN] }
+              limit: { type: integer }
+              registered: { type: integer }
+              reserved: { type: integer }
+              remaining: { type: integer, minimum: 0 }
+              apple_registered: { type: [integer, "null"] }
+              last_synced_at: { type: [string, "null"] }
+        eligibilities: { type: array, items: { type: string } }
+        certificates:
+          type: array
+          items:
+            type: object
+            properties:
+              sha1: { type: string }
+              common_name: { type: string }
+              status: { type: string }
+              expires_at: { type: [string, "null"] }
+              on_runner: { type: boolean }
+        profiles:
+          type: object
+          properties:
+            active: { type: integer }
+            expiring_soon: { type: integer }
+
+    AppleTeamResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/AppleTeam" }
+
+    AppleTeamListResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/AppleTeam" }
 
     UploadedArtifactResponse:
       allOf:

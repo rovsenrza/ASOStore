@@ -2,8 +2,10 @@
 
 namespace App\Services\Artifacts;
 
+use App\Enums\AppleTeamStatus;
 use App\Models\AppArtifact;
 use App\Models\CatalogApp;
+use App\Models\TeamAppEligibility;
 
 /**
  * COMPATIBILITY_CHECK (IMPLEMENTATION_PLAN §5.7, P5-BE-03): decides whether an
@@ -40,10 +42,20 @@ class CompatibilityChecker
             $blocking[] = ['code' => 'SOURCE_TYPE_NOT_PUBLISHABLE', 'message' => 'This source type is not approved for distribution.'];
         }
 
-        // Team eligibility (team_app_eligibilities) is enforced here once Phase 7 adds it.
-        $warnings[] = ['code' => 'TEAM_ELIGIBILITY_NOT_CHECKED', 'message' => 'Apple team eligibility for this bundle ID is checked from Phase 7.'];
+        // A team must be approved to distribute this bundle ID (IMPLEMENTATION_PLAN §5.7, P7-BE-03).
+        if (config('storefront.artifacts.require_team_eligibility') && ! $this->hasEligibleTeam((string) $artifact->bundle_identifier)) {
+            $blocking[] = ['code' => 'TEAM_NOT_ELIGIBLE', 'message' => 'No active Apple team is approved for this bundle ID. Add a team eligibility, then upload again.'];
+        }
 
         return ['blocking' => $blocking, 'warnings' => $warnings];
+    }
+
+    private function hasEligibleTeam(string $bundleIdentifier): bool
+    {
+        return TeamAppEligibility::query()
+            ->where(['bundle_identifier' => $bundleIdentifier, 'status' => 'APPROVED'])
+            ->whereHas('team', fn ($team) => $team->whereIn('status', [AppleTeamStatus::Active->value, AppleTeamStatus::Expiring->value]))
+            ->exists();
     }
 
     public static function publishable(AppArtifact $artifact): bool

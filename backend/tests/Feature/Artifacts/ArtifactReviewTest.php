@@ -8,6 +8,7 @@ use App\Models\ArtifactReview;
 use App\Models\AuditLog;
 use App\Models\CatalogApp;
 use App\Models\PipelineJob;
+use App\Models\TeamAppEligibility;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
@@ -18,6 +19,8 @@ beforeEach(function () {
     Storage::fake('artifacts');
     $this->manager = userWithRoles(RoleSlug::CatalogManager);
     $this->catalogApp = CatalogApp::factory()->create();
+    approveTeamFor('com.example.demo');
+    forgetGuards();
 });
 
 const CHECKLIST = ['source_verified' => true, 'distribution_rights_confirmed' => true, 'inspection_report_reviewed' => true];
@@ -61,7 +64,7 @@ it('approves a reviewed artifact through the compatibility check to READY', func
         ->and($review->checklist)->toEqual(CHECKLIST)
         ->and($review->scan_result_acknowledged)->toBeTrue()
         ->and($artifact->inspection['compatibility']['blocking'])->toBe([])
-        ->and(array_column($artifact->inspection['compatibility']['warnings'], 'code'))->toBe(['TEAM_ELIGIBILITY_NOT_CHECKED']);
+        ->and($artifact->inspection['compatibility']['warnings'])->toBe([]);
 
     $states = AuditLog::where('action', 'app_artifact.status_changed')->orderBy('id')->pluck('after')->pluck('status')->all();
     expect(array_slice($states, -2))->toBe(['COMPATIBILITY_CHECK', 'READY']);
@@ -109,6 +112,14 @@ it('rejects approved artifacts that can never be installed', function (Closure $
     'simulator build' => [fn () => [IpaBuilder::app()->executable(IpaBuilder::machO(platform: 7)), 'OWN_BUILD'], 'SIMULATOR_BUILD'],
     'source type differs from the listing' => [fn () => [IpaBuilder::app(), 'PARTNER_BUILD'], 'SOURCE_TYPE_MISMATCH'],
 ]);
+
+it('blocks bundle IDs no Apple team is approved to distribute', function () {
+    TeamAppEligibility::query()->delete();
+    $artifact = inReview($this);
+
+    approve($artifact)->assertOk()->assertJsonPath('data.artifact.status', 'REJECTED');
+    expect($artifact->refresh()->status_reason)->toBe('TEAM_NOT_ELIGIBLE');
+});
 
 it('blocks source types the compliance decision does not allow', function () {
     config(['storefront.artifacts.publishable_source_types' => ['PARTNER_BUILD']]);

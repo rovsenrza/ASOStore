@@ -54,4 +54,9 @@ class DisabledAppleIntegration implements AppleIntegration
     {
         throw new AppleException('Apple integration is disabled.', 'APPLE_NOT_CONNECTED');
     }
+
+    public function countDevicesByFamily(AppleTeam $team): array
+    {
+        throw new AppleException('Apple integration is disabled.', 'APPLE_NOT_CONNECTED');
+    }
 }

@@ -49,6 +49,21 @@ Deviations: clients poll `GET /installations/{id}` instead of `GET /jobs/{id}` (
 
 Still open for the Phase 6 gate: the P6-SPIKE ADR and every physical check (real profile creation, real `codesign` with the team's distribution identity, OTA install on an iPhone) need the paid Apple Developer account and a test iPhone.
 
+### 0.3 Phase 7 status (2026-10-01)
+
+Implemented and tested:
+
+- **Quotas.** `team_quotas` (one lockable row per team × membership year × family; remaining is computed) and `quota_reservations` (RESERVED → CONSUMED / RELEASED, 30-minute TTL, expired ones released every five minutes). Every reservation takes `SELECT … FOR UPDATE` on the quota row. **Exit-gate test** (`tests/Concurrency`): 20 real PHP processes race for 1 remaining slot against MySQL — exactly 1 is reserved, 19 are blocked, counters stay consistent (passes repeatedly).
+- **Team selection** (FULL_PLAN §6.2). New devices still go to the primary team. When it is exhausted, `TeamSelector` looks for another team that is active, connected, inside a membership year, has free slots for the family and is approved for the Storefront's bundle ID. If one exists, the device becomes `QUOTA_BLOCKED` / `AWAITING_TEAM_APPROVAL` with a PENDING `team_assignments` row explaining the choice; otherwise `NO_ELIGIBLE_TEAM`, with an audit event saying nothing was switched. Nothing registers with another team until an admin approves (reason required, audited, re-checked at decision time).
+- **App/team eligibility** (`team_app_eligibilities`, evidence + approver). Enforced at `COMPATIBILITY_CHECK` (`TEAM_NOT_ELIGIBLE`) and before a profile is created (`STOREFRONT_REQUIRE_TEAM_ELIGIBILITY`, on by default).
+- **Reconciliation** (`QuotaReconciler`, nightly and on demand): Apple's device list per family vs local counters; mismatches are audited and logged as alerts, never corrected. Membership years ending within 30 days move the team to `EXPIRING`; expiring certificates alert once a day.
+- **Admin API + `teams.html`**: team onboarding (record → key reference → test connection → membership year → activate; activation is refused before a successful test), quota bars per family with Apple's count, eligibilities, certificates and profiles, pending approvals with approve/reject, blocking banner, dashboard quota widget. Abilities `teams.view` / `teams.manage` are admin-only.
+- **Portal and app** already show `blocked` with `QUOTA_EXHAUSTED` / `NO_ELIGIBLE_TEAM` copy («Регистрация временно недоступна»); the iOS install coordinator maps both.
+
+Behaviour change: at the limit with no eligible team a device is now `NO_ELIGIBLE_TEAM` (Phase 3 used `QUOTA_BLOCKED` for every exhausted case). Blocked registrations may move between the blocked states on retry but never to `ELIGIBLE` without Apple.
+
+Open: the membership limits and real device counts must be confirmed against the live Apple account; the fake driver counts every device as an iPhone.
+
 Phase 4 verified locally: catalog CRUD, taxonomy, versions and normalized media uploads are covered by Pest; the native Today/Browse/Search/AppDetail screens use `CatalogRepository` against the API with an offline cache. The iOS suite covers content, navigation, search, empty, offline, unauthorized, expired and server-error states. Russian UI strings now have a String Catalog. `MockCatalog` remains Debug-only. The remaining Phase 4 exit-gate check is the live admin → API → Simulator journey in CI/local integration mode.
 
 Phase 3 verified: 229 Pest tests (signed enrollment answers, challenge reuse and expiry, device ownership and limits, slot reservation at the per-family limit, Apple retry/permanent/processing paths, claims, admin reveal, App Store Connect driver against recorded HTTP responses, UDID privacy), 11 Playwright journeys including iPhone enrollment, 41 iOS tests (deep links, claim sign-in). The `storefront://` scheme opens the app in the Simulator.
@@ -494,10 +509,10 @@ Each phase lists its tasks by track and ends with an **exit gate**, the FULL_PLA
 | P7-WEB/IOS-01 | WEB/IOS | Copy and states for `QUOTA_BLOCKED` / `NO_ELIGIBLE_TEAM` («Регистрация временно недоступна»). No retry loop and no false promises |
 
 **Exit gate:**
-- [ ] Concurrency test: 20 parallel reservations against 1 remaining slot → exactly 1 succeeds, 19 get `QUOTA_EXHAUSTED`, and the counters stay consistent.
-- [ ] With no eligible team: blocking state in admin, portal, and app. No team switch occurs. An audit event explains why.
-- [ ] With an eligible team: nothing proceeds until an admin approves; the approval is audited with a reason.
-- [ ] Unit tests cover membership-year boundary dates (last day / first day) and family classification.
+- [x] Concurrency test: 20 parallel reservations against 1 remaining slot → exactly 1 succeeds, 19 get `QUOTA_EXHAUSTED`, and the counters stay consistent. *(The 19 end as `NO_ELIGIBLE_TEAM`, the exhausted outcome when no other team qualifies.)*
+- [x] With no eligible team: blocking state in admin, portal, and app. No team switch occurs. An audit event explains why.
+- [x] With an eligible team: nothing proceeds until an admin approves; the approval is audited with a reason.
+- [x] Unit tests cover membership-year boundary dates (last day / first day) and family classification.
 
 ### Phase 8 — Hardening and operations *(≈2 weeks)*
 

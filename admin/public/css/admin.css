@@ -190,3 +190,10 @@ label.field input { font-size: .9rem; font-weight: 400; letter-spacing: 0; text-
 label.field select, label.field textarea { font-size: .9rem; font-weight: 400; letter-spacing: 0; text-transform: none; padding: 8px 10px; border: 1px solid #b8bab4; background: var(--surface); }
 .add-version { align-items: end; }
 .data-table table input { width: 100%; min-width: 120px; padding: 6px 8px; border: 1px solid #b8bab4; }
+/* Teams (P7-ADM-01) */
+#teams { display: grid; gap: var(--space-4); }
+.team-card h3 { margin: var(--space-4) 0 var(--space-2); font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; }
+.team-card p { margin: var(--space-1) 0; }
+.quota-list li { display: grid; gap: var(--space-1); margin: var(--space-2) 0; }
+.quota-list meter { width: 100%; height: 10px; }
+.form-grid select { padding: 10px 12px; border: 1px solid #b8bab4; background: var(--surface); }

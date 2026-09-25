@@ -49,6 +49,9 @@ class FakeAppleIntegration implements AppleIntegration
         ];
         $this->cache->forever($this->key($team, $udid), $record);
         $this->cache->forever($this->key($team, 'id:'.$record['id']), $record);
+        $all = (array) $this->cache->get($this->key($team, 'all'), []);
+        $all[$record['id']] = true;
+        $this->cache->forever($this->key($team, 'all'), $all);
 
         return $this->present($record);
     }
@@ -116,6 +119,14 @@ class FakeAppleIntegration implements AppleIntegration
     }
 
     public function deleteProfile(AppleTeam $team, string $profileId): void {}
+
+    /**
+     * The fake does not know device classes; every device counts as an iPhone.
+     */
+    public function countDevicesByFamily(AppleTeam $team): array
+    {
+        return ['IPHONE' => count((array) $this->cache->get($this->key($team, 'all'), []))];
+    }
 
     /**
      * @param  array{id: string, udid: string, registered_at: int}  $record

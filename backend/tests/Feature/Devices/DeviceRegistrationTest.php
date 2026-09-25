@@ -62,14 +62,16 @@ it('blocks at the per-family limit and never tries another team', function () {
         ($this->register)($registration);
     }
 
+    // No other team is eligible, so nothing switches (FULL_PLAN §6.2).
     expect($third->fresh())
-        ->status->toBe(Status::QuotaBlocked)
-        ->status_reason->toBe('QUOTA_EXHAUSTED')
+        ->status->toBe(Status::NoEligibleTeam)
+        ->status_reason->toBe('NO_ELIGIBLE_TEAM')
         ->apple_team_id->toBe($this->team->id)
         // iPads are counted separately.
         ->and($ipad->fresh()->status)->toBe(Status::Eligible)
         ->and($this->apple->calls)->not->toContain('register:00008030-0000000000000003')
-        ->and(AuditLog::where('action', 'device_registration.status_changed')->where('after->status', 'QUOTA_BLOCKED')->exists())->toBeTrue();
+        ->and(AuditLog::where('action', 'device_registration.status_changed')->where('after->status', 'NO_ELIGIBLE_TEAM')->exists())->toBeTrue()
+        ->and(AuditLog::where('action', 'quota.no_eligible_team')->exists())->toBeTrue();
 });
 
 it('frees nothing when a device is disabled: the slot stays used for the year', function () {
@@ -81,7 +83,7 @@ it('frees nothing when a device is disabled: the slot stays used for the year', 
     $second = ($this->enrol)('00008030-0000000000000002');
     ($this->register)($second);
 
-    expect($second->fresh()->status)->toBe(Status::QuotaBlocked);
+    expect($second->fresh()->status)->toBe(Status::NoEligibleTeam);
 });
 
 it('keeps the slot and retries later when Apple is unavailable', function () {

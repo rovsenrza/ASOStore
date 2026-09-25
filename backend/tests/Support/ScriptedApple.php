@@ -99,6 +99,16 @@ final class ScriptedApple implements AppleIntegration
         );
     }
 
+    /** @var array<string, int> */
+    public array $deviceCounts = [];
+
+    public function countDevicesByFamily(AppleTeam $team): array
+    {
+        $this->calls[] = 'count-devices';
+
+        return $this->deviceCounts;
+    }
+
     public function deleteProfile(AppleTeam $team, string $profileId): void
     {
         $this->calls[] = "delete-profile:{$profileId}";

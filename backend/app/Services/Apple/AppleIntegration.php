@@ -64,4 +64,14 @@ interface AppleIntegration
      * @throws AppleException
      */
     public function deleteProfile(AppleTeam $team, string $profileId): void;
+
+    /**
+     * Devices Apple lists for the team, counted per product family
+     * (IPHONE, IPAD, IPOD, OTHER). Used to reconcile local counters.
+     *
+     * @return array<string, int>
+     *
+     * @throws AppleException
+     */
+    public function countDevicesByFamily(AppleTeam $team): array;
 }

@@ -7,6 +7,8 @@ import path from 'node:path';
  */
 const ROOT = path.resolve(import.meta.dirname, '../../..');
 
+const ADMIN_EMAIL = 'admin@storefront.test';
+
 export function artisan(...args) {
   return execFileSync('php', ['artisan', ...args], { cwd: path.join(ROOT, 'backend'), encoding: 'utf8' });
 }
@@ -18,4 +20,13 @@ export function issueActivationCode() {
 /** What an iPhone posts back to the enrollment URL (see scripts/device-payload.php). */
 export function devicePayload(challenge, udid) {
   return execFileSync('php', [path.join(ROOT, 'scripts/device-payload.php'), challenge, udid]);
+}
+
+/**
+ * Staff sign-in starts from a fresh TOTP enrollment. Clearing the cache also
+ * resets the 5-per-minute admin-login limiter, which consecutive specs hit.
+ */
+export function resetAdminSignIn(reason) {
+  artisan('cache:clear');
+  artisan('admin:reset-totp', ADMIN_EMAIL, `--reason=${reason}`);
 }
