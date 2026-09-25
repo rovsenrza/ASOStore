@@ -7,8 +7,10 @@ use App\Enums\SourceType;
 use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
+use App\Jobs\InspectArtifactJob;
 use App\Models\AppVersion;
 use App\Models\CatalogApp;
+use App\Models\PipelineJob;
 use App\Models\UploadSession;
 use App\Services\Artifacts\ChunkedUploadService;
 use App\Services\Audit\AuditService;
@@ -90,11 +92,13 @@ class UploadController extends Controller
 
     public function complete(UploadSession $upload): JsonResponse
     {
-        $artifact = $this->uploads->complete($upload);
+        $artifact = $this->uploads->complete($upload)->refresh();
+        $job = PipelineJob::query()->where('idempotency_key', InspectArtifactJob::idempotencyKey($artifact))->first();
 
         return ApiResponse::ok([
             'id' => $artifact->public_id,
             'status' => $artifact->status->value,
+            'job_id' => $job?->public_id,
             'sha256' => $artifact->sha256,
             'size_bytes' => $artifact->size_bytes,
             'original_filename' => $artifact->original_filename,

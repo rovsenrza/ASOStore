@@ -86,4 +86,18 @@ return [
         'feed_section_limit' => 10,
     ],
 
+    // IPA inspection limits (IMPLEMENTATION_PLAN §5.7). Archives are untrusted.
+    'inspection' => [
+        'max_entries' => (int) env('STOREFRONT_IPA_MAX_ENTRIES', 100000),
+        'max_uncompressed_bytes' => (int) env('STOREFRONT_IPA_MAX_UNCOMPRESSED_BYTES', 16 * 1024 ** 3),
+        // Zip-bomb guard: entries (and the archive) above ratio_min_bytes may not expand more than this.
+        'max_compression_ratio' => (int) env('STOREFRONT_IPA_MAX_COMPRESSION_RATIO', 200),
+        'ratio_min_bytes' => 16 * 1024 ** 2,
+        'max_binary_bytes' => (int) env('STOREFRONT_IPA_MAX_BINARY_BYTES', 2 * 1024 ** 3),
+        'max_plist_bytes' => 4 * 1024 ** 2,
+        // Absolute path to clamdscan; without it scans are reported as SCAN_UNAVAILABLE.
+        'clamdscan_path' => env('STOREFRONT_CLAMDSCAN_PATH'),
+        'clamdscan_timeout' => 900,
+    ],
+
 ];

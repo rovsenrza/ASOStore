@@ -11,6 +11,14 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphTo;
 
+/**
+ * @property PipelineJobStatus $status
+ * @property int $attempt
+ * @property int $max_attempts
+ * @property string $correlation_id
+ * @property string|null $result_code
+ * @property string|null $error_class
+ */
 class PipelineJob extends Model
 {
     /** @use HasFactory<PipelineJobFactory> */

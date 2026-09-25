@@ -1704,7 +1704,7 @@ paths:
       tags: [Admin]
       operationId: adminCompleteUpload
       summary: Assemble chunks, verify SHA-256 and create the source artifact
-      description: 'Requires artifacts.manage. Hashing is streamed and does not load the IPA into memory.'
+      description: 'Requires artifacts.manage. Hashing is streamed and does not load the IPA into memory. Queues InspectArtifactJob; replaying the call returns the same artifact and job.'
       security:
         - sessionCookie: []
       parameters:
@@ -2995,13 +2995,28 @@ components:
 
     UploadedArtifact:
       type: object
-      required: [id, status, sha256, size_bytes, original_filename]
+      required: [id, status, job_id, sha256, size_bytes, original_filename]
       properties:
         id: { $ref: "#/components/schemas/PublicId" }
-        status: { type: string, enum: [UPLOADED] }
+        status:
+          $ref: "#/components/schemas/ArtifactStatus"
+        job_id:
+          description: 'Pipeline job that hashes and inspects the artifact (InspectArtifactJob). Poll it for progress.'
+          oneOf:
+            - $ref: "#/components/schemas/PublicId"
+            - type: 'null'
         sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
         size_bytes: { type: integer, minimum: 1 }
         original_filename: { type: string }
+
+    ArtifactStatus:
+      type: string
+      description: |
+        Source artifact lifecycle (IMPLEMENTATION_PLAN §5.1). Usually UPLOADED right after upload; inspection
+        runs in the queue and moves it to PROVENANCE_REVIEW, or to INSPECTION_FAILED / REJECTED / QUARANTINED
+        with a machine-readable status_reason (e.g. ENCRYPTED_BINARY, VERSION_EXISTS, UNSAFE_PATH).
+      enum: [UPLOADED, HASHING, INSPECTING, PROVENANCE_REVIEW, COMPATIBILITY_CHECK, READY, PUBLISHED, REJECTED,
+        INSPECTION_FAILED, PROVENANCE_FAILED, QUARANTINED, REVOKED, EXPIRED]
 
     UploadedArtifactResponse:
       allOf:

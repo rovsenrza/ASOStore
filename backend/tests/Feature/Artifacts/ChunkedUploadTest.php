@@ -6,10 +6,13 @@ use App\Models\AuditLog;
 use App\Models\CatalogApp;
 use App\Models\UploadSession;
 use App\Models\User;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 
 beforeEach(function () {
+    // Inspection has its own tests (InspectArtifactTest).
+    Queue::fake();
     Storage::fake('artifacts');
     $this->manager = userWithRoles(RoleSlug::CatalogManager);
     $this->catalogApp = CatalogApp::factory()->create();

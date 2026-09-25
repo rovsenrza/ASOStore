@@ -5,15 +5,20 @@ namespace App\Services\Artifacts;
 use App\Enums\ArtifactStatus;
 use App\Enums\ErrorCode;
 use App\Exceptions\ApiException;
+use App\Jobs\InspectArtifactJob;
 use App\Models\AppArtifact;
 use App\Models\UploadSession;
 use App\Services\Audit\AuditService;
+use App\Services\Pipeline\PipelineJobService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 
 class ChunkedUploadService
 {
-    public function __construct(private readonly AuditService $audit) {}
+    public function __construct(
+        private readonly AuditService $audit,
+        private readonly PipelineJobService $jobs,
+    ) {}
 
     /**
      * @return array{number: int, size_bytes: int, sha256: string, already_received: bool}
@@ -176,6 +181,11 @@ class ChunkedUploadService
                     'size_bytes' => $actualSize,
                     'upload_id' => $upload->public_id,
                 ]);
+
+                $job = $this->jobs->create(InspectArtifactJob::TYPE, InspectArtifactJob::idempotencyKey($artifact), $artifact, [
+                    'artifact_id' => $artifact->public_id,
+                ]);
+                InspectArtifactJob::dispatch($job->id)->afterCommit();
 
                 return $artifact;
             });
