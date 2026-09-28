@@ -1,5 +1,4 @@
 import Foundation
-import os
 
 /// The lease loop (IMPLEMENTATION_PLAN D9): heartbeat, lease, sign, upload, report.
 /// One job at a time; each job folder is wiped when the job ends.
@@ -7,17 +6,16 @@ public actor Runner {
     private let config: RunnerConfig
     private let client: WorkerClient
     private let signer: Signer
-    private let log = Logger(subsystem: "storefront.runner", category: "runner")
     private var lastHeartbeat = Date.distantPast
 
     public init(config: RunnerConfig) {
         self.config = config
         self.client = WorkerClient(config: config)
-        self.signer = Signer(keychain: config.keychain)
+        self.signer = Signer(zsign: config.zsign)
     }
 
     public func run() async {
-        log.info("runner \(self.config.keyID, privacy: .public) starting, version \(self.config.version, privacy: .public)")
+        Log.info("runner \(config.keyID) starting, version \(config.version)")
         while !Task.isCancelled {
             do {
                 try await heartbeatIfDue()
@@ -26,7 +24,7 @@ public actor Runner {
                     continue
                 }
             } catch {
-                log.error("loop error: \(String(describing: error), privacy: .public)")
+                Log.error("loop error: \(error)")
             }
             try? await Task.sleep(for: config.pollInterval)
         }
@@ -34,14 +32,14 @@ public actor Runner {
 
     private func heartbeatIfDue() async throws {
         guard Date().timeIntervalSince(lastHeartbeat) >= 60 else { return }
-        let identities = try Identities.load(keychain: config.keychain)
+        let identities = try Identities.load(directory: config.identitiesDirectory).map(\.identity)
         try await client.heartbeat(version: config.version, identities: identities)
         lastHeartbeat = Date()
     }
 
     private func process(_ job: SigningJob) async {
         let folder = config.workDirectory.appendingPathComponent(job.jobID, isDirectory: true)
-        log.info("job \(job.jobID, privacy: .public) leased for \(job.bundleIdentifier, privacy: .public)")
+        Log.info("job \(job.jobID) leased for \(job.bundleIdentifier)")
 
         // Keep the lease alive while signing large apps.
         let keepAlive = Task { [client] in
@@ -57,17 +55,21 @@ public actor Runner {
 
         do {
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            // Read the identities again: a key removed since the last heartbeat must not be used.
+            guard let identity = try Identities.load(directory: config.identitiesDirectory).first(where: { $0.identity.sha1 == job.certificateSHA1.uppercased() }) else {
+                throw RunnerError.job(code: "CERTIFICATE_NOT_HELD", message: "No key for certificate \(job.certificateSHA1)", retryable: true)
+            }
             let source = folder.appendingPathComponent("source.ipa")
             try await client.downloadSource(job, to: source)
-            let output = try signer.sign(job: job, source: source, workDirectory: folder)
+            let output = try signer.sign(job: job, identity: identity, source: source, workDirectory: folder)
             try await client.upload(job, file: output.ipa, sha256: output.sha256)
             try await client.reportSuccess(job, sha256: output.sha256, report: output.report)
-            log.info("job \(job.jobID, privacy: .public) signed \(output.sha256, privacy: .public)")
+            Log.info("job \(job.jobID) signed \(output.sha256)")
         } catch let RunnerError.job(code, message, _) {
-            log.error("job \(job.jobID, privacy: .public) failed: \(code, privacy: .public)")
+            Log.error("job \(job.jobID) failed: \(code): \(message)")
             try? await client.reportFailure(job, code: code, message: message)
         } catch {
-            log.error("job \(job.jobID, privacy: .public) error: \(String(describing: error), privacy: .public)")
+            Log.error("job \(job.jobID) error: \(error)")
             try? await client.reportFailure(job, code: "RUNNER_ERROR", message: String(describing: error))
         }
     }

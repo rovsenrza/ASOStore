@@ -18,7 +18,7 @@ use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
- * Worker API for the macOS signing runner (IMPLEMENTATION_PLAN §5.8, P6-BE-02).
+ * Worker API for the signing runner (IMPLEMENTATION_PLAN §5.8, P6-BE-02).
  * Pull model: the runner leases work; the backend never pushes secrets.
  */
 class WorkerController extends Controller
@@ -26,7 +26,7 @@ class WorkerController extends Controller
     public function __construct(private readonly SigningService $signing) {}
 
     /**
-     * Runner health plus the signing identities in its Keychain (metadata only).
+     * Runner health plus the signing identities it holds (metadata only).
      */
     public function heartbeat(Request $request): JsonResponse
     {

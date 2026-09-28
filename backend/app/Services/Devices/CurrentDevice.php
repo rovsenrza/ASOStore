@@ -18,7 +18,9 @@ class CurrentDevice
 {
     public function resolve(Request $request): ?Device
     {
-        $user = $request->user();
+        // Public catalog routes have no auth middleware, so the default guard does not
+        // see the native app's bearer token; ask Sanctum, as the catalog resources do.
+        $user = $request->user('sanctum') ?? $request->user();
         if (! $user instanceof User) {
             return null;
         }

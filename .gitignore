@@ -49,3 +49,6 @@ tests/e2e/playwright-report/
 
 # Built test IPA (scripts/export-demo-ipa.sh)
 fixtures/DemoApp/build/
+
+# zsign signing cache written by the runner tests
+runner/.zsign_cache/

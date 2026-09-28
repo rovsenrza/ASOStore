@@ -209,7 +209,7 @@ export default {
     registration: 'Регистрация',
     reason: 'Причина',
     enrolled: 'Подключено',
-    claimed: 'Storefront открыт',
+    claimed: 'Ru AppStore открыт',
     search: 'Последние 4 символа UDID или эл. почта',
     allStatuses: 'Все статусы',
     allFamilies: 'Все семейства',
@@ -363,8 +363,8 @@ export default {
     quotaApple: 'По данным Apple: {count}',
     noQuota: 'Регистраций в этом году ещё не было',
     certificates: 'Сертификаты подписи',
-    onRunner: 'на Mac подписи',
-    notOnRunner: 'нет на Mac подписи',
+    onRunner: 'на сервере подписи',
+    notOnRunner: 'нет на сервере подписи',
     profiles: 'Профили: {active}, истекают скоро: {soon}',
     eligible: 'Разрешённые приложения',
     none: 'Нет',
@@ -431,7 +431,7 @@ export default {
     types: {
       InspectArtifactJob: 'Проверка IPA',
       PrepareSigningJob: 'Профиль подписи',
-      SignArtifactJob: 'Подпись на Mac',
+      SignArtifactJob: 'Подпись на сервере',
       VerifySignatureJob: 'Проверка подписи',
     },
     status: {
@@ -440,7 +440,7 @@ export default {
     },
   },
   runners: {
-    none: 'Ни один Mac подписи не подключён. Зарегистрируйте его командой php artisan runner:create (см. runner/README.md).',
+    none: 'Ни один сервер подписи не подключён. Зарегистрируйте его командой php artisan runner:create (см. runner/README.md).',
     online: 'На связи',
     offline: 'Нет связи',
     disabled: 'Отключён',

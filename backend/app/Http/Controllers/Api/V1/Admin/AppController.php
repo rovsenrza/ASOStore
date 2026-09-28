@@ -3,13 +3,16 @@
 namespace App\Http\Controllers\Api\V1\Admin;
 
 use App\Enums\AppVisibility;
+use App\Enums\ErrorCode;
 use App\Enums\SourceType;
+use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AdminAppResource;
 use App\Http\Responses\ApiResponse;
 use App\Models\AppCategory;
 use App\Models\AppPublisher;
 use App\Models\CatalogApp;
+use App\Models\AppleTeam;
 use App\Services\Audit\AuditService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -78,6 +81,10 @@ class AppController extends Controller
     {
         $model = $this->find($app);
         $data = $request->validate($this->rules(creating: false));
+        if (array_key_exists('is_storefront', $data) && ! $data['is_storefront']
+            && AppleTeam::query()->where('storefront_app_id', $model->id)->exists()) {
+            throw new ApiException(ErrorCode::Conflict, 'Вариант Ru AppStore назначен команде Apple.');
+        }
 
         $model->fill($this->attributes($data));
         if (array_key_exists('visibility', $data)) {
@@ -107,6 +114,9 @@ class AppController extends Controller
     {
         $data = $request->validate(['reason' => ['required', 'string', 'max:500']]);
         $model = $this->find($app);
+        if (AppleTeam::query()->where('storefront_app_id', $model->id)->exists()) {
+            throw new ApiException(ErrorCode::Conflict, 'Сначала отвяжите вариант Ru AppStore от команды Apple.');
+        }
         $model->delete();
         $this->audit->record('app.deleted', $model, reason: $data['reason']);
 
@@ -138,6 +148,7 @@ class AppController extends Controller
             'publisher_id' => [$required, 'string', Rule::exists('app_publishers', 'public_id')],
             'source_type' => [$required, Rule::enum(SourceType::class)],
             'visibility' => ['sometimes', Rule::enum(AppVisibility::class)],
+            'is_storefront' => ['sometimes', 'boolean'],
             'age_rating' => ['sometimes', Rule::in(['4+', '9+', '12+', '17+'])],
             'featured_rank' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:999'],
             'support_url' => ['sometimes', 'nullable', 'url:https', 'max:255'],
@@ -152,7 +163,7 @@ class AppController extends Controller
      */
     private function attributes(array $data): array
     {
-        $attributes = array_intersect_key($data, array_flip(['name', 'subtitle', 'description', 'source_type', 'age_rating', 'featured_rank', 'support_url', 'privacy_url']));
+        $attributes = array_intersect_key($data, array_flip(['name', 'subtitle', 'description', 'source_type', 'age_rating', 'featured_rank', 'support_url', 'privacy_url', 'is_storefront']));
         if (isset($data['category_id'])) {
             $attributes['category_id'] = AppCategory::query()->where('public_id', $data['category_id'])->value('id');
         }

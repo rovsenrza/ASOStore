@@ -69,6 +69,9 @@ function teamCard(team) {
     el('p', {}, team.membership_year
       ? t('teams.membership', { from: formatDate(team.membership_year.starts_at), to: formatDate(team.membership_year.ends_at) })
       : t('teams.noMembership')),
+    el('p', {}, 'Ru AppStore: ', team.storefront_bundle_id
+      ? el('span', { className: 'mono' }, team.storefront_bundle_id)
+      : el('span', { className: 'muted' }, 'Вариант для этой команды не назначен или IPA не опубликован')),
     team.quotas.length ? el('ul', { className: 'plain-list quota-list' }, team.quotas.map(quotaBar)) : el('p', { className: 'muted' }, t('teams.noQuota')),
     el('h3', {}, t('teams.eligible')),
     el('p', { className: 'mono' }, team.eligibilities.length ? team.eligibilities.join(', ') : t('teams.none')),
@@ -91,6 +94,7 @@ function teamActions(team) {
   button(t('teams.sync'), () => act(() => api.post(`/admin/apple-teams/${team.id}/sync`), ({ data }) => t('teams.synced', { mismatches: data.reconciliation.mismatches })));
   button(t('teams.addCredential'), () => credentialDialog(team));
   button(t('teams.addYear'), () => yearDialog(team));
+  button('Назначить вариант Ru AppStore', () => storefrontVariantDialog(team));
   if (team.status !== 'ACTIVE') {
     button(t('teams.activate'), async () => {
       const reason = await reasonFor();
@@ -140,6 +144,41 @@ function yearDialog(team) {
   formDialog(`${t('teams.addYear')} · ${team.apple_team_id}`,
     [['starts_at', t('teams.starts'), 'date'], ['ends_at', t('teams.ends'), 'date']],
     (values) => api.post(`/admin/apple-teams/${team.id}/membership-years`, values));
+}
+
+async function storefrontVariantDialog(team) {
+  try {
+    const { data } = await api.get('/admin/apps?per_page=100');
+    const variants = data.filter((app) => app.is_storefront && !app.deleted_at);
+    const selector = el('select', { name: 'storefront_app_id' },
+      el('option', { value: '' }, 'Без варианта'),
+      variants.map((app) => el('option', { value: app.id, selected: app.id === team.storefront_app_id },
+        `${app.name} · ${app.bundle_identifier ?? 'IPA не опубликован'}`)));
+    const form = el('form', { className: 'stack' },
+      el('p', { className: 'muted' }, 'Автоматическое переключение работает только после публикации IPA с отдельным Bundle ID и разрешения этого Bundle ID для команды.'),
+      el('label', { className: 'field' }, 'Вариант Ru AppStore', selector),
+      el('label', { className: 'field' }, 'Причина изменения', el('input', { name: 'reason', required: true, maxLength: 500 })),
+      el('div', { className: 'form-status', role: 'status' }),
+      el('div', { className: 'button-row' }, el('button', { type: 'submit', className: 'button button--primary' }, t('apps.save'))));
+    const panel = openDialog(t, { title: `${team.name} · Ru AppStore`, body: form });
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      try {
+        await api.patch(`/admin/apple-teams/${team.id}`, {
+          storefront_app_id: selector.value || null,
+          reason: form.elements.reason.value.trim(),
+        });
+        panel.close();
+        toast(t('teams.saved'), { tone: 'ok' });
+        await loadTeams();
+      } catch (error) {
+        form.querySelector('.form-status').replaceChildren(errorNotice(t, error));
+      }
+    });
+  } catch (error) {
+    toast(t.error(error), { tone: 'error' });
+  }
 }
 
 const addTeam = document.querySelector('#add-team');

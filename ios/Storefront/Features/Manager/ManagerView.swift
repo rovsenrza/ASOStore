@@ -31,13 +31,17 @@ struct ManagerView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 0) {
                     StoreHeader()
+                        .padding(.bottom, 20)
+                    ManagerImportCards()
+                        .padding(.bottom, AppSpacing.generous)
                     filters
+                        .padding(.bottom, 12)
                     StateContainerView(state: state, retry: { Task { await load() } }) { items in
                         content(items)
                     }
-                    .frame(minHeight: 360)
+                    .frame(minHeight: 360, alignment: .top)
                 }
                 .padding(.bottom, AppSpacing.generous)
             }

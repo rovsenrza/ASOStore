@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 
 /**
- * A macOS signing runner (IMPLEMENTATION_PLAN P6-RUN-01). It authenticates to
+ * A signing runner (Linux, zsign; IMPLEMENTATION_PLAN P6-RUN-01, D16). It authenticates to
  * the worker API with an HMAC key; it never receives Apple API credentials.
  *
  * @property string $key_id

@@ -53,6 +53,9 @@ return [
     */
 
     'url' => env('APP_URL', 'http://localhost'),
+    // Comma-separated proxy IPs, or * behind a tunnel or load balancer. Read here rather than
+    // in bootstrap/app.php, where .env is not loaded yet and cached config hides env().
+    'trusted_proxies' => env('TRUSTED_PROXIES'),
 
     /*
     |--------------------------------------------------------------------------

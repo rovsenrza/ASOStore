@@ -9,7 +9,7 @@ use Illuminate\Support\Carbon;
 
 /**
  * Signing certificate metadata. The private key exists only in a runner's
- * Keychain (IMPLEMENTATION_PLAN D8).
+ * identities folder (IMPLEMENTATION_PLAN D8, D16).
  *
  * @property int $apple_team_id
  * @property string $sha1_fingerprint

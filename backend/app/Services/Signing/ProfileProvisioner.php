@@ -69,7 +69,7 @@ class ProfileProvisioner
             $bundleResource = $this->apple->ensureBundleId($team, $bundle, $artifact->app->name);
             $created = $this->apple->createAdHocProfile(
                 $team,
-                sprintf('Storefront %s %s', $bundle, $device->udid_hint),
+                sprintf('%s %s %s', config('storefront.brand'), $bundle, $device->udid_hint),
                 $bundleResource,
                 $certificate->apple_certificate_id,
                 $registration->apple_device_id,

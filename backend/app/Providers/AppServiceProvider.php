@@ -11,6 +11,7 @@ use App\Services\Devices\UdidHasher;
 use App\Support\Abilities;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Middleware\TrustProxies;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\RateLimiter;
@@ -40,6 +41,12 @@ class AppServiceProvider extends ServiceProvider
 
         Abilities::register();
         $this->configureRateLimiting();
+
+        // Behind a tunnel or load balancer, trust its forwarded host/scheme so generated
+        // URLs (e.g. the enrollment callback inside the .mobileconfig) are correct.
+        if (filled($proxies = config('app.trusted_proxies'))) {
+            TrustProxies::at($proxies === '*' ? '*' : array_map('trim', explode(',', $proxies)));
+        }
     }
 
     /**

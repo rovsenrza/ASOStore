@@ -39,7 +39,7 @@ test('admin reviews Apple teams, approves an app for a team and sees runner heal
   await expect(page.locator('#approvals')).toContainText('Нет назначений');
 
   await page.goto('/admin/jobs.html');
-  await expect(page.locator('#runners')).toContainText('Ни один Mac подписи не подключён');
+  await expect(page.locator('#runners')).toContainText('Ни один сервер подписи не подключён');
   await page.getByRole('tab', { name: 'Задачи' }).click();
   await expect(page.locator('#jobs-table')).toBeVisible();
 });

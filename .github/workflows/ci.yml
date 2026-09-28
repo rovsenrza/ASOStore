@@ -140,13 +140,15 @@ jobs:
           -project Storefront.xcodeproj
           -scheme Storefront
           -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}"
+      # The authorized test IPA must keep building (fixtures/DemoApp, P5-OPS-01). Needs Xcode.
+      - run: ./scripts/export-demo-ipa.sh
 
   runner:
-    name: Signing runner (Swift)
-    runs-on: macos-latest
+    name: Signing runner (Linux, zsign)
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - working-directory: runner
-        run: swift build && swift test
-      # The authorized test IPA must keep building (fixtures/DemoApp, P5-OPS-01).
-      - run: ./scripts/export-demo-ipa.sh
+      # The test stage signs the DemoApp fixture with zsign and checks the signature.
+      - run: docker build --target test runner
+      - run: docker build --target runtime --tag storefront-runner runner
+      - run: docker run --rm --entrypoint zsign storefront-runner -v

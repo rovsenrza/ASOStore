@@ -1,16 +1,18 @@
 import Foundation
 
-/// Re-signs one IPA for one device profile (IMPLEMENTATION_PLAN §5.6, P6-RUN-01).
+/// Re-signs one IPA for one device profile with zsign (IMPLEMENTATION_PLAN §5.6, P6-RUN-01).
 ///
-/// Steps: check the source hash → unpack → embed the profile → derive
-/// entitlements from the profile → sign frameworks and dylibs, then the app
-/// (inside-out) → `codesign --verify --strict` → repack. Everything happens in
-/// a private job folder that is deleted afterwards (P6-RUN-02).
+/// Steps: check the source hash → unpack → refuse nested bundles → derive
+/// entitlements from the profile → zsign (embeds the profile, signs
+/// Frameworks/ then the app, repacks) → unpack the result and check its
+/// signatures (CodeSignature). Everything happens in a private job folder
+/// that is deleted afterwards (P6-RUN-02).
 public struct Signer: Sendable {
-    public let keychain: String?
+    /// zsign executable, a path or a name looked up in PATH.
+    public let zsign: String
 
-    public init(keychain: String?) {
-        self.keychain = keychain
+    public init(zsign: String = "zsign") {
+        self.zsign = zsign
     }
 
     public struct Output: Sendable {
@@ -19,7 +21,7 @@ public struct Signer: Sendable {
         public var report: [String: String]
     }
 
-    public func sign(job: SigningJob, source: URL, workDirectory: URL) throws -> Output {
+    public func sign(job: SigningJob, identity: IdentityFiles, source: URL, workDirectory: URL) throws -> Output {
         let started = Date()
 
         // P6-RUN-02: never sign something other than what the lease describes.
@@ -27,15 +29,12 @@ public struct Signer: Sendable {
         guard sourceHash == job.source.sha256.lowercased() else {
             throw RunnerError.job(code: "SOURCE_HASH_MISMATCH", message: "Downloaded \(sourceHash), lease says \(job.source.sha256)", retryable: true)
         }
+        guard identity.identity.sha1 == job.certificateSHA1.uppercased() else {
+            throw RunnerError.job(code: "CERTIFICATE_NOT_HELD", message: "Lease wants \(job.certificateSHA1)", retryable: true)
+        }
 
         let unpacked = workDirectory.appendingPathComponent("unpacked", isDirectory: true)
-        try Shell.require("UNPACK_FAILED", "/usr/bin/ditto", ["-x", "-k", source.path, unpacked.path])
-
-        let payload = unpacked.appendingPathComponent("Payload", isDirectory: true)
-        let apps = try FileManager.default.contentsOfDirectory(at: payload, includingPropertiesForKeys: nil).filter { $0.pathExtension == "app" }
-        guard apps.count == 1, let app = apps.first else {
-            throw RunnerError.job(code: "NO_APP_BUNDLE", message: "Expected exactly one Payload/*.app", retryable: false)
-        }
+        let app = try Self.unpack(source, into: unpacked, code: "UNPACK_FAILED")
 
         // Extensions need their own profiles (one per bundle ID); not provisioned yet.
         for folder in ["PlugIns", "Extensions", "Watch", "AppClips"] where FileManager.default.fileExists(atPath: app.appendingPathComponent(folder).path) {
@@ -45,46 +44,110 @@ public struct Signer: Sendable {
         guard let profileData = Data(base64Encoded: job.profile.content) else {
             throw RunnerError.job(code: "PROFILE_INVALID", message: "Profile content is not base64", retryable: false)
         }
-        let profileFile = app.appendingPathComponent("embedded.mobileprovision")
+        let profileFile = workDirectory.appendingPathComponent("profile.mobileprovision")
         try profileData.write(to: profileFile)
 
-        let entitlements = try Self.entitlements(fromProfileAt: profileFile, bundleIdentifier: job.bundleIdentifier, teamIdentifier: job.teamIdentifier)
+        let entitlements = try Self.entitlements(fromProfile: profileData, bundleIdentifier: job.bundleIdentifier, teamIdentifier: job.teamIdentifier)
         let entitlementsFile = workDirectory.appendingPathComponent("entitlements.plist")
         try PropertyListSerialization.data(fromPropertyList: entitlements, format: .xml, options: 0).write(to: entitlementsFile)
 
-        // Inside-out: nested code first, the app last.
-        for nested in try Self.nestedCode(in: app) {
-            try codesign(["--force", "--sign", job.certificateSHA1, "--timestamp=none", "--generate-entitlement-der", nested.path])
-        }
-        try codesign(["--force", "--sign", job.certificateSHA1, "--timestamp=none", "--generate-entitlement-der", "--entitlements", entitlementsFile.path, app.path])
-
-        let verify = try Shell.run("/usr/bin/codesign", ["--verify", "--strict", "--deep", "--verbose=2", app.path])
-        guard verify.status == 0 else {
-            throw RunnerError.job(code: "CODESIGN_VERIFY_FAILED", message: verify.error, retryable: false)
-        }
-        let details = try Shell.run("/usr/bin/codesign", ["-dvvv", app.path]).error
-
+        // -f: no signing cache, so every job signs every file.
         let output = workDirectory.appendingPathComponent("signed.ipa")
-        try Shell.require("REPACK_FAILED", "/usr/bin/ditto", ["-c", "-k", "--sequesterRsrc", "--keepParent", payload.path, output.path])
+        let zsigned = try Shell.run(zsign, [
+            "-f", "-k", identity.privateKey.path, "-c", identity.certificate.path,
+            "-m", profileFile.path, "-e", entitlementsFile.path, "-o", output.path, app.path,
+        ])
+        guard zsigned.status == 0, FileManager.default.fileExists(atPath: output.path) else {
+            throw RunnerError.job(code: "CODESIGN_FAILED", message: Self.zsignError(zsigned.output + zsigned.error), retryable: false)
+        }
+
+        // Check what will be uploaded, not the folder zsign worked in.
+        let checked = try Self.unpack(output, into: workDirectory.appendingPathComponent("check", isDirectory: true), code: "REPACK_FAILED")
+        let signature = try Self.verify(app: checked, job: job, profile: profileData, workDirectory: workDirectory)
 
         return Output(ipa: output, sha256: try RequestSigner.sha256(fileAt: output), report: [
-            "codesign": Self.summary(details),
+            "signer": "zsign",
+            "codesign": signature,
             "duration_seconds": String(format: "%.1f", Date().timeIntervalSince(started)),
             "profile_uuid": job.profile.uuid,
         ])
     }
 
-    private func codesign(_ arguments: [String]) throws {
-        var arguments = arguments
-        if let keychain { arguments.insert(contentsOf: ["--keychain", keychain], at: 0) }
-        try Shell.require("CODESIGN_FAILED", "/usr/bin/codesign", arguments)
+    /// Checks a signed app the way `codesign --verify --strict` did on macOS, plus
+    /// what the lease requires: the profile is the leased one, and the app and
+    /// every framework/dylib are signed by the leased certificate for the leased
+    /// team, with the leased application identifier.
+    static func verify(app: URL, job: SigningJob, profile: Data, workDirectory: URL) throws -> String {
+        guard (try? Data(contentsOf: app.appendingPathComponent("embedded.mobileprovision"))) == profile else {
+            throw RunnerError.job(code: "CODESIGN_VERIFY_FAILED", message: "embedded.mobileprovision is not the leased profile", retryable: false)
+        }
+        let info = try PropertyListSerialization.propertyList(from: Data(contentsOf: app.appendingPathComponent("Info.plist")), format: nil) as? [String: Any]
+        guard let executable = info?["CFBundleExecutable"] as? String else {
+            throw RunnerError.job(code: "CODESIGN_VERIFY_FAILED", message: "Info.plist has no CFBundleExecutable", retryable: false)
+        }
+
+        let certificate = job.certificateSHA1.uppercased()
+        func check(_ binary: URL, bundle: URL?) throws -> CodeSignature {
+            let slices = try CodeSignature.read(fileAt: binary)
+            for slice in slices {
+                try slice.verifyHashes(bundle: bundle)
+                guard slice.teamIdentifier == job.teamIdentifier else {
+                    throw RunnerError.job(code: "CODESIGN_VERIFY_FAILED", message: "\(binary.lastPathComponent) team is \(slice.teamIdentifier ?? "not set"), lease says \(job.teamIdentifier)", retryable: false)
+                }
+                guard try slice.verifyCMS(workDirectory: workDirectory) == certificate else {
+                    throw RunnerError.job(code: "CODESIGN_VERIFY_FAILED", message: "\(binary.lastPathComponent) is not signed by \(certificate)", retryable: false)
+                }
+            }
+            return slices[0]
+        }
+
+        let main = try check(app.appendingPathComponent(executable), bundle: app)
+        guard main.identifier == job.bundleIdentifier else {
+            throw RunnerError.job(code: "CODESIGN_VERIFY_FAILED", message: "Signed identifier is \(main.identifier), lease says \(job.bundleIdentifier)", retryable: false)
+        }
+        let signedEntitlements = try main.entitlements.flatMap { try PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any] }
+        guard signedEntitlements?["application-identifier"] as? String == "\(job.teamIdentifier).\(job.bundleIdentifier)" else {
+            throw RunnerError.job(code: "ENTITLEMENTS_MISMATCH", message: "Signed application-identifier is not \(job.teamIdentifier).\(job.bundleIdentifier)", retryable: false)
+        }
+
+        let nested = try nestedCode(in: app)
+        for code in nested {
+            if code.pathExtension == "framework" {
+                let frameworkInfo = try PropertyListSerialization.propertyList(from: Data(contentsOf: code.appendingPathComponent("Info.plist")), format: nil) as? [String: Any]
+                let name = frameworkInfo?["CFBundleExecutable"] as? String ?? code.deletingPathExtension().lastPathComponent
+                _ = try check(code.appendingPathComponent(name), bundle: code)
+            } else {
+                _ = try check(code, bundle: nil)
+            }
+        }
+
+        return "Identifier=\(main.identifier); TeamIdentifier=\(job.teamIdentifier); Authority=\(certificate); CDHash=\(main.cdHash); Nested=\(nested.count)"
+    }
+
+    /// Unzips an IPA and returns its only Payload/*.app.
+    static func unpack(_ ipa: URL, into folder: URL, code: String) throws -> URL {
+        try Shell.require(code, "unzip", ["-qq", ipa.path, "-d", folder.path])
+        let payload = folder.appendingPathComponent("Payload", isDirectory: true)
+        let apps = (try? FileManager.default.contentsOfDirectory(at: payload, includingPropertiesForKeys: nil).filter { $0.pathExtension == "app" }) ?? []
+        guard apps.count == 1, let app = apps.first else {
+            throw RunnerError.job(code: "NO_APP_BUNDLE", message: "Expected exactly one Payload/*.app", retryable: false)
+        }
+        return app
     }
 
     /// The profile's entitlements, narrowed to this app: application-identifier
-    /// and team ID are fixed to the leased bundle and team.
-    public static func entitlements(fromProfileAt url: URL, bundleIdentifier: String, teamIdentifier: String) throws -> [String: Any] {
-        let decoded = try Shell.require("PROFILE_INVALID", "/usr/bin/security", ["cms", "-D", "-i", url.path]).output
-        return try entitlements(fromProfilePlist: Data(decoded.utf8), bundleIdentifier: bundleIdentifier, teamIdentifier: teamIdentifier)
+    /// and team ID are fixed to the leased bundle and team. The profile is a CMS
+    /// envelope around an XML plist; its Apple signature is checked by the device.
+    public static func entitlements(fromProfile data: Data, bundleIdentifier: String, teamIdentifier: String) throws -> [String: Any] {
+        try entitlements(fromProfilePlist: profilePlist(data), bundleIdentifier: bundleIdentifier, teamIdentifier: teamIdentifier)
+    }
+
+    /// The XML plist inside a .mobileprovision CMS envelope.
+    public static func profilePlist(_ data: Data) throws -> Data {
+        guard let start = data.range(of: Data("<?xml".utf8)), let end = data.range(of: Data("</plist>".utf8), in: start.lowerBound..<data.endIndex) else {
+            throw RunnerError.job(code: "PROFILE_INVALID", message: "Profile has no plist", retryable: false)
+        }
+        return data.subdata(in: start.lowerBound..<end.upperBound)
     }
 
     public static func entitlements(fromProfilePlist data: Data, bundleIdentifier: String, teamIdentifier: String) throws -> [String: Any] {
@@ -102,7 +165,7 @@ public struct Signer: Sendable {
         return entitlements
     }
 
-    /// Frameworks and dylibs directly under Frameworks/, deepest first.
+    /// Frameworks and dylibs directly under Frameworks/.
     static func nestedCode(in app: URL) throws -> [URL] {
         let frameworks = app.appendingPathComponent("Frameworks", isDirectory: true)
         guard FileManager.default.fileExists(atPath: frameworks.path) else { return [] }
@@ -111,10 +174,11 @@ public struct Signer: Sendable {
             .sorted { $0.path > $1.path }
     }
 
-    /// Identifier, TeamIdentifier and Authority lines of `codesign -dvvv`.
-    static func summary(_ details: String) -> String {
-        details.split(separator: "\n")
-            .filter { $0.hasPrefix("Identifier=") || $0.hasPrefix("TeamIdentifier=") || $0.hasPrefix("Authority=") || $0.hasPrefix("CDHash=") }
-            .joined(separator: "; ")
+    /// zsign's failure lines without colour codes, e.g. "Build CMS signature failed!".
+    static func zsignError(_ output: String) -> String {
+        let plain = output.replacingOccurrences(of: "\u{1B}\\[[0-9;]*m", with: "", options: .regularExpression)
+        let lines = plain.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let failures = lines.filter { $0.localizedCaseInsensitiveContains("fail") || $0.localizedCaseInsensitiveContains("error") || $0.localizedCaseInsensitiveContains("unknown") || $0.localizedCaseInsensitiveContains("can't") }
+        return (failures.isEmpty ? Array(lines.suffix(3)) : failures).joined(separator: " | ")
     }
 }

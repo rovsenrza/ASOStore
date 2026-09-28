@@ -110,7 +110,7 @@ class DemoCatalogSeeder extends Seeder
 
         // The native Storefront is itself a catalog item, hidden from the catalog (IMPLEMENTATION_PLAN §5.6).
         CatalogApp::updateOrCreate(['slug' => 'storefront'], [
-            'name' => config('storefront.brand').' Storefront',
+            'name' => config('storefront.brand'),
             'subtitle' => 'Каталог приложений',
             'description' => 'Нативное приложение-витрина.',
             'category_id' => $categories['utilities']->id,

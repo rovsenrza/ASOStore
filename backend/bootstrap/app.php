@@ -30,11 +30,7 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prepend(AssignRequestId::class);
-        // Behind a tunnel or load balancer, trust its forwarded host/scheme so generated
-        // URLs (e.g. the enrollment callback inside the .mobileconfig) are correct.
-        if ($proxies = env('TRUSTED_PROXIES')) {
-            $middleware->trustProxies(at: $proxies === '*' ? '*' : array_map('trim', explode(',', $proxies)));
-        }
+        // Trusted proxies (TRUSTED_PROXIES) are applied in AppServiceProvider::boot, once config is loaded.
         $middleware->append(SecurityHeaders::class);
         $middleware->appendToGroup('api', RecordRequestMetrics::class);
         // Same-origin browser requests get session cookies + CSRF (Sanctum SPA, IMPLEMENTATION_PLAN D2).

@@ -71,6 +71,8 @@ The product must not use account rotation to evade Apple limits, fraud detection
 
 The system must never promise that a new account resets or bypasses a quota. `100 devices` is tracked per product family and membership year, not as a universal pool that can be hidden by switching accounts.
 
+For the Apple-authorized multi-team test programme, a new device may be assigned automatically to the next eligible team after the current team's quota is exhausted. Each team has its own published Ru AppStore IPA and distinct Bundle ID; the assignment is reserved under a quota lock and audited. Existing devices do not change team. Teams lacking the variant, bundle eligibility, active membership, or free capacity are skipped. The specific written Apple authorization is a production release prerequisite; see [ADR 0001](0001-team-specific-storefront-variants.md).
+
 ---
 
 ## 2. Recommended architecture
@@ -97,7 +99,7 @@ The system must never promise that a new account resets or bypasses a quota. `10
                          └──────────────────────────┘
 
                          ┌──────────────────────────┐
-                         │ macOS signing runner     │
+                         │ Signing runner (Linux)   │
                          │ isolated, controlled     │
                          └──────────┬───────────────┘
                                     │ signed artifact
@@ -106,15 +108,17 @@ The system must never promise that a new account resets or bypasses a quota. `10
                          └──────────────────────────┘
 ```
 
-### 2.1 Why a macOS runner is required
+### 2.1 Why a separate signing runner is required
 
-PHP hosting can manage metadata, uploads, accounts and jobs, but it should not be expected to perform Apple code signing. The backend sends an authorized job to an isolated macOS runner. The runner signs/validates only artifacts and profiles it is allowed to handle, then uploads the result back to storage.
+PHP hosting can manage metadata, uploads, accounts and jobs, but it should not be expected to perform Apple code signing. The backend sends an authorized job to an isolated signing runner. The runner signs/validates only artifacts and profiles it is allowed to handle, then uploads the result back to storage.
+
+*Update (IMPLEMENTATION_PLAN D16):* the runner was first built for macOS (`codesign`). It now runs on Linux in Docker and signs with zsign, so no Mac is needed; it can share the backend's server.
 
 ### 2.2 Hosting deployment modes
 
-**MVP/shared hosting:** Laravel API, MySQL, cron-based queue worker, local/private storage, admin panel and public portal on one hosting account. Signing is disabled or delegated to a manually operated macOS machine.
+**MVP/shared hosting:** Laravel API, MySQL, cron-based queue worker, local/private storage, admin panel and public portal on one hosting account. Signing is disabled or delegated to a manually operated signing runner.
 
-**Production:** PHP API on VPS or managed hosting, MySQL with backups, Redis or database queue, private object storage, and a separate macOS signing runner connected through a restricted worker API/VPN.
+**Production:** PHP API on VPS or managed hosting, MySQL with backups, Redis or database queue, private object storage, and a separate signing runner (Linux container) connected through a restricted worker API/VPN.
 
 ---
 
@@ -903,7 +907,7 @@ Apple notes that simulator execution does not reproduce all physical-device feat
 
 ### Phase 6 — Signing runner and physical install
 
-- macOS runner contract;
+- signing runner contract;
 - job dispatch and status polling;
 - profile/certificate metadata;
 - signature validation;

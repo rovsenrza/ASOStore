@@ -9,7 +9,7 @@
   <title>Артефакты — Ru AppStore Admin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Oswald:wght@600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/admin.css">
   <script type="module" src="js/pages/artifacts.js"></script>
 </head>
@@ -42,16 +42,26 @@
         </div>
 
         <section id="panel-upload" role="tabpanel" aria-labelledby="tab-upload">
-          <form class="card form-grid upload-form" id="upload-form" novalidate>
-            <h2>Загрузить IPA</h2>
-            <label class="field">Приложение в каталоге<select name="app_id" required></select></label>
-            <label class="field">Источник<select name="source_type" required></select></label>
-            <label class="field">Файлы IPA<input name="files" type="file" accept=".ipa" multiple required></label>
-            <label class="check declaration">
-              <input type="checkbox" name="declaration_accepted" required>
-              <span id="declaration-text"></span>
-            </label>
-            <div class="button-row"><button class="button button--primary" type="submit">Загрузить</button></div>
+          <form class="card upload-form" id="upload-form" novalidate>
+            <div class="upload-form__intro">
+              <div>
+                <h2>Загрузить IPA</h2>
+                <p>Выберите приложение и источник, затем добавьте один или несколько IPA-файлов.</p>
+              </div>
+              <span class="upload-form__step">Шаг 01 / 02</span>
+            </div>
+            <div class="upload-form__fields">
+              <label class="field">Приложение в каталоге<select name="app_id" required></select></label>
+              <label class="field">Источник<select name="source_type" required></select></label>
+              <label class="field upload-form__file">Файлы IPA<input name="files" type="file" accept=".ipa" multiple required><span class="hint">Можно выбрать несколько файлов</span></label>
+            </div>
+            <div class="upload-form__footer">
+              <label class="check declaration">
+                <input type="checkbox" name="declaration_accepted" required>
+                <span id="declaration-text"></span>
+              </label>
+              <button class="button button--primary" type="submit">Загрузить файлы</button>
+            </div>
             <div class="form-status" role="status" aria-live="polite"></div>
           </form>
           <div class="card" id="upload-queue-card" hidden>

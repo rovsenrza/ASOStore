@@ -9,12 +9,12 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Str;
 
 /**
- * Registers a macOS signing runner and prints its worker API key once
+ * Registers a signing runner and prints its worker API key once
  * (IMPLEMENTATION_PLAN P6-RUN-01, D9).
  */
 class CreateRunner extends Command
 {
-    protected $signature = 'runner:create {name : A label, e.g. "mac-mini-1"}';
+    protected $signature = 'runner:create {name : A label, e.g. "signer-1"}';
 
     protected $description = 'Register a signing runner and print its key ID and secret once';
 

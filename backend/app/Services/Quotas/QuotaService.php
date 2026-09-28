@@ -17,8 +17,8 @@ use Illuminate\Support\Facades\DB;
  *
  * Every reservation locks the (team, year, family) quota row with SELECT … FOR
  * UPDATE, so concurrent registrations can never take more slots than exist.
- * When a team is exhausted nothing switches automatically: TeamSelector either
- * proposes an eligible team for admin approval or blocks with NO_ELIGIBLE_TEAM.
+ * On exhaustion, TeamSelector can reserve a configured team's variant and
+ * device slot automatically; legacy teams still use approval or block.
  */
 class QuotaService
 {
@@ -29,6 +29,8 @@ class QuotaService
     public const NO_ELIGIBLE_TEAM = 'NO_ELIGIBLE_TEAM';
 
     public const ALREADY_HELD = 'ALREADY_HELD';
+
+    public const SWITCHED = 'SWITCHED';
 
     public function __construct(
         private readonly StateMachine $states,

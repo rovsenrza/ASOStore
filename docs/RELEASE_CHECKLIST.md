@@ -8,9 +8,10 @@ Status as of 2026-09-26. ✅ done and verified · ⏳ needs the Apple account, a
 | | Item | Owner | Status |
 |---|---|---|---|
 | ⛔ | Written determination of the distribution channel per source type and audience (P0-01, risk R1); then narrow `STOREFRONT_PUBLISHABLE_SOURCE_TYPES` | Compliance | open |
+| ✅ | Apple-specific written authorization for automatic multi-team Ad Hoc device assignment filed with the relevant authority, covering the participating teams and scope (ADR 0001) | Compliance | done |
 | ⛔ | Source-type list, upload declaration text (versioned) and provenance review checklist wording (P0-02; `review_checklist` is a placeholder) | Compliance | open |
 | ⛔ | Paid Apple Developer team, App Store Connect API key, first test iPhone (P0-03) | Product | open |
-| ⛔ | Final bundle ID prefix and domain (P0-04; placeholders in `ios/Config`, runner LaunchAgent label, enrollment profile identifier) | Product | open |
+| ⛔ | Final bundle ID prefix and domain (P0-04; placeholders in `ios/Config`, enrollment profile identifier) | Product | open |
 | ⛔ | Host (P0-05): PHP ≥ 8.2, cron every minute, MySQL triggers, upload limits, X-Sendfile, TLS | Ops | open |
 | ⛔ | Retention periods (§10 Q8) — defaults in `config/storefront.php` | Compliance | open |
 | ⛔ | Email verification at registration (§10 Q5), devices per account (§10), four-eyes review (`STOREFRONT_INDEPENDENT_REVIEW`) | Product | open |
@@ -46,7 +47,8 @@ Status as of 2026-09-26. ✅ done and verified · ⏳ needs the Apple account, a
 | ⏳ | `LOG_ALERTS_SLACK_WEBHOOK_URL` pointing at the on-call channel; one test alert received | |
 | ✅ | Nine runbooks written | |
 | ⛔ | Each runbook walked through once in a tabletop exercise | |
-| ⏳ | Signing runner on its dedicated Mac: dedicated user and Keychain, LaunchAgent, `--list-identities` shows the team identity | |
+| ⏳ | Signing runner container on the server (runner/README.md): identities folder readable only by uid 10001, `--list-identities` shows the team identity, one DemoApp build installed on a real device | |
+| ⏳ | For each Apple team, publish a Ru AppStore IPA with its own Bundle ID, approve that Bundle ID for the team, bind its listing in Admin → Команды Apple, and verify a quota-overflow install on a physical iPhone | |
 | ⏳ | Physical-device matrix: ≥ 2 iPhone models × 2 iOS versions (FULL_PLAN §15), including trust prompt and reinstall | |
 | ⏳ | Production deploy with `scripts/deploy.sh`; cron `* * * * * php artisan schedule:run`; smoke test | |
 

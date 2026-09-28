@@ -1,28 +1,31 @@
 import Foundation
 
-/// Runner settings, read from the environment (see README and launchd/*.plist).
+/// Runner settings, read from the environment (see README and Dockerfile).
 public struct RunnerConfig: Sendable {
     public var baseURL: URL
     public var keyID: String
     public var secret: String
     /// Private scratch space; every job's folder is deleted when it ends.
     public var workDirectory: URL
-    /// Dedicated signing Keychain (P6-RUN-02). nil uses the login Keychain search list.
-    public var keychain: String?
+    /// Folder holding each signing identity as `<name>.key` plus `<name>.cer`/`.pem` (P6-RUN-02).
+    public var identitiesDirectory: URL
+    /// zsign executable, a path or a name looked up in PATH.
+    public var zsign: String
     public var pollInterval: Duration
     public var version: String
 
-    public init(baseURL: URL, keyID: String, secret: String, workDirectory: URL, keychain: String?, pollInterval: Duration, version: String = RunnerConfig.currentVersion) {
+    public init(baseURL: URL, keyID: String, secret: String, workDirectory: URL, identitiesDirectory: URL, zsign: String = "zsign", pollInterval: Duration, version: String = RunnerConfig.currentVersion) {
         self.baseURL = baseURL
         self.keyID = keyID
         self.secret = secret
         self.workDirectory = workDirectory
-        self.keychain = keychain
+        self.identitiesDirectory = identitiesDirectory
+        self.zsign = zsign
         self.pollInterval = pollInterval
         self.version = version
     }
 
-    public static let currentVersion = "1.0.0"
+    public static let currentVersion = "2.0.0"
 
     public static func fromEnvironment(_ env: [String: String] = ProcessInfo.processInfo.environment) throws -> RunnerConfig {
         func required(_ key: String) throws -> String {
@@ -40,7 +43,8 @@ public struct RunnerConfig: Sendable {
             keyID: try required("STOREFRONT_RUNNER_KEY_ID"),
             secret: try required("STOREFRONT_RUNNER_SECRET"),
             workDirectory: work,
-            keychain: env["STOREFRONT_RUNNER_KEYCHAIN"].flatMap { $0.isEmpty ? nil : $0 },
+            identitiesDirectory: URL(fileURLWithPath: try required("STOREFRONT_RUNNER_IDENTITIES_DIR"), isDirectory: true),
+            zsign: env["STOREFRONT_RUNNER_ZSIGN"].flatMap { $0.isEmpty ? nil : $0 } ?? "zsign",
             pollInterval: .seconds(Int(env["STOREFRONT_RUNNER_POLL_SECONDS"] ?? "") ?? 10)
         )
     }

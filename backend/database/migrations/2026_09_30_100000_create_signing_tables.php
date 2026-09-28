@@ -9,7 +9,7 @@ return new class extends Migration
     /**
      * Signing and installation (IMPLEMENTATION_PLAN Phase 6, §5.6).
      * Certificate private keys never reach this database: they live only in
-     * the runner's Keychain (D8); rows here are metadata.
+     * the runner's identities folder (D8, D16); rows here are metadata.
      */
     public function up(): void
     {

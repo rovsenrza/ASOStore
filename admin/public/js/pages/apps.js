@@ -77,6 +77,9 @@ function listingForm(app) {
       field(t('apps.featuredRank'), el('input', { name: 'featured_rank', type: 'number', min: 1, max: 999, value: app?.featured_rank ?? '' }), t('apps.featuredHint')),
       field(t('apps.supportUrl'), el('input', { name: 'support_url', type: 'url', value: app?.support_url ?? '' })),
       field(t('apps.privacyUrl'), el('input', { name: 'privacy_url', type: 'url', value: app?.privacy_url ?? '' }))),
+    el('label', { className: 'check' },
+      el('input', { name: 'is_storefront', type: 'checkbox', checked: app?.is_storefront ?? false }),
+      'Вариант Ru AppStore для команды Apple'),
     field(t('apps.description'), el('textarea', { name: 'description', rows: 5, maxLength: 4000, value: app?.description ?? '' })),
     app ? field(t('apps.reasonOptional'), el('input', { name: 'reason', maxLength: 500 })) : null,
     manage ? el('div', { className: 'button-row' }, el('button', { type: 'submit', className: 'button button--primary' }, t('apps.save'))) : null);
@@ -87,6 +90,7 @@ function listingForm(app) {
 
 function formPayload(form) {
   const data = Object.fromEntries(new FormData(form));
+  data.is_storefront = form.querySelector('[name="is_storefront"]').checked;
   data.featured_rank = data.featured_rank ? Number(data.featured_rank) : null;
   for (const key of ['subtitle', 'description', 'support_url', 'privacy_url', 'reason']) {
     if (key in data && data[key] === '') data[key] = null;

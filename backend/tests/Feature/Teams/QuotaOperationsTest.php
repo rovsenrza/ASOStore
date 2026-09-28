@@ -1,19 +1,23 @@
 <?php
 
 use App\Enums\AppleTeamStatus;
+use App\Enums\ArtifactStatus;
 use App\Enums\DeviceFamily;
 use App\Enums\DeviceRegistrationStatus as Status;
 use App\Enums\RoleSlug;
 use App\Models\AppleTeam;
+use App\Models\AppArtifact;
 use App\Models\AuditLog;
 use App\Models\CatalogApp;
 use App\Models\Certificate;
 use App\Models\Device;
 use App\Models\DeviceRegistration;
+use App\Models\Installation;
 use App\Models\MembershipYear;
 use App\Models\TeamAssignment;
 use App\Models\User;
 use App\Services\Devices\DeviceRegistrationService;
+use App\Services\Installations\InstallationService;
 use App\Services\Quotas\QuotaReconciler;
 use Laravel\Sanctum\Sanctum;
 use Tests\Support\OpenApiContract;
@@ -44,6 +48,75 @@ function secondTeam(string $teamId = 'TEAM000002'): AppleTeam
 
     return $team;
 }
+
+it('automatically places device 101 on the next team with its own published Ru AppStore bundle', function () {
+    $firstApp = CatalogApp::factory()->create(['is_storefront' => true]);
+    AppArtifact::factory()->for($firstApp, 'app')->create([
+        'status' => ArtifactStatus::Published,
+        'bundle_identifier' => 'com.bundle.app',
+    ]);
+    $this->primary->forceFill(['storefront_app_id' => $firstApp->id])->save();
+    approveTeamFor('com.bundle.app', $this->primary);
+
+    ($this->enrol)('00008030-0000000000000001');
+    $second = secondTeam();
+    $secondApp = CatalogApp::factory()->create(['is_storefront' => true]);
+    AppArtifact::factory()->for($secondApp, 'app')->create([
+        'status' => ArtifactStatus::Published,
+        'bundle_identifier' => 'com.bundle2.app',
+    ]);
+    $second->forceFill(['storefront_app_id' => $secondApp->id])->save();
+    approveTeamFor('com.bundle2.app', $second);
+
+    $customer = subscribedCustomer();
+    $overflow = ($this->enrol)('00008030-0000000000000002', $customer);
+    $assigned = $overflow->device->latestRegistration;
+
+    expect($overflow->status)->toBe(Status::QuotaBlocked)
+        ->and($overflow->status_reason)->toBe('AUTO_SWITCHED')
+        ->and($assigned->apple_team_id)->toBe($second->id)
+        ->and($assigned->status)->toBe(Status::Eligible)
+        ->and(TeamAssignment::sole()->status)->toBe('APPROVED')
+        ->and(TeamAssignment::sole()->decided_by)->toBeNull()
+        ->and(AuditLog::where('action', 'team.assignment.auto_approved')->count())->toBe(1);
+
+    $installation = Installation::create([
+        'user_id' => $customer->id, 'device_id' => $overflow->device_id,
+        'app_id' => $secondApp->id, 'artifact_id' => $secondApp->publishedArtifact->id,
+    ]);
+    $service = Mockery::mock(InstallationService::class);
+    $service->shouldReceive('prepare')->once()
+        ->withArgs(fn ($user, $device, $app) => $user->id === $customer->id
+            && $device->id === $overflow->device_id && $app->id === $secondApp->id)
+        ->andReturn($installation);
+    $service->shouldReceive('present')->once()->andReturn(['app_id' => $secondApp->public_id]);
+    app()->instance(InstallationService::class, $service);
+    asBrowser()->actingAs($customer, 'web')->withHeader('Idempotency-Key', 'variant-install-1')
+        ->postJson('/api/v1/storefront/install')
+        ->assertStatus(202)
+        ->assertJsonPath('data.app_id', $secondApp->public_id);
+});
+
+it('binds separate Ru AppStore variants to teams and rejects a duplicate bundle', function () {
+    $firstApp = CatalogApp::factory()->create(['is_storefront' => true]);
+    AppArtifact::factory()->for($firstApp, 'app')->create([
+        'status' => ArtifactStatus::Published, 'bundle_identifier' => 'com.bundle.app',
+    ]);
+    $sameBundleApp = CatalogApp::factory()->create(['is_storefront' => true]);
+    AppArtifact::factory()->for($sameBundleApp, 'app')->create([
+        'status' => ArtifactStatus::Published, 'bundle_identifier' => 'com.bundle.app',
+    ]);
+    $second = secondTeam();
+
+    asStaff($this->admin)->patchJson("/api/v1/admin/apple-teams/{$this->primary->public_id}", [
+        'storefront_app_id' => $firstApp->public_id, 'reason' => 'First test block',
+    ])->assertOk()->assertJsonPath('data.storefront_bundle_id', 'com.bundle.app');
+
+    $this->patchJson("/api/v1/admin/apple-teams/{$second->public_id}", [
+        'storefront_app_id' => $sameBundleApp->public_id, 'reason' => 'Second test block',
+    ])->assertStatus(409);
+    expect($second->refresh()->storefront_app_id)->toBeNull();
+});
 
 it('blocks without switching teams when no other team is eligible, and says so everywhere', function () {
     ($this->enrol)('00008030-0000000000000001');

@@ -2361,6 +2361,7 @@ paths:
                 name: { type: string }
                 status: { type: string, enum: [PENDING_VERIFICATION, ACTIVE, EXPIRING, SUSPENDED, REVOKED, DISCONNECTED] }
                 is_primary: { type: boolean }
+                storefront_app_id: { type: [string, "null"], description: "Public ID of this team's separately built Ru AppStore listing" }
                 membership_expires_at: { type: [string, "null"], format: date-time }
                 reason: { type: string, maxLength: 500 }
       responses:
@@ -3889,6 +3890,7 @@ components:
         publisher_id: { $ref: "#/components/schemas/PublicId" }
         source_type: { $ref: "#/components/schemas/SourceType" }
         visibility: { $ref: "#/components/schemas/AppVisibility" }
+        is_storefront: { type: boolean }
         age_rating: { type: string, enum: ["4+", "9+", "12+", "17+"] }
         featured_rank: { type: [integer, "null"], minimum: 1, maximum: 999 }
         support_url: { type: [string, "null"] }
@@ -4389,13 +4391,15 @@ components:
 
     AppleTeam:
       type: object
-      required: [id, apple_team_id, name, status, is_primary, membership_expires_at, last_verified_at, credential, membership_year, quotas, eligibilities, certificates, profiles]
+      required: [id, apple_team_id, name, status, is_primary, storefront_app_id, storefront_bundle_id, membership_expires_at, last_verified_at, credential, membership_year, quotas, eligibilities, certificates, profiles]
       properties:
         id: { $ref: "#/components/schemas/PublicId" }
         apple_team_id: { type: string }
         name: { type: string }
         status: { type: string, enum: [PENDING_VERIFICATION, ACTIVE, EXPIRING, SUSPENDED, REVOKED, DISCONNECTED] }
         is_primary: { type: boolean }
+        storefront_app_id: { type: [string, "null"] }
+        storefront_bundle_id: { type: [string, "null"] }
         membership_expires_at: { type: [string, "null"] }
         last_verified_at: { type: [string, "null"] }
         credential:

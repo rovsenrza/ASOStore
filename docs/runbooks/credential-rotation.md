@@ -14,14 +14,15 @@ Act immediately; record everything in one incident ticket.
    notify customers first if you can.
 2. `php artisan certificate:revoke <SHA-1> --reason="Key leaked, incident #…"` — marks the certificate
    revoked and revokes every build signed with it, so no one is handed a build that will not launch.
-3. Create a new certificate on the runner Mac ([certificate expiry](certificate-expiry.md) steps 1–3) and
-   remove the old identity from the Keychain.
+3. Create a new certificate on the runner server ([certificate expiry](certificate-expiry.md) steps 1–3) and
+   delete the old `.key`/`.cer` pair from the identities folder.
 4. Customers reinstall from the Storefront (or `/install.html` for the Storefront itself); each request
    signs a fresh build with the new identity.
 
 **Runner worker key**
 1. Admin → Задачи → Подпись → disable the runner (reason). Its requests are refused at once.
-2. `php artisan runner:create mac-mini-1b`, put the new key in the LaunchAgent, restart it.
+2. `php artisan runner:create signer-1b`, put the new key in `/etc/storefront/runner.env`, then
+   `docker rm -f storefront-runner` and start it again (runner/README.md).
 
 **`APP_KEY` / `STOREFRONT_UDID_HMAC_KEY` / backup passphrase**
 - `APP_KEY` encrypts UDIDs, TOTP secrets, profiles and runner secrets: rotating it requires

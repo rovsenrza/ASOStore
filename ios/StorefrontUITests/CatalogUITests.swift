@@ -109,6 +109,8 @@ final class CatalogUITests: XCTestCase {
     func testManagerShowsServerInstallations() {
         let app = launch(tab: "manager")
 
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Импортировать IPA с устройства")).firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Импортировать IPA по ссылке")).firstMatch.exists)
         XCTAssertTrue(app.staticTexts["Мои приложения"].waitForExistence(timeout: 10))
         // Rows are combined for VoiceOver, so match inside any element's label. (The status
         // itself can differ between runs: in-flight installations are resumed from disk.)

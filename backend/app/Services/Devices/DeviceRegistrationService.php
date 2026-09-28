@@ -19,9 +19,9 @@ use App\StateMachines\StateMachine;
  * Registers enrolled devices with an Apple team (IMPLEMENTATION_PLAN P3-BE-02,
  * P7-BE-02/03). New devices go to the primary team. A slot is reserved under a
  * row lock on the team's quota row (QuotaService), so concurrent registrations
- * can never exceed the per-family limit. At the limit nothing switches on its
- * own: an eligible team is proposed for admin approval, or the device is
- * blocked with NO_ELIGIBLE_TEAM (FULL_PLAN §1.3, §6.2).
+ * can never exceed the per-family limit. At the limit, a fully configured
+ * variant on another team can be selected automatically; otherwise the
+ * legacy approval/blocking path applies (FULL_PLAN §1.3, §6.2).
  */
 class DeviceRegistrationService
 {
@@ -151,6 +151,6 @@ class DeviceRegistrationService
      */
     private function appleDeviceName(Device $device): string
     {
-        return 'Storefront '.substr($device->public_id, -10);
+        return config('storefront.brand').' '.substr($device->public_id, -10);
     }
 }

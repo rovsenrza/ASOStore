@@ -4,7 +4,7 @@ use App\Http\Controllers\Api\Worker\WorkerController;
 use Illuminate\Support\Facades\Route;
 
 /*
-| Worker API for the macOS signing runner (IMPLEMENTATION_PLAN §5.8, D9).
+| Worker API for the signing runner (IMPLEMENTATION_PLAN §5.8, D9).
 | Prefix /api/worker/v1; every request is HMAC-signed (VerifyWorkerSignature).
 */
 

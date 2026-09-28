@@ -38,8 +38,14 @@ class InstallationController extends Controller
      */
     public function installStorefront(Request $request): JsonResponse
     {
-        $storefront = CatalogApp::query()->where('is_storefront', true)->latest('id')->first()
-            ?? throw new ApiException(ErrorCode::ArtifactNotInstallable);
+        $device = $this->device($request);
+        $team = $device->latestRegistration?->team;
+        $storefront = $team?->storefrontApp;
+        // Backward compatibility for the first team until its variant is bound.
+        if ($storefront === null && $team?->is_primary && CatalogApp::query()->where('is_storefront', true)->count() === 1) {
+            $storefront = CatalogApp::query()->where('is_storefront', true)->latest('id')->first();
+        }
+        $storefront ??= throw new ApiException(ErrorCode::ArtifactNotInstallable);
 
         return $this->start($request, $storefront);
     }

@@ -15,7 +15,7 @@ Monorepo for the customer web portal, the native iOS Storefront, the operator ad
 | [admin/public/](admin/public/) | Operator panel: static HTML/CSS/vanilla JS |
 | [shared/js/](shared/js/) | API client, mock transport, i18n used by both web apps |
 | [ios/](ios/) | Native SwiftUI Storefront (`Storefront.xcodeproj`) |
-| [runner/](runner/) | macOS signing runner (Swift package): leases signing jobs, re-signs per device — see its README |
+| [runner/](runner/) | Signing runner (Swift, Linux/Docker, zsign): leases signing jobs, re-signs per device — see its README |
 | [docs/runbooks/](docs/runbooks/) | Operational runbooks; [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md); [docs/security/](docs/security/) |
 | [scripts/](scripts/) | `deploy.sh` production deploy; `backup.sh` / `restore-drill.sh` encrypted backups and the restore drill; `dev.sh` runs everything locally; `build-public.sh` publishes the web apps into Laravel's docroot; `web-smoke.mjs` checks them; `e2e.sh` runs the browser suite; `generate-api-examples.sh` rebuilds the API examples; `device-payload.php` signs a fake iPhone enrollment answer for tests |
 | [tests/e2e/](tests/e2e/) | Playwright browser journeys across portal and admin |

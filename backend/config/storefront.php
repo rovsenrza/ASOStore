@@ -3,7 +3,7 @@
 return [
 
     /*
-    | Visible brand placeholder until the final brand is chosen (PRODUCT.md).
+    | Visible product brand (PRODUCT.md).
     */
     'brand' => env('APP_NAME', 'Ru AppStore'),
 

@@ -8,7 +8,7 @@ use Throwable;
 
 /**
  * Reads the XML plist inside a .mobileprovision (a CMS envelope). The CMS
- * signature itself is Apple's; the runner's codesign verification covers it.
+ * signature itself is Apple's and is checked by the device at install time.
  */
 final class ProvisioningProfile
 {

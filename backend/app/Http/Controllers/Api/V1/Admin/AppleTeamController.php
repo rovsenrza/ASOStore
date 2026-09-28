@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\AppleCredential;
 use App\Models\AppleTeam;
+use App\Models\CatalogApp;
 use App\Models\Certificate;
 use App\Models\MembershipYear;
 use App\Models\SigningProfile;
@@ -66,6 +67,7 @@ class AppleTeamController extends Controller
             'name' => ['sometimes', 'string', 'max:255'],
             'status' => ['sometimes', Rule::enum(AppleTeamStatus::class)],
             'is_primary' => ['sometimes', 'accepted'],
+            'storefront_app_id' => ['sometimes', 'nullable', 'string', Rule::exists('apps', 'public_id')->where('is_storefront', true)->whereNull('deleted_at')],
             'membership_expires_at' => ['sometimes', 'nullable', 'date'],
             'reason' => ['required', 'string', 'max:500'],
         ]);
@@ -75,7 +77,20 @@ class AppleTeamController extends Controller
             throw new ApiException(ErrorCode::Conflict, 'Сначала проверьте подключение к App Store Connect.');
         }
 
-        $before = $team->only(['name', 'status', 'is_primary', 'membership_expires_at']);
+        if (array_key_exists('storefront_app_id', $data)) {
+            $app = $data['storefront_app_id'] === null ? null : CatalogApp::query()->where('public_id', strtolower($data['storefront_app_id']))->firstOrFail();
+            if ($app !== null && AppleTeam::query()->where('storefront_app_id', $app->id)->whereKeyNot($team->id)->exists()) {
+                throw new ApiException(ErrorCode::Conflict, 'Этот вариант Ru AppStore уже назначен другой команде.');
+            }
+            $bundle = $app?->publishedArtifact?->bundle_identifier;
+            if ($bundle !== null && AppleTeam::query()->whereKeyNot($team->id)
+                ->whereHas('storefrontApp.publishedArtifact', fn ($query) => $query->where('bundle_identifier', $bundle))->exists()) {
+                throw new ApiException(ErrorCode::Conflict, 'У каждой команды должен быть отдельный Bundle ID Ru AppStore.');
+            }
+            $data['storefront_app_id'] = $app?->id;
+        }
+
+        $before = $team->only(['name', 'status', 'is_primary', 'membership_expires_at', 'storefront_app_id']);
         DB::transaction(function () use ($team, $data) {
             if (isset($data['is_primary'])) {
                 AppleTeam::query()->whereKeyNot($team->id)->update(['is_primary' => false]);
@@ -177,6 +192,8 @@ class AppleTeamController extends Controller
             'name' => $team->name,
             'status' => $team->status->value,
             'is_primary' => (bool) $team->is_primary,
+            'storefront_app_id' => $team->storefrontApp?->public_id,
+            'storefront_bundle_id' => $team->storefrontApp?->publishedArtifact?->bundle_identifier,
             'membership_expires_at' => $team->membership_expires_at?->toIso8601ZuluString(),
             'last_verified_at' => $team->last_verified_at?->toIso8601ZuluString(),
             'credential' => $credential ? ['key_id' => $credential->key_id, 'issuer_id' => $credential->issuer_id, 'last_verified_at' => $credential->last_verified_at?->toIso8601ZuluString()] : null,

@@ -30,4 +30,19 @@ extension View {
             background(.ultraThinMaterial, in: Capsule())
         }
     }
+
+    /// Liquid Glass card on iOS 26 and later, with a material fallback on
+    /// earlier supported releases.
+    @ViewBuilder
+    func glassCard(cornerRadius: CGFloat = 28) -> some View {
+        if #available(iOS 26, *) {
+            glassEffect(.regular, in: .rect(cornerRadius: cornerRadius))
+        } else {
+            background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: cornerRadius))
+                .overlay {
+                    RoundedRectangle(cornerRadius: cornerRadius)
+                        .stroke(.white.opacity(0.12), lineWidth: 1)
+                }
+        }
+    }
 }

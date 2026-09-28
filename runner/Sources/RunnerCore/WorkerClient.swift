@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// A leased signing job, as SigningService::describe() returns it.
 public struct SigningJob: Codable, Sendable {
@@ -6,6 +9,11 @@ public struct SigningJob: Codable, Sendable {
         public var uuid: String
         /// Base64 .mobileprovision.
         public var content: String
+
+        public init(uuid: String, content: String) {
+            self.uuid = uuid
+            self.content = content
+        }
     }
 
     public struct Source: Codable, Sendable {
@@ -13,6 +21,12 @@ public struct SigningJob: Codable, Sendable {
         public var sizeBytes: Int
         public var path: String
         enum CodingKeys: String, CodingKey { case sha256, sizeBytes = "size_bytes", path }
+
+        public init(sha256: String, sizeBytes: Int, path: String) {
+            self.sha256 = sha256
+            self.sizeBytes = sizeBytes
+            self.path = path
+        }
     }
 
     public var jobID: String
@@ -24,6 +38,18 @@ public struct SigningJob: Codable, Sendable {
     public var source: Source
     public var uploadPath: String
     public var resultPath: String
+
+    public init(jobID: String, signedBuildID: String, bundleIdentifier: String, teamIdentifier: String, certificateSHA1: String, profile: Profile, source: Source, uploadPath: String, resultPath: String) {
+        self.jobID = jobID
+        self.signedBuildID = signedBuildID
+        self.bundleIdentifier = bundleIdentifier
+        self.teamIdentifier = teamIdentifier
+        self.certificateSHA1 = certificateSHA1
+        self.profile = profile
+        self.source = source
+        self.uploadPath = uploadPath
+        self.resultPath = resultPath
+    }
 
     enum CodingKeys: String, CodingKey {
         case jobID = "job_id", signedBuildID = "signed_build_id", bundleIdentifier = "bundle_identifier"

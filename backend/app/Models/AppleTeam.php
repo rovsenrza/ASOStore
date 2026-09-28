@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\AppleTeamStatus;
 use App\Models\Concerns\HasPublicId;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Carbon;
@@ -28,7 +29,7 @@ class AppleTeam extends Model
         'is_primary' => false,
     ];
 
-    protected $fillable = ['apple_team_id', 'name', 'status', 'is_primary', 'membership_expires_at'];
+    protected $fillable = ['apple_team_id', 'name', 'status', 'is_primary', 'membership_expires_at', 'storefront_app_id'];
 
     protected $hidden = ['id'];
 
@@ -48,6 +49,14 @@ class AppleTeam extends Model
     public function credentials(): HasMany
     {
         return $this->hasMany(AppleCredential::class);
+    }
+
+    /**
+     * @return BelongsTo<CatalogApp, $this>
+     */
+    public function storefrontApp(): BelongsTo
+    {
+        return $this->belongsTo(CatalogApp::class, 'storefront_app_id');
     }
 
     /**

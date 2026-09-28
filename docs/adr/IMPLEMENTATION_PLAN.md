@@ -10,7 +10,7 @@ FULL_PLAN defines **what** we build and the rules we can't break. This document 
 
 ## 0. Summary
 
-- **Five tracks:** Backend (BE), Web portal (WEB), Admin panel (ADM), iOS Storefront (IOS), macOS signing runner (RUN), plus Ops/Docs (OPS).
+- **Five tracks:** Backend (BE), Web portal (WEB), Admin panel (ADM), iOS Storefront (IOS), signing runner (RUN), plus Ops/Docs (OPS).
 - **Critical path:** Phase 0 decisions → backend skeleton → auth → device enrollment + single-team Apple adapter → IPA upload/inspection → signing runner + OTA handoff → **physical iPhone install gate** (Phase 6). iOS catalog UI and admin screens run in parallel against the OpenAPI contract and a mock transport.
 - **Rough duration:** 15–18 weeks with 1 backend, 1 iOS, and 1 web/admin engineer, plus part-time compliance and ops (see §7). This is an estimate. Re-plan after Phase 1.
 - **Biggest risk:** whether Apple's program terms allow the intended distribution channel for the intended audience (R1 in §9). This is a Phase 0 blocking decision because it decides whether Phases 6–7 work as designed.
@@ -38,9 +38,9 @@ P5-ADM-01 and P5-OPS-01 are done (2026-09-26): `admin/artifacts.html` uploads a 
 Implemented and tested without an Apple account (fake Apple driver + simulated runner in Pest; the Swift runner builds and its signing, identity and entitlement logic is unit-tested):
 
 - **Backend.** `runners`, `certificates` (metadata only), `signing_profiles` (encrypted .mobileprovision), `signed_builds`, `installations`, `install_authorizations`, `installation_events`. `ProfileProvisioner` creates one ad hoc profile per (team, bundle ID, device) through the Apple adapter (App Store Connect: certificates, bundleIds, profiles). `PrepareSigningJob` → runner `SignArtifactJob` → `VerifySignatureJob`, all tracked as pipeline jobs sharing `PipelineQueueJob` (attempts, backoff, `RetryLater` for Apple rate limits). The verifier re-hashes the upload, re-runs the IPA checks and requires an unchanged bundle ID and version, the provisioned profile UUID and team, and the device's UDID in the embedded profile (compared in memory only).
-- **Worker API** `/api/worker/v1` (HMAC key + timestamp + single-use nonce + body hash): heartbeat with Keychain identities, lease (`FOR UPDATE SKIP LOCKED`, 10-minute lease, only jobs whose certificate that runner holds), lease heartbeat, source download, streamed upload, result. Expired leases return to the queue every minute; the job's idempotency key prevents a second build.
+- **Worker API** `/api/worker/v1` (HMAC key + timestamp + single-use nonce + body hash): heartbeat with the runner's signing identities, lease (`FOR UPDATE SKIP LOCKED`, 10-minute lease, only jobs whose certificate that runner holds), lease heartbeat, source download, streamed upload, result. Expired leases return to the queue every minute; the job's idempotency key prevents a second build.
 - **Customer API.** `POST /apps/{id}/prepare`, `POST /storefront/install`, `GET /installations/{id}`, `POST /installations/{id}/authorize` (single-use, device-bound, 10 minutes), `GET /install/{token}/manifest.plist`, `GET /downloads/installations/{id}` (10-minute signed URL, HTTP Range, tampered/expired links answer 403 and are audited), `GET /library`. Every step re-checks device eligibility, published artifact and deliverable build; revoking or superseding an artifact revokes/expires its builds and fails open installations. `install_state` in the catalog now reflects the device's real state (`get`, `preparing` with progress, `ready_to_install`, `delivered`, `update_available`, `failed`).
-- **Runner** (`runner/`, Swift package, no dependencies): lease loop, source hash check, profile embedding, entitlements from the profile, inside-out `codesign`, `codesign --verify --strict`, repack, upload, per-job folder wiped; `--list-identities`; launchd agent and README. CI job added.
+- **Runner** (`runner/`, Swift package; moved to Linux/zsign by D16, see below): lease loop, source hash check, profile embedding, entitlements from the profile, inside-out `codesign`, `codesign --verify --strict`, repack, upload, per-job folder wiped; `--list-identities`; launchd agent and README. CI job added.
 - **Portal** `install.html`: prepare → progress with backoff (resumes after reload) → authorize → `itms-services`; trust-developer and recovery instructions; iPhone-only guard.
 - **iOS.** `PreparationRepository`, `InstallationCoordinator` (prepare → poll → authorize → `openURL`, in-flight installations persisted and resumed on launch), CTA driven by live installation state, real Library screen.
 - **Admin** `jobs.html`: runner health (online/offline, identities, current leases, queue length), pipeline jobs with attempts and audited retry, installation timelines with request IDs. New abilities: `installations.view`, `teams.view`, `teams.manage`.
@@ -149,7 +149,7 @@ Deviations and follow-ups from Phase 1:
 | G8 | Nothing tells the native app which registered device it is running on (iOS apps can't read the UDID) | **Claim-code flow:** the portal, which knows the device from enrollment, issues a one-time code and opens `storefront://claim?code=…`. The app exchanges the code for device-bound tokens. A Secure Enclave key binding is optional Phase 8 hardening |
 | G9 | §9 is missing endpoints the flows need | Added in §5.8: enrollment profile/callback, refresh, password reset, claim, feed, OTA manifest, download, chunked uploads, review/reject/revoke, categories/publishers, activation codes, installations, and the worker API |
 | G10 | §13 wants short-lived access tokens plus refresh rotation. Laravel Sanctum has no refresh tokens | Custom `refresh_tokens` table with rotation and reuse detection (D3) |
-| G11 | No home for the macOS signing runner in the repo layout | Add `runner/` (§4) |
+| G11 | No home for the signing runner in the repo layout | Add `runner/` (§4) |
 | G12 | IPAs can be hundreds of MB to several GB. Shared hosting caps `upload_max_filesize` and execution time | Chunked, resumable upload API. SHA-256 is computed incrementally while chunks are assembled |
 | G13 | The Library "installed" state can't actually be observed. iOS doesn't report OTA install success to the server or to other apps | Library shows server-known states. `DELIVERED` (IPA fully downloaded) is the terminal state, labeled honestly («Загружено — проверьте экран «Домой»») |
 | G14 | iOS deployment target conflict (27.0 project vs 18.0 target). Bundle ID is a placeholder, and it becomes permanent once registered with Apple | Set 18.0 everywhere (the `Tab` API needs iOS 18). Pick the final bundle ID prefix in Phase 0, **before** any Apple registration |
@@ -171,7 +171,7 @@ Record each confirmed decision as a short ADR (`docs/adr/0001-….md`).
 | D5 | IDs | Internal `BIGINT` primary keys. Public IDs are **ULIDs** in every API response and URL | No enumerable IDs |
 | D6 | Queue | MVP: `database` driver, with cron `schedule:run` every minute and `queue:work --stop-when-empty --max-time=50` scheduled `withoutOverlapping()`. Production: Redis plus a supervised worker | Matches FULL_PLAN §2.2 |
 | D7 | Artifact storage | Laravel disk `artifacts` (private, outside the docroot) behind the `Storage` abstraction. Downloads use `URL::temporarySignedRoute`, stream with HTTP Range support, and use X-Sendfile where the host allows it. Later: S3-compatible storage with presigned URLs | Swapping disks later changes no code |
-| D8 | Apple secrets | The App Store Connect `.p8` key is stored encrypted **outside the docroot** (key from env). `apple_credentials.vault_reference` points to it. In production, move it to a secrets manager. **Signing-certificate private keys exist only in the runner's macOS Keychain**; the backend stores only metadata (serial, fingerprint, expiry) | FULL_PLAN §6.1 and §13 |
+| D8 | Apple secrets | The App Store Connect `.p8` key is stored encrypted **outside the docroot** (key from env). `apple_credentials.vault_reference` points to it. In production, move it to a secrets manager. **Signing-certificate private keys exist only on the runner** (its identities folder since D16); the backend stores only metadata (serial, fingerprint, expiry) | FULL_PLAN §6.1 and §13 |
 | D9 | Runner connectivity | **Pull model.** The runner leases jobs from the worker API over HTTPS with HMAC-signed requests (key ID + timestamp + nonce), behind an IP allowlist or VPN. No inbound ports on the Mac | The Mac can sit behind NAT; the backend never pushes secrets |
 | D10 | Signing granularity | **One ad hoc profile per (team, bundle ID, device)** for the MVP, so each signed build is per device. Confirm Apple profile-count limits and re-provisioning behavior in the Phase 6 spike | Matches device-bound authorization and avoids re-signing everyone when a device is added. Alternative: shared multi-device profiles |
 | D11 | API contract | **OpenAPI 3.1, contract-first.** Shared JSON examples in `docs/api/examples/` are used by Laravel response tests **and** iOS decoding tests. Linted with Spectral in CI | Keeps the three clients aligned (FULL_PLAN §9) |
@@ -179,6 +179,7 @@ Record each confirmed decision as a short ADR (`docs/adr/0001-….md`).
 | D13 | Shared web code | `shared/js/` (API client, envelope, errors, i18n loader) is copied into both `front/public` and `admin/public` by `scripts/build-public.sh`. No bundler | FULL_PLAN §18.2: "shared API client patterns", no framework |
 | D14 | Local environment | **Laravel Sail** (Docker: PHP, MySQL 8, Mailpit). Static sites are served by the same Laravel app locally | Exact MySQL 8 parity. Alternative: Laravel Herd plus DBngin |
 | D15 | Framework version | The current supported Laravel release at project start. **Check its minimum PHP version against the host**; FULL_PLAN says PHP 8.2+, and newer Laravel releases may need newer PHP | Avoids discovering a hosting mismatch in Phase 8 |
+| D16 | Signing runner platform | **Linux in Docker, signing with zsign** (pinned version and checksum), on the backend's server. Identities are `<name>.key` + `<name>.cer` files in a read-only mount, owned by the container user. `codesign --verify` is replaced by the runner's own check (code page hashes, special slots, CMS signature, signer certificate, team) plus the backend's `VerifySignatureJob`. Decided 2026-09-26 after a benchmark (zsign 1.1.2 vs rcodesign 0.29.0: both verify with Apple's codesign, zsign ~30% faster and actively released) and a real install: a DemoApp signed in a Linux container with no network ran on an iPhone 16 Pro | No Mac to buy, rent or keep awake. Risk: a third-party signer may lag behind Apple format changes — test every iOS beta and keep a Mac able to run the old macOS runner from git history as a fallback |
 
 ---
 
@@ -209,7 +210,7 @@ Record each confirmed decision as a short ADR (`docs/adr/0001-….md`).
 │   ├── Storefront/{App,Features/{Today,Browse,Search,Library,Account,AppDetail,Preparation},Core/{Networking,Auth,Keychain,Routing,Models,Persistence},DesignSystem,Components,Resources}
 │   ├── Config/{Local,Staging,Production}.xcconfig
 │   └── StorefrontTests/  StorefrontUITests/
-├── runner/                      # macOS signing runner (Swift Package executable) [G11]
+├── runner/                      # signing runner (Swift Package executable, Linux/Docker, zsign) [G11, D16]
 │   ├── Package.swift  Sources/Runner/  Tests/  README.md
 ├── fixtures/DemoApp/            # tiny Swift app used as the authorized test IPA (FULL_PLAN §18.4)
 ├── docs/
@@ -294,15 +295,15 @@ activate.html polls GET /storefront/status (backoff 3s→30s) and shows the hone
 ### 5.6 Install handoff flow (Phase 6)
 
 ```text
-Storefront app                        Backend                                   Runner (macOS)
+Storefront app                        Backend                                   Runner (Linux)
 POST /apps/{id}/prepare ───────────► checks: session, device ELIGIBLE, source PUBLISHED, compatible
                                      reuse DELIVERABLE build for (artifact, device) if present,
                                      else signed_build SIGNING_PENDING + pipeline_job
                         ◄─────────── 202 {installation_id, job_id}
 GET /jobs/{id} (poll; resumes after relaunch)                              lease → download original
                                                                            → ensure device profile
-                                                                           → re-sign inside-out
-                                                                           → codesign --verify --strict
+                                                                           → zsign (frameworks, then app)
+                                                                           → check hashes, CMS, signer, team
                                                                            → upload derivative + result
                                      VerifySignatureJob: hash, bundle ID unchanged, embedded
                                      profile contains the device, team matches → DELIVERABLE
@@ -504,8 +505,8 @@ Each phase lists its tasks by track and ends with an **exit gate**, the FULL_PLA
 | P6-BE-02 | BE | Worker API (§5.8) with HMAC middleware, leases (10 min, renewed by heartbeat), expired-lease recovery, runner health record |
 | P6-BE-03 | BE | `PrepareArtifactJob`, `SignArtifactJob` (dispatch to runner), `VerifySignatureJob` (§5.6), `ExpireInstallTokenJob`. Endpoints: `POST /apps/{id}/prepare`, `GET /jobs/{id}`, `POST /installations/{id}/authorize`, manifest plist, IPA download with `installation_events`. `GET /library` |
 | P6-BE-04 | BE | Storefront self-distribution: `is_storefront` artifact and the portal `install.html` flow (§5.6) |
-| P6-RUN-01 | RUN | `runner/` Swift CLI: config, HMAC client, lease loop, source download with hash check. Re-sign inside-out (frameworks → appex → app), embedding the device profile and profile-derived entitlements. `codesign --verify --strict`. Upload the derivative and report its hash, `codesign -dvvv` summary, and timings. Runs as a `launchd` agent with structured logs |
-| P6-RUN-02 | RUN | Runner hardening: dedicated macOS user, certificates in a dedicated Keychain, temp workspace wiped after every job, refuses jobs whose source hash or status doesn't match the lease |
+| P6-RUN-01 | RUN | `runner/` Swift CLI: config, HMAC client, lease loop, source download with hash check. Re-sign inside-out (frameworks → appex → app), embedding the device profile and profile-derived entitlements. `codesign --verify --strict`. Upload the derivative and report its hash, `codesign -dvvv` summary, and timings. Runs as a `launchd` agent with structured logs. *Superseded by D16: zsign on Linux, the runner's own signature check, Docker with logs on stderr* |
+| P6-RUN-02 | RUN | Runner hardening: dedicated macOS user, certificates in a dedicated Keychain, temp workspace wiped after every job, refuses jobs whose source hash or status doesn't match the lease. *D16: non-root container user, identities in a read-only mount, read-only root filesystem* |
 | P6-WEB-01 | WEB | `install.html` activates the Storefront install button (authorize → `itms-services` link) and shows states: preparing, ready, expired link, «Доверьте разработчику» instructions |
 | P6-IOS-01 | IOS | `PreparationRepository` and `InstallationCoordinator`: prepare → poll with backoff → authorize → `openURL(itms-services…)`. Active installations persisted to disk and resumed on relaunch. Library shows backend states, including `DELIVERED` [G13] |
 | P6-ADM-01 | ADM | `jobs.html` shows runner health (last heartbeat, current lease). `teams.html` v1 shows certificates and profiles metadata with expiry warnings |

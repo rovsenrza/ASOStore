@@ -7,7 +7,8 @@ use App\StateMachines\StatusEnum;
 
 /**
  * Apple-side registration of a device with a team (IMPLEMENTATION_PLAN §5.1).
- * Blocked states never switch teams on their own (FULL_PLAN §1.3, §6.2).
+ * A replacement registration on another team is a separate record; this
+ * registration's status never changes its Apple team in place.
  */
 enum DeviceRegistrationStatus: string implements StatusEnum
 {
