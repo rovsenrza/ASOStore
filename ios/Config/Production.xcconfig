@@ -1,8 +1,8 @@
 // App distributed to customers.
 #include "Shared.xcconfig"
 
-// Placeholder host until the domain is chosen in Phase 0 (.invalid never resolves).
-API_BASE_URL = https:/$()/api.storefront.invalid/api/v1
+// Production domain (portal, admin and API share one origin, IMPLEMENTATION_PLAN D1).
+API_BASE_URL = https:/$()/ruappstore.com/api/v1
 API_MODE = live
 
 // Mock fixtures are the only loose JSON resources; keep them out of non-debug builds.
