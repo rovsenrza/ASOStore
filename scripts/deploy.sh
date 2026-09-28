@@ -26,7 +26,8 @@ MOCKS=0 "$ROOT/scripts/build-public.sh"
 
 php artisan config:cache
 php artisan route:cache
-php artisan view:cache
+# The UI is static HTML, so there may be no Blade views to compile.
+if [[ -d resources/views ]]; then php artisan view:cache; fi
 php artisan event:cache
 php artisan queue:restart
 
