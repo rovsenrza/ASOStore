@@ -186,6 +186,15 @@ public struct Signer: Sendable {
             let directory = app.appendingPathComponent(folder, isDirectory: true)
             guard files.fileExists(atPath: directory.path) else { continue }
             for item in try files.contentsOfDirectory(atPath: directory.path).sorted() where !paths.contains("\(folder)/\(item)") {
+                let bundle = directory.appendingPathComponent(item)
+                if item.hasSuffix(".bundle"),
+                   let data = try? Data(contentsOf: bundle.appendingPathComponent("Info.plist")),
+                   let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+                   info["CFBundlePackageType"] as? String == "BNDL",
+                   info["CFBundleExecutable"] == nil,
+                   info["NSExtension"] == nil {
+                    continue
+                }
                 throw RunnerError.job(code: "NESTED_PROFILE_REQUIRED", message: "\(folder)/\(item) has no profile in the lease", retryable: false)
             }
         }

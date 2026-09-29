@@ -9,6 +9,7 @@ use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Context;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -24,6 +25,9 @@ abstract class PipelineQueueJob implements ShouldBeUnique, ShouldQueue
     public int $tries = 20;
 
     public int $uniqueFor = 3600;
+
+    /** Apps with many extensions need many Apple calls; queue.database.retry_after must stay above this. */
+    public int $timeout = 300;
 
     public function __construct(public int $pipelineJobId) {}
 
@@ -47,6 +51,12 @@ abstract class PipelineQueueJob implements ShouldBeUnique, ShouldQueue
         }
 
         Context::add('correlation_id', $job->correlation_id);
+
+        if ($jobs->abandonStale($job, $this->timeout) === false) {
+            $this->failedPermanently($job, new RuntimeException(PipelineJobService::WORKER_LOST));
+
+            return;
+        }
 
         $attempt = $jobs->start($job, 'queue:'.gethostname());
         if ($attempt === null) {

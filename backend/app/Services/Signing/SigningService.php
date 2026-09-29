@@ -93,7 +93,7 @@ class SigningService
         $build->forceFill(['signing_profile_id' => $profile->id, 'certificate_id' => $profile->certificate_id])->save();
         $this->jobs->create(
             self::RUNNER_JOB_TYPE,
-            sprintf('sign:%s:%s:%s', $build->artifact->public_id, $build->device->public_id, $profile->uuid),
+            'sign:'.$build->public_id,
             $build,
             ['signed_build_id' => $build->public_id],
             Actor::system('signing'),

@@ -72,6 +72,7 @@ class InstallationController extends Controller
         $latest = Installation::query()
             ->with(['app', 'artifact', 'signedBuild'])
             ->where('device_id', $device->id)
+            ->whereHas('app', fn ($query) => $query->visibleToCustomers()->whereNull('deleted_at'))
             ->whereIn('id', Installation::query()->selectRaw('max(id)')->where('device_id', $device->id)->groupBy('app_id'))
             ->latest('updated_at')
             ->get();

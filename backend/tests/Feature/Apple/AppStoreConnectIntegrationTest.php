@@ -66,6 +66,30 @@ it('enables only the capabilities an App ID is missing', function () {
         ->and($posts[0]['data']['relationships']['bundleId']['data'])->toBe(['type' => 'bundleIds', 'id' => 'B1']);
 });
 
+it('finds an exact App ID on a later page when extensions match the prefix', function () {
+    $identifier = 'com.ruappstore.vk';
+    Http::fake(function (Request $request) use ($identifier) {
+        if ($request->method() !== 'GET') {
+            return Http::response(['errors' => [['detail' => 'Duplicate creation was attempted.']]], 409);
+        }
+
+        return str_contains($request->url(), 'cursor=second')
+            ? Http::response(['data' => [
+                ['id' => 'MAIN_ID', 'attributes' => ['identifier' => $identifier]],
+            ]])
+            : Http::response([
+                'data' => [
+                    ['id' => 'EXT_ID', 'attributes' => ['identifier' => $identifier.'.shareextension']],
+                ],
+                'links' => ['next' => 'https://api.appstoreconnect.apple.com/v1/bundleIds?cursor=second'],
+            ]);
+    });
+
+    expect($this->apple->ensureBundleId($this->team, $identifier, 'VK'))->toBe('MAIN_ID');
+    Http::assertSentCount(2);
+    Http::assertNotSent(fn (Request $request) => $request->method() === 'POST');
+});
+
 it('names App IDs in Latin letters, which is all Apple accepts', function () {
     expect(AppStoreConnectIntegration::appIdName('Яндекс Пэй', 'com.ruappstore.yandex-pay'))->toBe('Yandex Pay')
         ->and(AppStoreConnectIntegration::appIdName('Яндекс Пэй Widget', 'com.ruappstore.yandex-pay.widget'))->toBe('Yandex Pay Widget')

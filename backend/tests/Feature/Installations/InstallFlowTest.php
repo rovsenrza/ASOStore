@@ -6,6 +6,7 @@ use App\Enums\PipelineJobStatus;
 use App\Enums\RoleSlug;
 use App\Enums\SignedBuildStatus;
 use App\Http\Middleware\VerifyWorkerSignature;
+use App\Jobs\PrepareSigningJob;
 use App\Models\AppArtifact;
 use App\Models\AppleTeam;
 use App\Models\AuditLog;
@@ -20,6 +21,7 @@ use App\Models\SignedBuild;
 use App\Models\SigningProfile;
 use App\Services\Apple\AppGroupProvisioner;
 use App\Services\Apple\AppGroupUnavailable;
+use App\Services\Pipeline\PipelineJobService;
 use App\Services\Signing\SigningService;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -192,6 +194,24 @@ it('installs a published app on a registered iPhone through the whole flow', fun
     expect(OpenApiContract::errors($library->getContent(), 'LibraryResponse'))->toBe([]);
 });
 
+it('removes a deleted website listing from the customer catalog and library', function () {
+    runnerHeartbeat();
+    Sanctum::actingAs($this->customer);
+    $this->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")->assertStatus(202);
+    runnerSigns($this);
+    $this->getJson('/api/v1/library')->assertOk()->assertJsonCount(1, 'data');
+
+    forgetGuards();
+    asStaff(userWithRoles(RoleSlug::CatalogManager))
+        ->deleteJson("/api/v1/admin/apps/{$this->catalogApp->public_id}", ['reason' => 'Removed from website'])
+        ->assertOk();
+
+    forgetGuards();
+    Sanctum::actingAs($this->customer);
+    $this->getJson('/api/v1/library')->assertOk()->assertJsonCount(0, 'data');
+    $this->getJson('/api/v1/apps')->assertOk()->assertJsonCount(0, 'data');
+});
+
 it('never hands out a manifest or IPA for tampered links, other devices or withdrawn artifacts', function () {
     runnerHeartbeat();
     Sanctum::actingAs($this->customer);
@@ -261,6 +281,24 @@ it('keeps jobs queued while no runner is online and finishes after restart witho
     runnerSigns($this);
     expect(SignedBuild::sole()->status)->toBe(SignedBuildStatus::Deliverable)
         ->and($job->refresh()->attempt)->toBe(2);
+});
+
+it('queues a fresh runner job when an installation is retried after signing failed', function () {
+    runnerHeartbeat();
+    Sanctum::actingAs($this->customer);
+
+    $this->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")->assertStatus(202);
+    $failedBuild = SignedBuild::sole();
+    app(SigningService::class)->failBuild($failedBuild, 'SIGNING_FAILED', 'First signing attempt failed.');
+
+    $this->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")->assertStatus(202);
+    $jobs = PipelineJob::where('type', SigningService::RUNNER_JOB_TYPE)->orderBy('id')->get();
+    $newBuild = SignedBuild::latest('id')->firstOrFail();
+
+    expect($jobs)->toHaveCount(2)
+        ->and($jobs[0]->subject_id)->toBe($failedBuild->id)
+        ->and($jobs[1]->subject_id)->toBe($newBuild->id)
+        ->and($jobs[1]->status)->toBe(PipelineJobStatus::Queued);
 });
 
 it('rejects a signed build whose profile does not cover the device', function () {
@@ -442,4 +480,23 @@ it('still signs when the Apple ID session for App Groups has expired, and tells 
 
     expect(SigningProfile::count())->toBe(2)
         ->and(AuditLog::where('action', 'signing.app_group_unavailable')->sole()->reason)->toContain('apple:portal-login');
+});
+
+it('runs a preparation again after its queue worker was killed mid-attempt', function () {
+    $jobs = app(PipelineJobService::class);
+    $job = $jobs->create(PrepareSigningJob::TYPE, 'stale-prepare', $this->customer);
+    $jobs->start($job, 'queue:old');
+
+    // Still running within the job timeout: another worker has it.
+    (new PrepareSigningJob($job->id))->handle($jobs);
+    expect($job->fresh()->status)->toBe(PipelineJobStatus::Running);
+
+    // The queue redelivers it after the worker died; the dead attempt is closed and the job runs.
+    $this->travel(6)->minutes();
+    (new PrepareSigningJob($job->id))->handle($jobs);
+
+    $job->refresh();
+    expect($job->status)->toBe(PipelineJobStatus::Succeeded)
+        ->and($job->attempt)->toBe(2)
+        ->and($job->attempts()->orderBy('id')->pluck('result_code')->all())->toBe(['ERROR', 'SUBJECT_MISSING']);
 });

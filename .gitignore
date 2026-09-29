@@ -8,6 +8,7 @@
 *.MP4
 *.mp4
 .build/
+.local/
 **/.playwright-cli/
 front/output/
 dist/

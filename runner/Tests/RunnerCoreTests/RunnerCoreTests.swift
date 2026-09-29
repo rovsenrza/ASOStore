@@ -198,6 +198,31 @@ struct SigningTests {
         }
     }
 
+    @Test func allowsResourceBundlesButRejectsExecutableBundlesWithoutProfiles() throws {
+        let setup = try SigningSetup()
+        defer { setup.remove() }
+        let app = try Signer.unpack(setup.source, into: setup.work.appendingPathComponent("resources"), code: "TEST_SETUP")
+        let plugins = app.appendingPathComponent("PlugIns", isDirectory: true)
+        let resource = plugins.appendingPathComponent("Images.bundle", isDirectory: true)
+        try FileManager.default.createDirectory(at: resource, withIntermediateDirectories: true)
+        let info: [String: Any] = ["CFBundlePackageType": "BNDL", "CFBundleIdentifier": "com.example.images"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
+            .write(to: resource.appendingPathComponent("Info.plist"))
+
+        try Signer.checkNested(app: app, leased: [])
+
+        var executableInfo = info
+        executableInfo["CFBundleExecutable"] = "Images"
+        try PropertyListSerialization.data(fromPropertyList: executableInfo, format: .xml, options: 0)
+            .write(to: resource.appendingPathComponent("Info.plist"))
+        #expect {
+            try Signer.checkNested(app: app, leased: [])
+        } throws: { error in
+            guard case let RunnerError.job(code, message, _) = error else { return false }
+            return code == "NESTED_PROFILE_REQUIRED" && message.contains("PlugIns/Images.bundle")
+        }
+    }
+
     @Test(.enabled(if: Tools.available("zip")))
     func refusesAnExtensionProfileForAnotherBundle() throws {
         let setup = try SigningSetup()

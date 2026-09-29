@@ -17,6 +17,7 @@ use App\StateMachines\StateMachine;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Context;
 use Illuminate\Support\Str;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -26,6 +27,8 @@ use Throwable;
  */
 class PipelineJobService
 {
+    public const WORKER_LOST = 'The worker stopped before the attempt finished.';
+
     public function __construct(private readonly StateMachine $states) {}
 
     /**
@@ -79,6 +82,24 @@ class PipelineJobService
             'worker' => $worker,
             'started_at' => now(),
         ]);
+    }
+
+    /**
+     * A queue worker that dies mid-attempt (timeout, restart) leaves its job RUNNING and the
+     * queue delivers it again. Closes that attempt as failed so the job can run again.
+     * Returns null when the job was not abandoned, otherwise whether it may be retried.
+     */
+    public function abandonStale(PipelineJob $job, int $olderThanSeconds): ?bool
+    {
+        if ($job->status !== PipelineJobStatus::Running || $job->lease_owner !== null
+            || $job->started_at === null || $job->started_at->gt(now()->subSeconds($olderThanSeconds))) {
+            return null;
+        }
+
+        $attempt = $job->attempts()->whereNull('finished_at')->latest('id')->first()
+            ?? $job->attempts()->create(['attempt' => $job->attempt, 'worker' => 'unknown', 'started_at' => $job->started_at]);
+
+        return $this->fail($job, $attempt, new RuntimeException(self::WORKER_LOST));
     }
 
     public function succeed(PipelineJob $job, PipelineJobAttempt $attempt, string $resultCode): void

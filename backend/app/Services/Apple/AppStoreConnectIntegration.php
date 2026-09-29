@@ -91,17 +91,29 @@ class AppStoreConnectIntegration implements AppleIntegration
 
     public function ensureBundleId(AppleTeam $team, string $identifier, string $name): string
     {
-        $existing = $this->send($team, fn (PendingRequest $http) => $http->get('/bundleIds', [
+        $path = '/bundleIds';
+        $query = [
             'filter[identifier]' => $identifier,
             'filter[platform]' => 'IOS',
-            'limit' => 5,
-        ]));
+            'limit' => 200,
+        ];
 
-        // filter[identifier] is a prefix match; pick the exact one.
-        foreach ((array) $existing->json('data') as $resource) {
-            if (($resource['attributes']['identifier'] ?? null) === $identifier) {
-                return (string) $resource['id'];
+        // filter[identifier] is a prefix match: extensions can fill the first page.
+        for ($page = 0; $page < 50 && $path !== null; $page++) {
+            $existing = $this->send($team, fn (PendingRequest $http) => self::getPage($http, $path, $query));
+            foreach ((array) $existing->json('data') as $resource) {
+                if (($resource['attributes']['identifier'] ?? null) === $identifier) {
+                    return (string) $resource['id'];
+                }
             }
+
+            $next = $existing->json('links.next');
+            $path = is_string($next) ? (string) preg_replace('#^.*?/v1#', '', $next) : null;
+            $query = [];
+        }
+
+        if ($path !== null) {
+            throw new AppleException('Bundle ID search did not finish; refusing to create a duplicate.', 'APPLE_BUNDLE_LOOKUP_INCOMPLETE');
         }
 
         $created = $this->send($team, fn (PendingRequest $http) => $http->post('/bundleIds', [
@@ -188,7 +200,7 @@ class AppStoreConnectIntegration implements AppleIntegration
 
         // Apple pages with links.next; the cap protects against a runaway loop.
         for ($page = 0; $page < 50 && $path !== null; $page++) {
-            $response = $this->send($team, fn (PendingRequest $http) => $http->get($path, $query));
+            $response = $this->send($team, fn (PendingRequest $http) => self::getPage($http, $path, $query));
             foreach ((array) $response->json('data') as $device) {
                 $family = match ($device['attributes']['deviceClass'] ?? null) {
                     'IPHONE' => 'IPHONE',
@@ -215,6 +227,16 @@ class AppStoreConnectIntegration implements AppleIntegration
     /**
      * @param  callable(PendingRequest): Response  $request
      */
+    /**
+     * An empty query option would replace the cursor that Apple puts in links.next.
+     *
+     * @param  array<string, mixed>  $query
+     */
+    private static function getPage(PendingRequest $http, string $path, array $query): Response
+    {
+        return $query === [] ? $http->get($path) : $http->get($path, $query);
+    }
+
     private function send(AppleTeam $team, callable $request, bool $allowConflict = false, bool $allowNotFound = false): Response
     {
         $credential = $team->activeCredential ?? throw new AppleCredentialsException('The team has no active App Store Connect key.');
