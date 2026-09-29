@@ -3040,7 +3040,10 @@ components:
         this object only (FULL_PLAN §11).
           - unavailable: no installable artifact exists
           - not_eligible: an artifact exists but this user/device cannot install it yet (see reason)
-          - get / preparing / ready_to_install / delivered / update_available / failed
+          - get / preparing / ready_to_install / update_available / failed
+          - get also follows a delivered install of the current build: iOS does not report whether the
+            app is still installed, so it can always be installed again (the signed build is reused)
+          - delivered: no longer reported; kept for older clients
       required: [status, reason, progress, installation_id]
       properties:
         status:

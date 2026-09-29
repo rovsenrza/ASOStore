@@ -50,6 +50,21 @@ struct InstallationCoordinatorTests {
         #expect(transport.requests.contains { $0.url?.path().hasSuffix("/authorize") == true })
     }
 
+    /// iOS does not say whether a delivered app is still on the phone: the customer may have deleted it.
+    @Test func installsADeliveredAppAgain() async throws {
+        let opened = Opened()
+        let coordinator = InstallationCoordinator(
+            repository: PreparationRepository(api: .stubbed(transport())),
+            store: store(),
+            openURL: { url in opened.urls.append(url); return true },
+            pollDelay: { _ in .milliseconds(10) }
+        )
+
+        await coordinator.act(on: app(.delivered))
+        try await waitUntil { !opened.urls.isEmpty }
+        #expect(opened.urls.first?.scheme == "itms-services")
+    }
+
     @Test func resumesAnInstallationAfterRelaunch() async throws {
         let persisted = store()
         persisted.save(appID: appID, installationID: "01j8zq4m6r2x9d3k5v7w1y0b2c")

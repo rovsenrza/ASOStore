@@ -68,9 +68,9 @@ struct AppActionButton: View {
     private var title: String {
         switch state {
         case .get, .readyToInstall: "Установить"
+        case .delivered: "Установить снова"
         case .updateAvailable: "Обновить"
         case .failed: "Повторить"
-        case .delivered: "Загружено"
         case .preparing: "Подготовка"
         case .notEligible, .unavailable: "Недоступно"
         }
@@ -81,7 +81,7 @@ struct AppActionButton: View {
         case .notEligible(reason: .unauthenticated): "Войдите в аккаунт, чтобы установить приложение."
         case .notEligible: "Устройство пока не готово к установке."
         case .unavailable: "Приложение сейчас недоступно для установки."
-        case .delivered: "Приложение загружено на устройство."
+        case .delivered: "Приложение уже загружалось. Если его нет на экране «Домой», установите снова."
         default: ""
         }
     }

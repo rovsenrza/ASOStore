@@ -190,10 +190,17 @@ it('installs a published app on a registered iPhone through the whole flow', fun
     expect($model->status)->toBe(InstallationStatus::Delivered)
         ->and($model->events()->pluck('type')->all())->toBe(['PREPARE_REQUESTED', 'READY', 'AUTHORIZED', 'MANIFEST_FETCHED', 'DOWNLOAD_STARTED', 'DOWNLOAD_COMPLETED']);
 
-    // A second request for the same build on the same device reuses it: no second signing.
-    $this->withToken($token)->getJson("/api/v1/apps/{$this->catalogApp->public_id}")->assertJsonPath('data.install_state.status', 'delivered');
     $library = $this->withToken($token)->getJson('/api/v1/library')->assertOk()->assertJsonPath('data.0.status', 'DELIVERED');
     expect(OpenApiContract::errors($library->getContent(), 'LibraryResponse'))->toBe([]);
+
+    // The customer may have deleted the app since: it can be installed again, from the same
+    // signed build, so it is ready at once with no second signing.
+    $this->withToken($token)->getJson("/api/v1/apps/{$this->catalogApp->public_id}")->assertJsonPath('data.install_state.status', 'get');
+    $this->withToken($token)->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")
+        ->assertOk()
+        ->assertJsonPath('data.status', 'READY_TO_INSTALL');
+    expect(SignedBuild::count())->toBe(1)
+        ->and(Installation::count())->toBe(2);
 });
 
 it('removes a deleted website listing from the customer catalog and library', function () {

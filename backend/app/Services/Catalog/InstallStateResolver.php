@@ -67,7 +67,9 @@ class InstallStateResolver
 
         return match (true) {
             $latest->status === InstallationStatus::Delivered && ! $sameBuild => $this->state(InstallStateStatus::UpdateAvailable, installation: $latest),
-            $latest->status === InstallationStatus::Delivered => $this->state(InstallStateStatus::Delivered, installation: $latest),
+            // iOS does not tell us whether the app is still on the phone (deleted, offloaded):
+            // offer the install again. The signed build is reused, so it is ready at once.
+            $latest->status === InstallationStatus::Delivered => $this->state(InstallStateStatus::Get, installation: $latest),
             ! $sameBuild => $this->state(InstallStateStatus::Get),
             $latest->status === InstallationStatus::Preparing => $this->state(InstallStateStatus::Preparing, progress: $this->progress($latest), installation: $latest),
             in_array($latest->status, [InstallationStatus::ReadyToInstall, InstallationStatus::Authorized, InstallationStatus::ManifestFetched], true) => $this->state(InstallStateStatus::ReadyToInstall, installation: $latest),

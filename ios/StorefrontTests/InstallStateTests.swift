@@ -18,7 +18,7 @@ struct InstallStateTests {
         (.unavailable, false),
         (.notEligible(reason: .deviceNotEligible), false),
         (.preparing(progress: 0.5), false),
-        (.delivered, false),
+        (.delivered, true),
     ])
     func actionability(state: InstallState, actionable: Bool) {
         #expect(state.isActionable == actionable)

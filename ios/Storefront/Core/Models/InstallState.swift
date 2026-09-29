@@ -8,7 +8,8 @@ nonisolated enum InstallState: Hashable, Sendable {
     case get
     case preparing(progress: Double?)
     case readyToInstall
-    /// The IPA was fully downloaded; iOS does not tell us whether the install finished (IMPLEMENTATION_PLAN G13).
+    /// The IPA was fully downloaded; iOS does not tell us whether the install finished, or whether
+    /// the app was deleted since (IMPLEMENTATION_PLAN G13), so it can be installed again.
     case delivered
     case updateAvailable
     case failed(reason: ErrorCode?)
@@ -30,8 +31,8 @@ nonisolated enum InstallState: Hashable, Sendable {
     /// Whether the CTA can start something (InstallationCoordinator.act).
     var isActionable: Bool {
         switch self {
-        case .get, .readyToInstall, .updateAvailable, .failed: true
-        case .unavailable, .notEligible, .preparing, .delivered: false
+        case .get, .readyToInstall, .delivered, .updateAvailable, .failed: true
+        case .unavailable, .notEligible, .preparing: false
         }
     }
 }

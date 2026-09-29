@@ -43,7 +43,8 @@ final class InstallationCoordinator {
     /// The CTA was tapped.
     func act(on app: StoreApp) async {
         switch state(for: app) {
-        case .get, .updateAvailable, .failed:
+        // Delivered: the app may have been deleted since; the server reuses the signed build.
+        case .get, .delivered, .updateAvailable, .failed:
             autoInstall.insert(app.id)
             await prepare(appID: app.id)
         case .readyToInstall:
@@ -53,7 +54,7 @@ final class InstallationCoordinator {
                 autoInstall.insert(app.id)
                 await prepare(appID: app.id)
             }
-        case .unavailable, .notEligible, .preparing, .delivered:
+        case .unavailable, .notEligible, .preparing:
             break
         }
     }

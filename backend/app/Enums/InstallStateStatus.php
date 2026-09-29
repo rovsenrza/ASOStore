@@ -15,6 +15,7 @@ enum InstallStateStatus: string
     case Get = 'get';
     case Preparing = 'preparing';
     case ReadyToInstall = 'ready_to_install';
+    /** No longer reported: a delivered app may have been deleted since, so it is `get` again. */
     case Delivered = 'delivered';
     case UpdateAvailable = 'update_available';
     case Failed = 'failed';
