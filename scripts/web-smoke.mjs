@@ -15,7 +15,7 @@ const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:8000';
 const PAGES = [
   '/', '/activate.html', '/install.html', '/account.html', '/login.html', '/register.html',
   '/support.html', '/pricing.html', '/terms.html', '/privacy.html', '/forgot-password.html', '/reset-password.html',
-  '/admin/', '/admin/login.html', '/admin/users.html', '/admin/devices.html', '/admin/apps.html',
+  '/admin/', '/admin/login.html', '/admin/users.html', '/admin/devices.html', '/admin/home.html', '/admin/apps.html',
   '/admin/artifacts.html', '/admin/teams.html', '/admin/jobs.html', '/admin/audit.html',
 ];
 

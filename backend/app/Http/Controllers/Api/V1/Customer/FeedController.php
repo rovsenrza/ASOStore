@@ -20,6 +20,10 @@ use Illuminate\Support\Collection;
  * Rankings come from real data only (PRODUCT.md: no fabricated metrics):
  * "most downloaded" counts delivered installations, "trending" counts those
  * of the last seven days. A section with no data is left out.
+ *
+ * Each app appears in one list only, the first it qualifies for, so a small
+ * catalog does not repeat the same app in every list. The banner is curated
+ * (featured_rank) and may still show an app that is also in a list.
  */
 class FeedController extends Controller
 {
@@ -62,12 +66,22 @@ class FeedController extends Controller
             ->filter(fn (AppCategory $category) => $category->apps_count > 0)
             ->values();
 
+        $shown = [];
+        $unique = function (Collection $apps) use (&$shown): Collection {
+            $fresh = $apps->reject(fn (CatalogApp $app) => isset($shown[$app->id]))->values();
+            foreach ($fresh as $app) {
+                $shown[$app->id] = true;
+            }
+
+            return $fresh;
+        };
+
         $sections = array_values(array_filter([
             $this->appSection('featured', 'featured', 'Выбор редакции', $featured, $request),
-            $this->appSection('most_downloaded', 'carousel', $titles['most_downloaded'], $mostDownloaded, $request),
-            $this->appSection('trending', 'carousel', $titles['trending'], $trending, $request),
-            $this->appSection('recently_updated', 'carousel', 'Недавно обновлённые', $recentlyUpdated, $request),
-            $this->appSection('new', 'carousel', 'Новые', $newest, $request),
+            $this->appSection('most_downloaded', 'carousel', $titles['most_downloaded'], $unique($mostDownloaded), $request),
+            $this->appSection('trending', 'carousel', $titles['trending'], $unique($trending), $request),
+            $this->appSection('recently_updated', 'carousel', 'Недавно обновлённые', $unique($recentlyUpdated), $request),
+            $this->appSection('new', 'carousel', 'Новые', $unique($newest), $request),
             $categories->isEmpty() ? null : [
                 'id' => 'categories',
                 'kind' => 'categories',

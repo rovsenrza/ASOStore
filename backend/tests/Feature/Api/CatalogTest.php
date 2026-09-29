@@ -88,11 +88,13 @@ it('builds the feed from featured, recently updated and category sections', func
 
     $feed = $this->getJson('/api/v1/storefront/feed')->assertOk()->json('data.sections');
 
-    // No installations yet, so the download rankings are left out rather than invented.
-    expect(collect($feed)->pluck('id')->all())->toBe(['featured', 'recently_updated', 'new', 'categories'])
+    // No installations yet, so the download rankings are left out rather than invented;
+    // "new" would only repeat the app already in "recently updated", so it is left out too.
+    expect(collect($feed)->pluck('id')->all())->toBe(['featured', 'recently_updated', 'categories'])
         ->and($feed[0]['apps'])->toHaveCount(1)
         ->and($feed[0]['apps'][0]['id'])->toBe($featured->public_id)
-        ->and($feed[3]['categories'][0]['app_count'])->toBe(1);
+        ->and($feed[1]['apps'][0]['id'])->toBe($featured->public_id)
+        ->and($feed[2]['categories'][0]['app_count'])->toBe(1);
 });
 
 it('ranks by real downloads and splits games from apps', function () {
@@ -118,11 +120,23 @@ it('ranks by real downloads and splits games from apps', function () {
 
     expect($sections['most_downloaded']['title'])->toBe('Самые скачиваемые игры')
         ->and(collect($sections['most_downloaded']['apps'])->pluck('name')->all())->toBe(['Racer', 'Puzzle'])
-        ->and(collect($sections['trending']['apps'])->pluck('name')->all())->toBe(['Puzzle'])
+        // Both games are already in the list above, so "trending" does not repeat them.
+        ->and($sections->has('trending'))->toBeFalse()
         ->and(collect($sections['categories']['categories'])->pluck('kind')->unique()->all())->toBe(['GAMES']);
 
     $this->getJson('/api/v1/apps?kind=apps')->assertOk()->assertJsonPath('data.0.name', 'Notes')->assertJsonPath('data.0.category.kind', 'APPS');
     $this->getJson('/api/v1/apps?kind=games&sort=new')->assertOk()->assertJsonPath('data.0.name', 'Puzzle');
+});
+
+it('shows each app in one list only', function () {
+    $older = CatalogApp::factory()->create(['name' => 'Older', 'created_at' => now()->subDay()]);
+    AppVersion::factory()->for($older, 'app')->create();
+    CatalogApp::factory()->create(['name' => 'Newer']);
+
+    $sections = collect($this->getJson('/api/v1/storefront/feed')->assertOk()->json('data.sections'))->keyBy('id');
+
+    expect(collect($sections['recently_updated']['apps'])->pluck('name')->all())->toBe(['Older'])
+        ->and(collect($sections['new']['apps'])->pluck('name')->all())->toBe(['Newer']);
 });
 
 it('omits empty feed sections', function () {

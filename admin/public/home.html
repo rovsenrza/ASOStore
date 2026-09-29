@@ -6,12 +6,12 @@
   <link rel="icon" type="image/png" sizes="32x32" href="assets/brand/ru-appstore-logo-32.png">
   <link rel="apple-touch-icon" href="assets/brand/ru-appstore-logo-180.png">
   <meta name="robots" content="noindex, nofollow">
-  <title>Устройства — Ru AppStore Admin</title>
+  <title>Главная приложения — Ru AppStore Admin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/admin.css">
-  <script type="module" src="js/pages/devices.js"></script>
+  <script type="module" src="js/pages/home.js"></script>
 </head>
 <body>
   <div class="admin-shell">
@@ -31,10 +31,9 @@
       <p class="sidebar-foot">Доступ по ролям. Все действия записываются в журнал аудита.</p>
     </aside>
     <div class="main">
-      <header class="topbar"><h1>Устройства</h1></header>
-      <main class="content" id="main">
-        <p class="muted">UDID показывается только маскированным. Полный идентификатор может открыть администратор, указав причину; это попадает в журнал аудита.</p>
-        <div id="devices-table"></div>
+      <header class="topbar"><h1>Главная приложения</h1></header>
+      <main class="content stack" id="main">
+        <div id="home"></div>
       </main>
     </div>
   </div>
