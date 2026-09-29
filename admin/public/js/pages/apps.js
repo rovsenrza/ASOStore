@@ -75,6 +75,7 @@ function listingForm(app) {
       field(t('apps.visibility'), select('visibility', VISIBILITY.map((v) => [v, t(`visibility.${v}`)]), app?.visibility ?? 'DRAFT')),
       field(t('apps.ageRating'), select('age_rating', AGE_RATINGS.map((a) => [a, a]), app?.age_rating ?? '4+')),
       field(t('apps.featuredRank'), el('input', { name: 'featured_rank', type: 'number', min: 1, max: 999, value: app?.featured_rank ?? '' }), t('apps.featuredHint')),
+      field(t('apps.bundleId'), el('input', { name: 'bundle_identifier', maxLength: 155, pattern: '[A-Za-z0-9\\-]+(\\.[A-Za-z0-9\\-]+)+', placeholder: 'com.ruappstore.app-name', value: app?.bundle_identifier ?? '' }), t('apps.bundleIdHint')),
       field(t('apps.supportUrl'), el('input', { name: 'support_url', type: 'url', value: app?.support_url ?? '' })),
       field(t('apps.privacyUrl'), el('input', { name: 'privacy_url', type: 'url', value: app?.privacy_url ?? '' }))),
     el('label', { className: 'check' },
@@ -92,7 +93,7 @@ function formPayload(form) {
   const data = Object.fromEntries(new FormData(form));
   data.is_storefront = form.querySelector('[name="is_storefront"]').checked;
   data.featured_rank = data.featured_rank ? Number(data.featured_rank) : null;
-  for (const key of ['subtitle', 'description', 'support_url', 'privacy_url', 'reason']) {
+  for (const key of ['subtitle', 'description', 'bundle_identifier', 'support_url', 'privacy_url', 'reason']) {
     if (key in data && data[key] === '') data[key] = null;
   }
   return data;

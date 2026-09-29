@@ -47,6 +47,22 @@ it('authenticates with a short-lived ES256 token for the team key', function () 
     });
 });
 
+it('enables only the capabilities an App ID is missing', function () {
+    Http::fake([
+        'api.appstoreconnect.apple.com/v1/bundleIds/B1/bundleIdCapabilities*' => Http::response(['data' => [
+            ['type' => 'bundleIdCapabilities', 'id' => 'B1_APP_GROUPS', 'attributes' => ['capabilityType' => 'APP_GROUPS']],
+        ]]),
+        'api.appstoreconnect.apple.com/v1/bundleIdCapabilities' => Http::response(['data' => ['type' => 'bundleIdCapabilities', 'id' => 'B1_NE']], 201),
+    ]);
+
+    $this->apple->ensureCapabilities($this->team, 'B1', ['NETWORK_EXTENSIONS', 'APP_GROUPS']);
+
+    $posts = collect(Http::recorded())->map(fn (array $pair) => $pair[0])->filter(fn (Request $request) => $request->method() === 'POST')->values();
+    expect($posts)->toHaveCount(1)
+        ->and($posts[0]['data']['attributes'])->toBe(['capabilityType' => 'NETWORK_EXTENSIONS'])
+        ->and($posts[0]['data']['relationships']['bundleId']['data'])->toBe(['type' => 'bundleIds', 'id' => 'B1']);
+});
+
 it('registers an iOS device', function () {
     Http::fake(['api.appstoreconnect.apple.com/v1/devices' => Http::response(($this->device)(), 201)]);
 

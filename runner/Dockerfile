@@ -35,7 +35,7 @@ RUN swift build -c release --product storefront-runner \
  && install -m 0755 "$(swift build -c release --show-bin-path)/storefront-runner" /usr/local/bin/storefront-runner
 
 FROM build AS test
-RUN apt-get update && apt-get install -y --no-install-recommends openssl unzip && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends openssl unzip zip && rm -rf /var/lib/apt/lists/*
 COPY --from=zsign /usr/local/bin/zsign /usr/local/bin/zsign
 RUN swift test
 

@@ -45,7 +45,7 @@ class CatalogApp extends Model
     ];
 
     protected $fillable = [
-        'slug', 'name', 'subtitle', 'description', 'category_id', 'publisher_id',
+        'slug', 'name', 'subtitle', 'description', 'bundle_identifier', 'category_id', 'publisher_id',
         'source_type', 'visibility', 'age_rating', 'icon_path', 'is_storefront', 'featured_rank',
         'support_url', 'privacy_url',
     ];

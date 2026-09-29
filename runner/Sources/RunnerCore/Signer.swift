@@ -2,10 +2,12 @@ import Foundation
 
 /// Re-signs one IPA for one device profile with zsign (IMPLEMENTATION_PLAN §5.6, P6-RUN-01).
 ///
-/// Steps: check the source hash → unpack → refuse nested bundles → derive
-/// entitlements from the profile → zsign (embeds the profile, signs
-/// Frameworks/ then the app, repacks) → unpack the result and check its
-/// signatures (CodeSignature). Everything happens in a private job folder
+/// Steps: check the source hash → unpack → refuse bundles the lease has no
+/// profile for → set the leased bundle IDs → zsign (embeds each profile, signs
+/// Frameworks/, the extensions, then the app, repacks) → unpack the result and
+/// check its signatures (CodeSignature). Without extensions the entitlements are
+/// derived from the profile and passed with -e; with extensions each bundle takes
+/// its own profile's entitlements. Everything happens in a private job folder
 /// that is deleted afterwards (P6-RUN-02).
 public struct Signer: Sendable {
     /// zsign executable, a path or a name looked up in PATH.
@@ -36,27 +38,42 @@ public struct Signer: Sendable {
         let unpacked = workDirectory.appendingPathComponent("unpacked", isDirectory: true)
         let app = try Self.unpack(source, into: unpacked, code: "UNPACK_FAILED")
 
-        // Extensions need their own profiles (one per bundle ID); not provisioned yet.
-        for folder in ["PlugIns", "Extensions", "Watch", "AppClips"] where FileManager.default.fileExists(atPath: app.appendingPathComponent(folder).path) {
-            throw RunnerError.job(code: "NESTED_PROFILE_REQUIRED", message: "\(folder)/ bundles need their own profiles", retryable: false)
+        // Every extension is signed with its own profile, so each one must be in the lease.
+        try Self.checkNested(app: app, leased: job.nested)
+
+        // Re-identify the app and its extensions to the bundle IDs the profiles were made for.
+        try Self.setBundleIdentifier(job.bundleIdentifier, bundle: app)
+        for nested in job.nested {
+            try Self.setBundleIdentifier(nested.bundleIdentifier, bundle: app.appendingPathComponent(nested.path))
         }
 
-        guard let profileData = Data(base64Encoded: job.profile.content) else {
-            throw RunnerError.job(code: "PROFILE_INVALID", message: "Profile content is not base64", retryable: false)
-        }
+        let profileData = try Self.decodeProfile(job.profile)
         let profileFile = workDirectory.appendingPathComponent("profile.mobileprovision")
         try profileData.write(to: profileFile)
 
-        let entitlements = try Self.entitlements(fromProfile: profileData, bundleIdentifier: job.bundleIdentifier, teamIdentifier: job.teamIdentifier)
-        let entitlementsFile = workDirectory.appendingPathComponent("entitlements.plist")
-        try PropertyListSerialization.data(fromPropertyList: entitlements, format: .xml, options: 0).write(to: entitlementsFile)
-
         // -f: no signing cache, so every job signs every file.
+        var arguments = ["-f", "-k", identity.privateKey.path, "-c", identity.certificate.path, "-m", profileFile.path]
+        if job.nested.isEmpty {
+            let entitlements = try Self.entitlements(fromProfile: profileData, bundleIdentifier: job.bundleIdentifier, teamIdentifier: job.teamIdentifier)
+            let entitlementsFile = workDirectory.appendingPathComponent("entitlements.plist")
+            try PropertyListSerialization.data(fromPropertyList: entitlements, format: .xml, options: 0).write(to: entitlementsFile)
+            arguments += ["-e", entitlementsFile.path]
+        } else {
+            // zsign matches each profile to the bundle whose ID it was made for. No -e here:
+            // one entitlements file would be applied to every bundle, giving the extensions
+            // the app's application-identifier. Each bundle takes its profile's entitlements.
+            try Self.checkProfile(profileData, bundleIdentifier: job.bundleIdentifier, teamIdentifier: job.teamIdentifier)
+            for (index, nested) in job.nested.enumerated() {
+                let data = try Self.decodeProfile(nested.profile)
+                try Self.checkProfile(data, bundleIdentifier: nested.bundleIdentifier, teamIdentifier: job.teamIdentifier)
+                let file = workDirectory.appendingPathComponent("nested-\(index).mobileprovision")
+                try data.write(to: file)
+                arguments += ["-m", file.path]
+            }
+        }
+
         let output = workDirectory.appendingPathComponent("signed.ipa")
-        let zsigned = try Shell.run(zsign, [
-            "-f", "-k", identity.privateKey.path, "-c", identity.certificate.path,
-            "-m", profileFile.path, "-e", entitlementsFile.path, "-o", output.path, app.path,
-        ])
+        let zsigned = try Shell.run(zsign, arguments + ["-o", output.path, app.path])
         guard zsigned.status == 0, FileManager.default.fileExists(atPath: output.path) else {
             throw RunnerError.job(code: "CODESIGN_FAILED", message: Self.zsignError(zsigned.output + zsigned.error), retryable: false)
         }
@@ -110,18 +127,101 @@ public struct Signer: Sendable {
             throw RunnerError.job(code: "ENTITLEMENTS_MISMATCH", message: "Signed application-identifier is not \(job.teamIdentifier).\(job.bundleIdentifier)", retryable: false)
         }
 
-        let nested = try nestedCode(in: app)
-        for code in nested {
-            if code.pathExtension == "framework" {
-                let frameworkInfo = try PropertyListSerialization.propertyList(from: Data(contentsOf: code.appendingPathComponent("Info.plist")), format: nil) as? [String: Any]
-                let name = frameworkInfo?["CFBundleExecutable"] as? String ?? code.deletingPathExtension().lastPathComponent
-                _ = try check(code.appendingPathComponent(name), bundle: code)
-            } else {
-                _ = try check(code, bundle: nil)
+        func checkFrameworks(of bundle: URL) throws -> Int {
+            let code = try nestedCode(in: bundle)
+            for item in code {
+                if item.pathExtension == "framework" {
+                    let frameworkInfo = try PropertyListSerialization.propertyList(from: Data(contentsOf: item.appendingPathComponent("Info.plist")), format: nil) as? [String: Any]
+                    let name = frameworkInfo?["CFBundleExecutable"] as? String ?? item.deletingPathExtension().lastPathComponent
+                    _ = try check(item.appendingPathComponent(name), bundle: item)
+                } else {
+                    _ = try check(item, bundle: nil)
+                }
             }
+            return code.count
+        }
+        var nestedCount = try checkFrameworks(of: app)
+
+        // Each extension: its own leased profile, identifier and application-identifier.
+        for nested in job.nested {
+            let bundle = app.appendingPathComponent(nested.path)
+            guard (try? Data(contentsOf: bundle.appendingPathComponent("embedded.mobileprovision"))) == Data(base64Encoded: nested.profile.content) else {
+                throw RunnerError.job(code: "CODESIGN_VERIFY_FAILED", message: "\(nested.path) does not embed its leased profile", retryable: false)
+            }
+            let bundleInfo = try PropertyListSerialization.propertyList(from: Data(contentsOf: bundle.appendingPathComponent("Info.plist")), format: nil) as? [String: Any]
+            guard let bundleExecutable = bundleInfo?["CFBundleExecutable"] as? String else {
+                throw RunnerError.job(code: "CODESIGN_VERIFY_FAILED", message: "\(nested.path) has no CFBundleExecutable", retryable: false)
+            }
+            let signature = try check(bundle.appendingPathComponent(bundleExecutable), bundle: bundle)
+            guard signature.identifier == nested.bundleIdentifier else {
+                throw RunnerError.job(code: "CODESIGN_VERIFY_FAILED", message: "\(nested.path) is signed as \(signature.identifier), lease says \(nested.bundleIdentifier)", retryable: false)
+            }
+            let nestedEntitlements = try signature.entitlements.flatMap { try PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any] }
+            guard nestedEntitlements?["application-identifier"] as? String == "\(job.teamIdentifier).\(nested.bundleIdentifier)" else {
+                throw RunnerError.job(code: "ENTITLEMENTS_MISMATCH", message: "\(nested.path) application-identifier is not \(job.teamIdentifier).\(nested.bundleIdentifier)", retryable: false)
+            }
+            nestedCount += 1 + (try checkFrameworks(of: bundle))
         }
 
-        return "Identifier=\(main.identifier); TeamIdentifier=\(job.teamIdentifier); Authority=\(certificate); CDHash=\(main.cdHash); Nested=\(nested.count)"
+        return "Identifier=\(main.identifier); TeamIdentifier=\(job.teamIdentifier); Authority=\(certificate); CDHash=\(main.cdHash); Nested=\(nestedCount); Extensions=\(job.nested.count)"
+    }
+
+    /// Refuses bundles that cannot be signed from this lease: watch apps and App Clips
+    /// (not supported), and any extension the lease has no profile for.
+    static func checkNested(app: URL, leased: [SigningJob.Nested]) throws {
+        let files = FileManager.default
+        for folder in ["Watch", "AppClips"] where files.fileExists(atPath: app.appendingPathComponent(folder).path) {
+            throw RunnerError.job(code: "NESTED_PROFILE_REQUIRED", message: "\(folder)/ bundles are not supported", retryable: false)
+        }
+
+        let paths = Set(leased.map(\.path))
+        for nested in leased {
+            let parts = nested.path.split(separator: "/")
+            guard parts.count == 2, ["PlugIns", "Extensions"].contains(String(parts[0])), parts[1].hasSuffix(".appex"),
+                  files.fileExists(atPath: app.appendingPathComponent(nested.path).appendingPathComponent("Info.plist").path) else {
+                throw RunnerError.job(code: "NESTED_INVALID", message: "Leased extension \(nested.path) is not in the app", retryable: false)
+            }
+        }
+        for folder in ["PlugIns", "Extensions"] {
+            let directory = app.appendingPathComponent(folder, isDirectory: true)
+            guard files.fileExists(atPath: directory.path) else { continue }
+            for item in try files.contentsOfDirectory(atPath: directory.path).sorted() where !paths.contains("\(folder)/\(item)") {
+                throw RunnerError.job(code: "NESTED_PROFILE_REQUIRED", message: "\(folder)/\(item) has no profile in the lease", retryable: false)
+            }
+        }
+    }
+
+    /// Sets CFBundleIdentifier, keeping the Info.plist's own format (binary or XML).
+    static func setBundleIdentifier(_ identifier: String, bundle: URL) throws {
+        let file = bundle.appendingPathComponent("Info.plist")
+        var format = PropertyListSerialization.PropertyListFormat.xml
+        guard var info = try PropertyListSerialization.propertyList(from: Data(contentsOf: file), options: [], format: &format) as? [String: Any] else {
+            throw RunnerError.job(code: "INFO_PLIST_INVALID", message: "\(bundle.lastPathComponent)/Info.plist is not a dictionary", retryable: false)
+        }
+        guard info["CFBundleIdentifier"] as? String != identifier else { return }
+        info["CFBundleIdentifier"] = identifier
+        try PropertyListSerialization.data(fromPropertyList: info, format: format, options: 0).write(to: file)
+    }
+
+    static func decodeProfile(_ profile: SigningJob.Profile) throws -> Data {
+        guard let data = Data(base64Encoded: profile.content) else {
+            throw RunnerError.job(code: "PROFILE_INVALID", message: "Profile \(profile.uuid) is not base64", retryable: false)
+        }
+        return data
+    }
+
+    /// A profile zsign will pick by bundle ID must be for exactly that bundle and team.
+    static func checkProfile(_ data: Data, bundleIdentifier: String, teamIdentifier: String) throws {
+        guard let profile = try PropertyListSerialization.propertyList(from: profilePlist(data), format: nil) as? [String: Any],
+              let entitlements = profile["Entitlements"] as? [String: Any] else {
+            throw RunnerError.job(code: "PROFILE_INVALID", message: "Profile has no Entitlements", retryable: false)
+        }
+        guard (profile["TeamIdentifier"] as? [String] ?? []).contains(teamIdentifier) else {
+            throw RunnerError.job(code: "TEAM_MISMATCH", message: "Profile for \(bundleIdentifier) is not for team \(teamIdentifier)", retryable: false)
+        }
+        guard entitlements["application-identifier"] as? String == "\(teamIdentifier).\(bundleIdentifier)" else {
+            throw RunnerError.job(code: "PROFILE_MISMATCH", message: "Profile is for \(entitlements["application-identifier"] ?? "?"), not \(teamIdentifier).\(bundleIdentifier)", retryable: false)
+        }
     }
 
     /// Unzips an IPA and returns its only Payload/*.app.

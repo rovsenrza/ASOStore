@@ -109,4 +109,48 @@ class AppArtifact extends Model
     {
         return $this->morphMany(PipelineJob::class, 'subject')->orderBy('id');
     }
+
+    /**
+     * The bundle ID signed builds carry: the listing's own when an operator set one
+     * (a com.ruappstore.* ID for an app whose original ID belongs to another team),
+     * otherwise the IPA's.
+     */
+    public function signingBundleIdentifier(): string
+    {
+        $listing = CatalogApp::withTrashed()->find($this->app_id);
+
+        return (string) ($listing?->bundle_identifier ?: $this->bundle_identifier);
+    }
+
+    /**
+     * App extensions and the bundle IDs they are signed with. An extension whose ID
+     * extends the app's keeps its suffix under the signing ID
+     * (org.example.app.tunnel → com.ruappstore.app.tunnel); any other keeps its last part.
+     *
+     * @return list<array{path: string, source_bundle_identifier: string, bundle_identifier: string, entitlements: array<string, mixed>}>
+     */
+    public function signingExtensions(): array
+    {
+        $original = (string) $this->bundle_identifier;
+        $target = $this->signingBundleIdentifier();
+        $appPath = rtrim((string) ($this->inspection['bundle']['path'] ?? ''), '/').'/';
+
+        $extensions = [];
+        foreach ($this->inspection['nested_bundles'] ?? [] as $item) {
+            if (($item['type'] ?? null) !== 'extension' || ! is_string($item['bundle_identifier'] ?? null)) {
+                continue;
+            }
+            $source = $item['bundle_identifier'];
+            $extensions[] = [
+                'path' => str_starts_with($item['path'], $appPath) ? substr($item['path'], strlen($appPath)) : $item['path'],
+                'source_bundle_identifier' => $source,
+                'bundle_identifier' => str_starts_with($source, $original.'.')
+                    ? $target.substr($source, strlen($original))
+                    : $target.'.'.substr((string) strrchr('.'.$source, '.'), 1),
+                'entitlements' => is_array($item['entitlements'] ?? null) ? $item['entitlements'] : ($this->inspection['entitlements'] ?? []),
+            ];
+        }
+
+        return $extensions;
+    }
 }

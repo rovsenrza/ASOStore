@@ -87,11 +87,17 @@ class IpaBuilder
         return $this;
     }
 
-    public function withExtension(string $name, string $bundleId, int $cryptId = 0): self
+    /**
+     * @param  array<string, mixed>|null  $entitlements
+     */
+    public function withExtension(string $name, string $bundleId, int $cryptId = 0, ?array $entitlements = null, ?string $profile = null): self
     {
         $root = "PlugIns/{$name}.appex/";
         $this->extra[$root.'Info.plist'] = self::plist(['CFBundleIdentifier' => $bundleId, 'CFBundleExecutable' => $name]);
-        $this->extra[$root.$name] = self::machO(cryptId: $cryptId);
+        $this->extra[$root.$name] = self::machO(cryptId: $cryptId, entitlements: $entitlements);
+        if ($profile !== null) {
+            $this->extra[$root.'embedded.mobileprovision'] = $profile;
+        }
 
         return $this;
     }

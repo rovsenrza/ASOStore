@@ -310,3 +310,109 @@ it('signs a fresh build after the certificate of the old one is revoked', functi
     expect($old->refresh()->status)->toBe(SignedBuildStatus::Revoked)
         ->and($old->status_reason)->toBe('CERTIFICATE_REVOKED');
 });
+
+/**
+ * A published VPN-style app whose own bundle ID belongs to another team: the listing
+ * signs it as com.ruappstore.vpn, and its packet-tunnel extension goes along.
+ */
+function preparedVpnApp(object $test): CatalogApp
+{
+    runnerHeartbeat()->assertOk();
+    approveTeamFor('com.ruappstore.vpn', $test->team);
+
+    $manager = userWithRoles(RoleSlug::CatalogManager);
+    $listing = CatalogApp::factory()->create(['visibility' => 'PUBLISHED', 'bundle_identifier' => 'com.ruappstore.vpn']);
+    $tunnel = ['application-identifier' => 'OTHERTEAM1.org.example.vpn.tunnel', 'com.apple.developer.networking.networkextension' => ['packet-tunnel-provider']];
+    $artifact = inspected(uploadIpa($manager, $listing, IpaBuilder::app('org.example.vpn')
+        ->executable(IpaBuilder::machO(entitlements: ['application-identifier' => 'OTHERTEAM1.org.example.vpn', 'com.apple.security.application-groups' => ['group.org.example.vpn']]))
+        ->withExtension('Tunnel', 'org.example.vpn.tunnel', entitlements: $tunnel)
+        ->build()));
+    test()->postJson("/api/v1/admin/artifacts/{$artifact->public_id}/review", [
+        'decision' => 'approve',
+        'checklist' => ['source_verified' => true, 'distribution_rights_confirmed' => true, 'inspection_report_reviewed' => true],
+        'acknowledge_scan_result' => true,
+    ])->assertOk();
+    test()->postJson("/api/v1/admin/artifacts/{$artifact->public_id}/publish")->assertOk();
+    forgetGuards();
+
+    expect($artifact->refresh()->signingExtensions())->toBe([[
+        'path' => 'PlugIns/Tunnel.appex',
+        'source_bundle_identifier' => 'org.example.vpn.tunnel',
+        'bundle_identifier' => 'com.ruappstore.vpn.tunnel',
+        'entitlements' => $tunnel,
+    ]]);
+
+    $token = $test->customer->createToken('ios')->plainTextToken;
+    RefreshToken::create([
+        'user_id' => $test->customer->id, 'device_id' => $test->device->id, 'family_id' => 'f-vpn',
+        'token_hash' => hash('sha256', 'r-vpn'), 'access_token_id' => $test->customer->tokens()->latest('id')->value('id'),
+        'expires_at' => now()->addDay(),
+    ]);
+    $test->withToken($token)->postJson("/api/v1/apps/{$listing->public_id}/prepare")->assertStatus(202);
+    $test->vpnToken = $token;
+
+    return $listing;
+}
+
+/**
+ * Uploads what the runner produced for the leased VPN build and reports success.
+ *
+ * @param  array<string, mixed>  $lease
+ */
+function runnerReturns(array $lease, string $signed): void
+{
+    worker('PUT', $lease['upload_path'], $signed)->assertCreated();
+    worker('POST', $lease['result_path'], json_encode(['status' => 'succeeded', 'sha256' => hash('sha256', $signed), 'report' => ['codesign' => 'valid']]))->assertOk();
+}
+
+it('signs an app extension with its own profile under the listing bundle ID', function () {
+    $listing = preparedVpnApp($this);
+
+    // One profile per bundle ID, both under the listing's ID.
+    expect(SigningProfile::orderBy('id')->pluck('bundle_identifier')->all())->toBe(['com.ruappstore.vpn', 'com.ruappstore.vpn.tunnel']);
+    $main = SigningProfile::where('bundle_identifier', 'com.ruappstore.vpn')->sole();
+    $extension = SigningProfile::where('bundle_identifier', 'com.ruappstore.vpn.tunnel')->sole();
+
+    $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+    expect($lease['bundle_identifier'])->toBe('com.ruappstore.vpn')
+        ->and($lease['profile']['uuid'])->toBe($main->uuid)
+        ->and($lease['nested'])->toBe([[
+            'path' => 'PlugIns/Tunnel.appex',
+            'bundle_identifier' => 'com.ruappstore.vpn.tunnel',
+            'profile' => ['uuid' => $extension->uuid, 'content' => $extension->content_encrypted],
+        ]]);
+
+    // A well-behaved runner: the app and its extension re-identified, each with its own profile.
+    $team = $main->team->apple_team_id;
+    runnerReturns($lease, IpaBuilder::app('com.ruappstore.vpn')
+        ->withAppFile('embedded.mobileprovision', base64_decode($main->content_encrypted))
+        ->executable(IpaBuilder::machO(entitlements: ['application-identifier' => "{$team}.com.ruappstore.vpn"]))
+        ->withExtension('Tunnel', 'com.ruappstore.vpn.tunnel', entitlements: ['application-identifier' => "{$team}.com.ruappstore.vpn.tunnel"],
+            profile: base64_decode($extension->content_encrypted))
+        ->build());
+
+    $build = SignedBuild::sole();
+    expect($build->status)->toBe(SignedBuildStatus::Deliverable);
+
+    // The install manifest names the ID the signed app carries.
+    $installation = Installation::where('app_id', $listing->id)->sole();
+    $link = $this->withToken($this->vpnToken)->postJson("/api/v1/installations/{$installation->public_id}/authorize")->assertOk()->json('data');
+    forgetGuards();
+    expect($this->get($link['manifest_url'])->assertOk()->getContent())->toContain('<string>com.ruappstore.vpn</string>');
+});
+
+it('rejects a signed build whose extension kept its original bundle ID', function () {
+    preparedVpnApp($this);
+    $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+    $main = SigningProfile::where('bundle_identifier', 'com.ruappstore.vpn')->sole();
+    $team = $main->team->apple_team_id;
+
+    runnerReturns($lease, IpaBuilder::app('com.ruappstore.vpn')
+        ->withAppFile('embedded.mobileprovision', base64_decode($main->content_encrypted))
+        ->executable(IpaBuilder::machO(entitlements: ['application-identifier' => "{$team}.com.ruappstore.vpn"]))
+        ->withExtension('Tunnel', 'org.example.vpn.tunnel')
+        ->build());
+
+    expect(SignedBuild::sole()->status)->toBe(SignedBuildStatus::ValidationFailed)
+        ->and(SignedBuild::sole()->status_reason)->toBe('EXTENSION_ID_CHANGED');
+});

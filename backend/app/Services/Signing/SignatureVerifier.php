@@ -73,8 +73,20 @@ class SignatureVerifier
         }
 
         $artifact = $build->artifact;
-        if ($result->bundleValue('bundle_identifier') !== $artifact->bundle_identifier) {
+        $bundleIdentifier = $artifact->signingBundleIdentifier();
+        if ($result->bundleValue('bundle_identifier') !== $bundleIdentifier) {
             return 'BUNDLE_ID_CHANGED';
+        }
+        // Every extension carries the ID it was provisioned for, and nothing was added.
+        $extensions = array_column($artifact->signingExtensions(), 'bundle_identifier');
+        $signed = array_values(array_map(
+            fn (array $item) => $item['bundle_identifier'] ?? null,
+            array_filter($result->report['nested_bundles'] ?? [], fn (array $item) => ($item['type'] ?? null) === 'extension'),
+        ));
+        sort($extensions);
+        sort($signed);
+        if ($signed !== $extensions) {
+            return 'EXTENSION_ID_CHANGED';
         }
         if ($result->bundleValue('version') !== $artifact->version || $result->bundleValue('build_number') !== $artifact->build_number) {
             return 'VERSION_CHANGED';
@@ -100,7 +112,7 @@ class SignatureVerifier
         }
 
         $applicationId = $result->report['entitlements']['application-identifier'] ?? null;
-        if ($applicationId !== null && $applicationId !== $expected->team->apple_team_id.'.'.$artifact->bundle_identifier) {
+        if ($applicationId !== null && $applicationId !== $expected->team->apple_team_id.'.'.$bundleIdentifier) {
             return 'ENTITLEMENTS_MISMATCH';
         }
 

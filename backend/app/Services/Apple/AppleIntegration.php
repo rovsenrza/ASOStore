@@ -54,6 +54,16 @@ interface AppleIntegration
     public function ensureBundleId(AppleTeam $team, string $identifier, string $name): string;
 
     /**
+     * Enables capabilities (bundleIdCapabilities capabilityType values) on an App ID;
+     * ones already enabled are left alone.
+     *
+     * @param  list<string>  $capabilityTypes
+     *
+     * @throws AppleException
+     */
+    public function ensureCapabilities(AppleTeam $team, string $bundleIdResource, array $capabilityTypes): void;
+
+    /**
      * Creates an ad hoc profile for one certificate and one device.
      *
      * @throws AppleException

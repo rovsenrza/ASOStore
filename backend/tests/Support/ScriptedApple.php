@@ -80,6 +80,13 @@ final class ScriptedApple implements AppleIntegration
         return $resource;
     }
 
+    public function ensureCapabilities(AppleTeam $team, string $bundleIdResource, array $capabilityTypes): void
+    {
+        if ($capabilityTypes !== []) {
+            $this->calls[] = "capabilities:{$bundleIdResource}:".implode(',', $capabilityTypes);
+        }
+    }
+
     public function createAdHocProfile(AppleTeam $team, string $name, string $bundleIdResource, string $certificateId, string $appleDeviceId): AppleProfile
     {
         $this->calls[] = "profile:{$bundleIdResource}:{$appleDeviceId}";

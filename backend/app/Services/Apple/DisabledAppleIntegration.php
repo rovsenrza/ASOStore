@@ -45,6 +45,11 @@ class DisabledAppleIntegration implements AppleIntegration
         throw new AppleException('Apple integration is disabled.', 'APPLE_NOT_CONNECTED');
     }
 
+    public function ensureCapabilities(AppleTeam $team, string $bundleIdResource, array $capabilityTypes): void
+    {
+        throw new AppleException('Apple integration is disabled.', 'APPLE_NOT_CONNECTED');
+    }
+
     public function createAdHocProfile(AppleTeam $team, string $name, string $bundleIdResource, string $certificateId, string $appleDeviceId): AppleProfile
     {
         throw new AppleException('Apple integration is disabled.', 'APPLE_NOT_CONNECTED');

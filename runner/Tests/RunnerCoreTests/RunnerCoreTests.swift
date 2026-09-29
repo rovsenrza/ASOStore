@@ -161,6 +161,58 @@ struct SigningTests {
         }
     }
 
+    @Test(.enabled(if: Tools.available("zip")))
+    func signsAnExtensionWithItsOwnProfileAndReidentifiesBoth() throws {
+        let setup = try SigningSetup()
+        defer { setup.remove() }
+        let (source, job, extensionProfile) = try setup.withExtension()
+
+        let output = try Signer().sign(job: job, identity: setup.identity, source: source, workDirectory: setup.work)
+
+        let summary = try #require(output.report["codesign"])
+        #expect(summary.contains("Identifier=com.ruappstore.test;"))
+        #expect(summary.contains("Extensions=1"))
+        let app = try Signer.unpack(output.ipa, into: setup.work.appendingPathComponent("result"), code: "UNPACK_FAILED")
+        let appex = app.appendingPathComponent("PlugIns/Tunnel.appex")
+        #expect(try Data(contentsOf: appex.appendingPathComponent("embedded.mobileprovision")) == extensionProfile)
+        let info = try #require(try PropertyListSerialization.propertyList(from: Data(contentsOf: appex.appendingPathComponent("Info.plist")), format: nil) as? [String: Any])
+        let executable = try #require(info["CFBundleExecutable"] as? String)
+        let extensionSignature = try #require(try CodeSignature.read(fileAt: appex.appendingPathComponent(executable)).first)
+        #expect(extensionSignature.identifier == "com.ruappstore.test.tunnel")
+        let entitlements = try #require(try extensionSignature.entitlements.flatMap { try PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any] })
+        #expect(entitlements["application-identifier"] as? String == "TESTTEAM01.com.ruappstore.test.tunnel")
+    }
+
+    @Test(.enabled(if: Tools.available("zip")))
+    func refusesAnExtensionTheLeaseHasNoProfileFor() throws {
+        let setup = try SigningSetup()
+        defer { setup.remove() }
+        var (source, job, _) = try setup.withExtension()
+        job.nested = []
+
+        #expect {
+            try Signer().sign(job: job, identity: setup.identity, source: source, workDirectory: setup.work)
+        } throws: { error in
+            guard case let RunnerError.job(code, message, _) = error else { return false }
+            return code == "NESTED_PROFILE_REQUIRED" && message.contains("PlugIns/Tunnel.appex")
+        }
+    }
+
+    @Test(.enabled(if: Tools.available("zip")))
+    func refusesAnExtensionProfileForAnotherBundle() throws {
+        let setup = try SigningSetup()
+        defer { setup.remove() }
+        var (source, job, _) = try setup.withExtension()
+        job.nested[0].bundleIdentifier = "com.ruappstore.test.other"
+
+        #expect {
+            try Signer().sign(job: job, identity: setup.identity, source: source, workDirectory: setup.work)
+        } throws: { error in
+            guard case let RunnerError.job(code, _, _) = error else { return false }
+            return code == "PROFILE_MISMATCH"
+        }
+    }
+
     @Test func refusesToSignWithAnotherCertificate() throws {
         let setup = try SigningSetup()
         defer { setup.remove() }
@@ -231,21 +283,7 @@ struct SigningSetup {
         folder = try TestIdentity.make()
         identity = try #require(try Identities.load(directory: folder.identities).first)
 
-        let certificate = try Data(contentsOf: identity.certificate)
-        let plist = folder.root.appendingPathComponent("profile.plist")
-        try PropertyListSerialization.data(fromPropertyList: [
-            "Name": "Runner Test AdHoc",
-            "UUID": "11111111-2222-3333-4444-555555555555",
-            "TeamIdentifier": ["TESTTEAM01"],
-            "DeveloperCertificates": [certificate],
-            "ProvisionedDevices": ["00008140-000000000000001C"],
-            "ExpirationDate": Date().addingTimeInterval(86_400),
-            "Entitlements": ["application-identifier": "TESTTEAM01.com.example.storefront.demo", "get-task-allow": false, "keychain-access-groups": ["TESTTEAM01.*"]],
-        ], format: .xml, options: 0).write(to: plist)
-        let profileFile = folder.root.appendingPathComponent("test.mobileprovision")
-        try Tools.openssl(["cms", "-sign", "-in", plist.path, "-signer", folder.certificatePEM.path, "-inkey", folder.privateKey.path,
-                           "-outform", "DER", "-nodetach", "-binary", "-out", profileFile.path])
-        profile = try Data(contentsOf: profileFile)
+        profile = try Self.makeProfile(folder: folder, identity: identity, bundleIdentifier: "com.example.storefront.demo", uuid: "11111111-2222-3333-4444-555555555555")
 
         source = try #require(Bundle.module.url(forResource: "DemoApp", withExtension: "ipa", subdirectory: "Fixtures"))
         work = folder.root.appendingPathComponent("job", isDirectory: true)
@@ -261,4 +299,56 @@ struct SigningSetup {
     }
 
     func remove() { try? FileManager.default.removeItem(at: folder.root) }
+
+    /// An ad hoc profile for one bundle ID, signed by the test identity.
+    static func makeProfile(folder: TestIdentity, identity: IdentityFiles, bundleIdentifier: String, uuid: String) throws -> Data {
+        let certificate = try Data(contentsOf: identity.certificate)
+        let plist = folder.root.appendingPathComponent("\(uuid).plist")
+        try PropertyListSerialization.data(fromPropertyList: [
+            "Name": "Runner Test AdHoc \(bundleIdentifier)",
+            "UUID": uuid,
+            "TeamIdentifier": ["TESTTEAM01"],
+            "DeveloperCertificates": [certificate],
+            "ProvisionedDevices": ["00008140-000000000000001C"],
+            "ExpirationDate": Date().addingTimeInterval(86_400),
+            "Entitlements": [
+                "application-identifier": "TESTTEAM01.\(bundleIdentifier)", "com.apple.developer.team-identifier": "TESTTEAM01",
+                "get-task-allow": false, "keychain-access-groups": ["TESTTEAM01.*"],
+            ],
+        ], format: .xml, options: 0).write(to: plist)
+        let profileFile = folder.root.appendingPathComponent("\(uuid).mobileprovision")
+        try Tools.openssl(["cms", "-sign", "-in", plist.path, "-signer", folder.certificatePEM.path, "-inkey", folder.privateKey.path,
+                           "-outform", "DER", "-nodetach", "-binary", "-out", profileFile.path])
+        return try Data(contentsOf: profileFile)
+    }
+
+    /// The fixture with an app extension added (a copy of the app as PlugIns/Tunnel.appex,
+    /// bundle ID com.example.storefront.demo.tunnel), and a lease that re-identifies both
+    /// to com.ruappstore.test and com.ruappstore.test.tunnel.
+    func withExtension() throws -> (source: URL, job: SigningJob, extensionProfile: Data) {
+        let build = folder.root.appendingPathComponent("with-extension", isDirectory: true)
+        let app = try Signer.unpack(source, into: build, code: "TEST_SETUP")
+        let appex = app.appendingPathComponent("PlugIns/Tunnel.appex", isDirectory: true)
+        try FileManager.default.createDirectory(at: appex, withIntermediateDirectories: true)
+        var info = try #require(try PropertyListSerialization.propertyList(from: Data(contentsOf: app.appendingPathComponent("Info.plist")), format: nil) as? [String: Any])
+        let executable = try #require(info["CFBundleExecutable"] as? String)
+        try FileManager.default.copyItem(at: app.appendingPathComponent(executable), to: appex.appendingPathComponent(executable))
+        info["CFBundleIdentifier"] = "com.example.storefront.demo.tunnel"
+        info["CFBundlePackageType"] = "XPC!"
+        info["NSExtension"] = ["NSExtensionPointIdentifier": "com.apple.networkextension.packet-tunnel", "NSExtensionPrincipalClass": "PacketTunnelProvider"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: appex.appendingPathComponent("Info.plist"))
+
+        let ipa = folder.root.appendingPathComponent("with-extension.ipa")
+        try Shell.require("TEST_SETUP", "sh", ["-c", "cd '\(build.path)' && zip -qry '\(ipa.path)' Payload"])
+
+        let appProfile = try Self.makeProfile(folder: folder, identity: identity, bundleIdentifier: "com.ruappstore.test", uuid: "22222222-2222-3333-4444-555555555555")
+        let extensionProfile = try Self.makeProfile(folder: folder, identity: identity, bundleIdentifier: "com.ruappstore.test.tunnel", uuid: "33333333-2222-3333-4444-555555555555")
+        var job = self.job
+        job.bundleIdentifier = "com.ruappstore.test"
+        job.profile = .init(uuid: "22222222-2222-3333-4444-555555555555", content: appProfile.base64EncodedString())
+        job.nested = [.init(path: "PlugIns/Tunnel.appex", bundleIdentifier: "com.ruappstore.test.tunnel",
+                            profile: .init(uuid: "33333333-2222-3333-4444-555555555555", content: extensionProfile.base64EncodedString()))]
+        job.source = .init(sha256: try RequestSigner.sha256(fileAt: ipa), sizeBytes: 0, path: "/source")
+        return (ipa, job, extensionProfile)
+    }
 }

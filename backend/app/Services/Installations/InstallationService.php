@@ -175,7 +175,7 @@ class InstallationService
                 'items' => [[
                     'assets' => $assets,
                     'metadata' => [
-                        'bundle-identifier' => (string) $artifact->bundle_identifier,
+                        'bundle-identifier' => $artifact->signingBundleIdentifier(),
                         'bundle-version' => (string) $artifact->version,
                         'kind' => 'software',
                         'title' => $app->name,

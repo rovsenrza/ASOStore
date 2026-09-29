@@ -4,6 +4,7 @@ namespace App\Services\Quotas;
 
 use App\Enums\AppleTeamStatus;
 use App\Enums\DeviceRegistrationStatus as Status;
+use App\Jobs\RegisterDeviceJob;
 use App\Models\AppleTeam;
 use App\Models\CatalogApp;
 use App\Models\DeviceRegistration;
@@ -11,7 +12,6 @@ use App\Models\QuotaReservation;
 use App\Models\TeamAppEligibility;
 use App\Models\TeamAssignment;
 use App\Models\TeamQuota;
-use App\Jobs\RegisterDeviceJob;
 use App\Services\Apple\AppleIntegration;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
@@ -154,7 +154,7 @@ class TeamSelector
             $year = $team->currentMembershipYear();
             $artifact = $team->storefrontApp?->publishedArtifact;
             if ($year === null || $artifact === null || ! $this->apple->isConfigured($team)
-                || ! TeamAppEligibility::allows($team->id, (string) $artifact->bundle_identifier)) {
+                || ! TeamAppEligibility::allows($team->id, $artifact->signingBundleIdentifier())) {
                 continue;
             }
             // A second listing with the same Bundle ID is not a distinct app

@@ -117,6 +117,13 @@ class IpaInspector
 
                 if ($binary['role'] === 'main') {
                     $mainSlices = $slices;
+                } elseif ($binary['role'] === 'extension') {
+                    // Each extension is provisioned with its own capabilities (ProfileProvisioner).
+                    foreach ($report['nested_bundles'] as $index => $item) {
+                        if ($item['type'] === 'extension' && str_starts_with($binary['path'], $item['path'].'/')) {
+                            $report['nested_bundles'][$index]['entitlements'] = $this->entitlements($slices);
+                        }
+                    }
                 }
             }
 

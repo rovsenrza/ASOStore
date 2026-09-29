@@ -157,10 +157,16 @@ class SigningService
             'job_id' => $job->public_id,
             'lease_expires_at' => $job->lease_expires_at?->toIso8601ZuluString(),
             'signed_build_id' => $build->public_id,
-            'bundle_identifier' => $artifact->bundle_identifier,
+            // The runner re-identifies the IPA to these IDs before signing.
+            'bundle_identifier' => $artifact->signingBundleIdentifier(),
             'team_identifier' => $profile->team->apple_team_id,
             'certificate_sha1' => strtoupper($certificate->sha1_fingerprint),
             'profile' => ['uuid' => $profile->uuid, 'content' => $profile->content_encrypted],
+            'nested' => array_map(fn (array $extension) => [
+                'path' => $extension['path'],
+                'bundle_identifier' => $extension['bundle_identifier'],
+                'profile' => ['uuid' => $extension['profile']->uuid, 'content' => $extension['profile']->content_encrypted],
+            ], $this->profiles->extensionProfiles($artifact, $profile)),
             'source' => [
                 'sha256' => $artifact->sha256,
                 'size_bytes' => $artifact->size_bytes,

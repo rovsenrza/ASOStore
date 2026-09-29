@@ -43,7 +43,7 @@ class CompatibilityChecker
         }
 
         // A team must be approved to distribute this bundle ID (IMPLEMENTATION_PLAN §5.7, P7-BE-03).
-        if (config('storefront.artifacts.require_team_eligibility') && ! $this->hasEligibleTeam((string) $artifact->bundle_identifier)) {
+        if (config('storefront.artifacts.require_team_eligibility') && ! $this->hasEligibleTeam($artifact->signingBundleIdentifier())) {
             $blocking[] = ['code' => 'TEAM_NOT_ELIGIBLE', 'message' => 'No active Apple team is approved for this bundle ID. Add a team eligibility, then upload again.'];
         }
 

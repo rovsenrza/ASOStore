@@ -114,6 +114,27 @@ class AppStoreConnectIntegration implements AppleIntegration
         return (string) $created->json('data.id');
     }
 
+    public function ensureCapabilities(AppleTeam $team, string $bundleIdResource, array $capabilityTypes): void
+    {
+        if ($capabilityTypes === []) {
+            return;
+        }
+
+        $existing = $this->send($team, fn (PendingRequest $http) => $http->get("/bundleIds/{$bundleIdResource}/bundleIdCapabilities", ['limit' => 200]));
+        $enabled = array_map(fn (array $capability) => $capability['attributes']['capabilityType'] ?? null, (array) $existing->json('data'));
+
+        foreach (array_diff($capabilityTypes, $enabled) as $type) {
+            // A capability enabled concurrently answers 409; that is the state we want.
+            $this->send($team, fn (PendingRequest $http) => $http->post('/bundleIdCapabilities', [
+                'data' => [
+                    'type' => 'bundleIdCapabilities',
+                    'attributes' => ['capabilityType' => $type],
+                    'relationships' => ['bundleId' => ['data' => ['type' => 'bundleIds', 'id' => $bundleIdResource]]],
+                ],
+            ]), allowConflict: true);
+        }
+    }
+
     public function createAdHocProfile(AppleTeam $team, string $name, string $bundleIdResource, string $certificateId, string $appleDeviceId): AppleProfile
     {
         $response = $this->send($team, fn (PendingRequest $http) => $http->post('/profiles', [

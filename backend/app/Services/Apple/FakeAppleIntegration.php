@@ -82,6 +82,12 @@ class FakeAppleIntegration implements AppleIntegration
         return $resource;
     }
 
+    public function ensureCapabilities(AppleTeam $team, string $bundleIdResource, array $capabilityTypes): void
+    {
+        $key = $this->key($team, 'capabilities:'.$bundleIdResource);
+        $this->cache->forever($key, array_values(array_unique([...(array) $this->cache->get($key, []), ...$capabilityTypes])));
+    }
+
     /**
      * A structurally real .mobileprovision payload (CMS envelope simulated)
      * listing the device, so signature verification can be exercised locally.

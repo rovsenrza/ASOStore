@@ -24,8 +24,18 @@ Connect credentials. Signing-certificate private keys exist only in the runner's
    independently (hash, bundle ID, profile UUID, team, device in the profile) before it can be installed.
 7. The job folder is deleted whether the job succeeded or not.
 
-Not yet supported: apps with extensions, watch apps or App Clips (each nested bundle needs its own
-profile). Such jobs fail with `NESTED_PROFILE_REQUIRED`.
+App extensions (`PlugIns/*.appex`, `Extensions/*.appex`) are signed with their own profiles. The
+lease lists each one under `nested` (`path`, `bundle_identifier`, `profile`); the backend provisions a
+profile per bundle ID and enables the capabilities its entitlements need (Network Extensions, App
+Groups, …). The lease's `bundle_identifier` may differ from the IPA's: the runner then re-identifies
+the app and its extensions (Info.plist `CFBundleIdentifier`) before signing, so an app whose own ID
+belongs to another Apple team can be signed as `com.ruappstore.*`. With extensions, zsign gets one
+`-m` per profile and no `-e`, so each bundle takes its own profile's entitlements. An extension the
+lease does not list, a watch app or an App Clip fails the job with `NESTED_PROFILE_REQUIRED`.
+
+App Group identifiers cannot be created through the App Store Connect API: create the group in the
+developer portal and assign it to the app's and the extensions' App IDs, or the profiles carry no
+`com.apple.security.application-groups`.
 
 ## Identities folder
 

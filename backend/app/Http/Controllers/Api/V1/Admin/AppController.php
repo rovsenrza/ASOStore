@@ -10,9 +10,9 @@ use App\Http\Controllers\Controller;
 use App\Http\Resources\AdminAppResource;
 use App\Http\Responses\ApiResponse;
 use App\Models\AppCategory;
+use App\Models\AppleTeam;
 use App\Models\AppPublisher;
 use App\Models\CatalogApp;
-use App\Models\AppleTeam;
 use App\Services\Audit\AuditService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -80,7 +80,7 @@ class AppController extends Controller
     public function update(Request $request, string $app): JsonResponse
     {
         $model = $this->find($app);
-        $data = $request->validate($this->rules(creating: false));
+        $data = $request->validate($this->rules(creating: false, appId: $model->id));
         if (array_key_exists('is_storefront', $data) && ! $data['is_storefront']
             && AppleTeam::query()->where('storefront_app_id', $model->id)->exists()) {
             throw new ApiException(ErrorCode::Conflict, 'Вариант Ru AppStore назначен команде Apple.');
@@ -135,13 +135,16 @@ class AppController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function rules(bool $creating): array
+    private function rules(bool $creating, ?int $appId = null): array
     {
         $required = $creating ? 'required' : 'sometimes';
 
         return [
             'name' => [$required, 'string', 'max:100'],
             'slug' => ['sometimes', 'nullable', 'string', 'max:96', 'alpha_dash'],
+            // Signed builds carry this ID instead of the IPA's (AppArtifact::signingBundleIdentifier).
+            'bundle_identifier' => ['sometimes', 'nullable', 'string', 'max:155', 'regex:/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/',
+                Rule::unique('apps', 'bundle_identifier')->ignore($appId)],
             'subtitle' => ['sometimes', 'nullable', 'string', 'max:120'],
             'description' => ['sometimes', 'nullable', 'string', 'max:4000'],
             'category_id' => [$required, 'string', Rule::exists('app_categories', 'public_id')],
@@ -163,7 +166,7 @@ class AppController extends Controller
      */
     private function attributes(array $data): array
     {
-        $attributes = array_intersect_key($data, array_flip(['name', 'subtitle', 'description', 'source_type', 'age_rating', 'featured_rank', 'support_url', 'privacy_url', 'is_storefront']));
+        $attributes = array_intersect_key($data, array_flip(['name', 'subtitle', 'description', 'bundle_identifier', 'source_type', 'age_rating', 'featured_rank', 'support_url', 'privacy_url', 'is_storefront']));
         if (isset($data['category_id'])) {
             $attributes['category_id'] = AppCategory::query()->where('public_id', $data['category_id'])->value('id');
         }

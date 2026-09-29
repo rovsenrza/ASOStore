@@ -6,6 +6,7 @@ use App\Enums\DeviceRegistrationStatus;
 use App\Models\AppArtifact;
 use App\Models\Certificate;
 use App\Models\Device;
+use App\Models\DeviceRegistration;
 use App\Models\SigningProfile;
 use App\Models\TeamAppEligibility;
 use App\Services\Apple\AppleCredentialsException;
@@ -30,6 +31,9 @@ class ProfileProvisioner
         private readonly AuditService $audit,
     ) {}
 
+    /**
+     * Profiles for the app and each of its extensions (one per bundle ID); returns the app's.
+     */
     public function ensure(AppArtifact $artifact, Device $device): SigningProfile
     {
         $registration = $device->latestRegistration;
@@ -38,12 +42,46 @@ class ProfileProvisioner
         }
 
         $team = $registration->team;
-        $bundle = (string) $artifact->bundle_identifier;
+        $bundle = $artifact->signingBundleIdentifier();
         if (config('storefront.artifacts.require_team_eligibility') && ! TeamAppEligibility::allows($team->id, $bundle)) {
             throw new SigningUnavailable('TEAM_NOT_ELIGIBLE', "Team {$team->apple_team_id} is not approved for {$bundle}.");
         }
         $certificate = $this->certificate($team->id);
+        $name = (string) $artifact->app?->name;
 
+        $main = $this->ensureOne($registration, $device, $certificate, $bundle, $name, Capabilities::fromEntitlements($artifact->inspection['entitlements'] ?? []));
+        foreach ($artifact->signingExtensions() as $extension) {
+            $this->ensureOne($registration, $device, $certificate, $extension['bundle_identifier'],
+                $name.' '.basename($extension['path'], '.appex'), Capabilities::fromEntitlements($extension['entitlements']));
+        }
+
+        return $main;
+    }
+
+    /**
+     * The extensions' profiles for a build whose app profile is $main.
+     *
+     * @return list<array{path: string, bundle_identifier: string, profile: SigningProfile}>
+     */
+    public function extensionProfiles(AppArtifact $artifact, SigningProfile $main): array
+    {
+        $profiles = [];
+        foreach ($artifact->signingExtensions() as $extension) {
+            $profile = SigningProfile::query()
+                ->where(['apple_team_id' => $main->apple_team_id, 'bundle_identifier' => $extension['bundle_identifier'], 'device_id' => $main->device_id])
+                ->first() ?? throw new SigningUnavailable('EXTENSION_PROFILE_MISSING', "No profile for {$extension['bundle_identifier']}.");
+            $profiles[] = ['path' => $extension['path'], 'bundle_identifier' => $extension['bundle_identifier'], 'profile' => $profile];
+        }
+
+        return $profiles;
+    }
+
+    /**
+     * @param  list<string>  $capabilities
+     */
+    private function ensureOne(DeviceRegistration $registration, Device $device, Certificate $certificate, string $bundle, string $name, array $capabilities): SigningProfile
+    {
+        $team = $registration->team;
         $profile = SigningProfile::query()
             ->where(['apple_team_id' => $team->id, 'bundle_identifier' => $bundle, 'device_id' => $device->id])
             ->first();
@@ -66,7 +104,9 @@ class ProfileProvisioner
                 }
             }
 
-            $bundleResource = $this->apple->ensureBundleId($team, $bundle, $artifact->app->name);
+            $bundleResource = $this->apple->ensureBundleId($team, $bundle, $name);
+            // Before the profile: Apple builds its entitlements from the App ID's capabilities.
+            $this->apple->ensureCapabilities($team, $bundleResource, $capabilities);
             $created = $this->apple->createAdHocProfile(
                 $team,
                 sprintf('%s %s %s', config('storefront.brand'), $bundle, $device->udid_hint),

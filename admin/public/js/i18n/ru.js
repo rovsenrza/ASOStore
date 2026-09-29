@@ -72,6 +72,8 @@ export default {
     ageRating: 'Возраст',
     featuredRank: 'Позиция в «Выборе редакции»',
     featuredHint: 'Пусто — не показывать в подборке.',
+    bundleId: 'Bundle ID для подписи',
+    bundleIdHint: 'Пусто — Bundle ID из IPA. Задайте свой (com.ruappstore.…), если Bundle ID из IPA принадлежит другой команде Apple; расширения получат его как префикс. Добавьте этот ID в «Разрешённые приложения» команды.',
     supportUrl: 'Сайт поддержки (https)',
     privacyUrl: 'Политика конфиденциальности (https)',
     reasonOptional: 'Причина изменения (необязательно)',

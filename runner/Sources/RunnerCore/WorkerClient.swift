@@ -29,31 +29,65 @@ public struct SigningJob: Codable, Sendable {
         }
     }
 
+    /// An app extension signed with its own profile (one per bundle ID).
+    public struct Nested: Codable, Sendable {
+        /// Path inside the .app, e.g. "PlugIns/Tunnel.appex".
+        public var path: String
+        public var bundleIdentifier: String
+        public var profile: Profile
+
+        public init(path: String, bundleIdentifier: String, profile: Profile) {
+            self.path = path
+            self.bundleIdentifier = bundleIdentifier
+            self.profile = profile
+        }
+
+        enum CodingKeys: String, CodingKey { case path, bundleIdentifier = "bundle_identifier", profile }
+    }
+
     public var jobID: String
     public var signedBuildID: String
+    /// The bundle ID the signed app carries; the IPA is re-identified to it when it differs.
     public var bundleIdentifier: String
     public var teamIdentifier: String
     public var certificateSHA1: String
     public var profile: Profile
+    public var nested: [Nested]
     public var source: Source
     public var uploadPath: String
     public var resultPath: String
 
-    public init(jobID: String, signedBuildID: String, bundleIdentifier: String, teamIdentifier: String, certificateSHA1: String, profile: Profile, source: Source, uploadPath: String, resultPath: String) {
+    public init(jobID: String, signedBuildID: String, bundleIdentifier: String, teamIdentifier: String, certificateSHA1: String, profile: Profile, nested: [Nested] = [], source: Source, uploadPath: String, resultPath: String) {
         self.jobID = jobID
         self.signedBuildID = signedBuildID
         self.bundleIdentifier = bundleIdentifier
         self.teamIdentifier = teamIdentifier
         self.certificateSHA1 = certificateSHA1
         self.profile = profile
+        self.nested = nested
         self.source = source
         self.uploadPath = uploadPath
         self.resultPath = resultPath
     }
 
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        jobID = try container.decode(String.self, forKey: .jobID)
+        signedBuildID = try container.decode(String.self, forKey: .signedBuildID)
+        bundleIdentifier = try container.decode(String.self, forKey: .bundleIdentifier)
+        teamIdentifier = try container.decode(String.self, forKey: .teamIdentifier)
+        certificateSHA1 = try container.decode(String.self, forKey: .certificateSHA1)
+        profile = try container.decode(Profile.self, forKey: .profile)
+        // Leases from backends that predate extension signing carry no list.
+        nested = try container.decodeIfPresent([Nested].self, forKey: .nested) ?? []
+        source = try container.decode(Source.self, forKey: .source)
+        uploadPath = try container.decode(String.self, forKey: .uploadPath)
+        resultPath = try container.decode(String.self, forKey: .resultPath)
+    }
+
     enum CodingKeys: String, CodingKey {
         case jobID = "job_id", signedBuildID = "signed_build_id", bundleIdentifier = "bundle_identifier"
-        case teamIdentifier = "team_identifier", certificateSHA1 = "certificate_sha1", profile, source
+        case teamIdentifier = "team_identifier", certificateSHA1 = "certificate_sha1", profile, nested, source
         case uploadPath = "upload_path", resultPath = "result_path"
     }
 }

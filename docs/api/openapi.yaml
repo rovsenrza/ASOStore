@@ -3886,6 +3886,10 @@ components:
         slug: { type: [string, "null"], maxLength: 96 }
         subtitle: { type: [string, "null"], maxLength: 120 }
         description: { type: [string, "null"], maxLength: 4000 }
+        bundle_identifier:
+          type: [string, "null"]
+          maxLength: 155
+          description: Bundle ID signed builds carry instead of the IPA's (e.g. com.ruappstore.app-name); app extensions get it as their prefix. Null uses the IPA's own ID.
         category_id: { $ref: "#/components/schemas/PublicId" }
         publisher_id: { $ref: "#/components/schemas/PublicId" }
         source_type: { $ref: "#/components/schemas/SourceType" }
