@@ -5,10 +5,12 @@ namespace App\Services\Operations;
 use App\Enums\ArtifactStatus;
 use App\Enums\SignedBuildStatus;
 use App\Models\AppArtifact;
+use App\Models\CatalogApp;
 use App\Models\Device;
 use App\Models\InstallationEvent;
 use App\Models\SignedBuild;
 use App\Models\UploadSession;
+use App\Services\Artifacts\ArtifactPurger;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use Illuminate\Support\Facades\Storage;
@@ -38,6 +40,13 @@ class RetentionService
             $upload->chunks()->delete();
             $upload->forceFill(['status' => 'EXPIRED'])->save();
             $summary['upload_sessions']++;
+        }
+
+        // Deleted listings whose files are still on disk (deleted before purging existed, or a failed purge).
+        $summary['deleted_app_artifacts'] = 0;
+        $leftovers = CatalogApp::onlyTrashed()->whereHas('artifacts', fn ($query) => $query->whereNull('purged_at'))->get();
+        foreach ($leftovers as $app) {
+            $summary['deleted_app_artifacts'] += app(ArtifactPurger::class)->purgeApp($app, Actor::system('retention'), 'Listing deleted.')['artifacts'];
         }
 
         // Files of artifacts that never became installable. The row stays: it is audit evidence.

@@ -180,7 +180,7 @@ it('serves admin catalog responses that match the contract', function () {
     $check($this->postJson("/api/v1/admin/apps/{$id}/versions", ['version' => '1.0.0', 'build_number' => '1']), 'VersionResponse');
     $check($this->postJson('/api/v1/admin/categories', ['title' => 'Контракт']), 'AdminCategoryResponse');
     $check($this->postJson('/api/v1/admin/publishers', ['name' => 'Контракт Паблишер']), 'AdminPublisherResponse');
-    $check($this->deleteJson("/api/v1/admin/apps/{$id}", ['reason' => 'contract']), 'EmptyResponse');
+    $check($this->deleteJson("/api/v1/admin/apps/{$id}", ['reason' => 'contract']), 'DeleteAppResponse');
     $check($this->postJson("/api/v1/admin/apps/{$id}/restore"), 'AdminAppDetailResponse');
 });
 

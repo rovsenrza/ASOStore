@@ -58,6 +58,8 @@ return [
         'fake_processing_seconds' => (int) env('STOREFRONT_APPLE_FAKE_PROCESSING_SECONDS', 20),
         // Apple's limit per product family per membership year (FULL_PLAN §1.3).
         'device_limit_per_family' => (int) env('STOREFRONT_APPLE_DEVICE_LIMIT', 100),
+        // Ruby with fastlane, for App Groups through the developer portal (AppGroupProvisioner).
+        'portal_ruby' => env('STOREFRONT_APPLE_PORTAL_RUBY', 'ruby'),
     ],
 
     'devices' => [

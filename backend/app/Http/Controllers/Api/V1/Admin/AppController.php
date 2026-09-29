@@ -13,6 +13,8 @@ use App\Models\AppCategory;
 use App\Models\AppleTeam;
 use App\Models\AppPublisher;
 use App\Models\CatalogApp;
+use App\Services\Artifacts\ArtifactPurger;
+use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use App\Services\Catalog\AppStoreImporter;
 use App\Services\Catalog\TeamEligibilityGranter;
@@ -139,8 +141,10 @@ class AppController extends Controller
         }
         $model->delete();
         $this->audit->record('app.deleted', $model, reason: $data['reason']);
+        // Free the disk: its builds end and their IPAs are deleted (the card itself can be restored).
+        $purged = app(ArtifactPurger::class)->purgeApp($model, Actor::user($request->user()), $data['reason']);
 
-        return ApiResponse::ok(null);
+        return ApiResponse::ok(['purged' => $purged]);
     }
 
     public function restore(Request $request, string $app): JsonResponse

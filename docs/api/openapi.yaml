@@ -1252,8 +1252,8 @@ paths:
     delete:
       tags: [Admin]
       operationId: adminDeleteApp
-      summary: Soft-delete a listing
-      description: 'Requires catalog.manage and a reason.'
+      summary: Soft-delete a listing and free its storage
+      description: 'Requires catalog.manage and a reason. Its builds end (published ones are revoked) and their IPA files and signed builds are deleted from disk; the card can be restored, its IPAs cannot.'
       security:
         - sessionCookie: []
       parameters:
@@ -1270,7 +1270,7 @@ paths:
             X-Request-Id: { $ref: "#/components/headers/RequestId" }
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/EmptyResponse" }
+              schema: { $ref: "#/components/schemas/DeleteAppResponse" }
         "401":
           $ref: "#/components/responses/Error"
         "403":
@@ -3543,6 +3543,22 @@ components:
         - $ref: "#/components/schemas/SuccessEnvelope"
         - properties:
             data: { type: "null" }
+
+    DeleteAppResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: object
+              required: [purged]
+              properties:
+                purged:
+                  type: object
+                  required: [artifacts, signed_builds, bytes]
+                  properties:
+                    artifacts: { type: integer, minimum: 0 }
+                    signed_builds: { type: integer, minimum: 0 }
+                    bytes: { type: integer, minimum: 0, description: Disk space freed }
 
     AcceptedResponse:
       allOf:

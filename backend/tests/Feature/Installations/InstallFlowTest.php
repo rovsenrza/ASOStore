@@ -18,6 +18,8 @@ use App\Models\RefreshToken;
 use App\Models\Runner;
 use App\Models\SignedBuild;
 use App\Models\SigningProfile;
+use App\Services\Apple\AppGroupProvisioner;
+use App\Services\Apple\AppGroupUnavailable;
 use App\Services\Signing\SigningService;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -25,6 +27,7 @@ use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
 use Tests\Support\IpaBuilder;
 use Tests\Support\OpenApiContract;
+use Tests\Support\RecordingAppGroups;
 use Tests\Support\ScriptedApple;
 
 const RUNNER_SECRET = 'test-runner-secret-0123456789abcdef';
@@ -417,4 +420,26 @@ it('rejects a signed build whose extension kept its original bundle ID', functio
 
     expect(SignedBuild::sole()->status)->toBe(SignedBuildStatus::ValidationFailed)
         ->and(SignedBuild::sole()->status_reason)->toBe('EXTENSION_ID_CHANGED');
+});
+
+it('assigns the app its own App Group before its profiles are made', function () {
+    $portal = new RecordingAppGroups;
+    app()->instance(AppGroupProvisioner::class, $portal);
+
+    preparedVpnApp($this);
+
+    // The app asks for an App Group (its tunnel extension does not): one group, named after the signing ID.
+    expect($portal->calls)->toBe([['group.com.ruappstore.vpn', 'com.ruappstore.vpn']])
+        ->and(SigningProfile::count())->toBe(2);
+});
+
+it('still signs when the Apple ID session for App Groups has expired, and tells the operator', function () {
+    $portal = new RecordingAppGroups;
+    $portal->failure = new AppGroupUnavailable('SESSION_EXPIRED', 'Two-factor code required');
+    app()->instance(AppGroupProvisioner::class, $portal);
+
+    preparedVpnApp($this);
+
+    expect(SigningProfile::count())->toBe(2)
+        ->and(AuditLog::where('action', 'signing.app_group_unavailable')->sole()->reason)->toContain('apple:portal-login');
 });

@@ -4,11 +4,14 @@ namespace App\Services\Signing;
 
 use App\Enums\DeviceRegistrationStatus;
 use App\Models\AppArtifact;
+use App\Models\AppleTeam;
 use App\Models\Certificate;
 use App\Models\Device;
 use App\Models\DeviceRegistration;
 use App\Models\SigningProfile;
 use App\Models\TeamAppEligibility;
+use App\Services\Apple\AppGroupProvisioner;
+use App\Services\Apple\AppGroupUnavailable;
 use App\Services\Apple\AppleCredentialsException;
 use App\Services\Apple\AppleException;
 use App\Services\Apple\AppleIntegration;
@@ -16,6 +19,7 @@ use App\Services\Apple\AppleRetryableException;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use App\Services\Pipeline\RetryLater;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -29,6 +33,7 @@ class ProfileProvisioner
     public function __construct(
         private readonly AppleIntegration $apple,
         private readonly AuditService $audit,
+        private readonly AppGroupProvisioner $appGroups,
     ) {}
 
     /**
@@ -49,10 +54,16 @@ class ProfileProvisioner
         $certificate = $this->certificate($team->id);
         $name = (string) $artifact->app?->name;
 
-        $main = $this->ensureOne($registration, $device, $certificate, $bundle, $name, Capabilities::fromEntitlements($artifact->inspection['entitlements'] ?? []));
-        foreach ($artifact->signingExtensions() as $extension) {
+        $capabilities = Capabilities::fromEntitlements($artifact->inspection['entitlements'] ?? []);
+        $extensions = array_map(fn (array $extension) => $extension + ['capabilities' => Capabilities::fromEntitlements($extension['entitlements'])], $artifact->signingExtensions());
+        // One App Group per app, shared by the app and its extensions, named after the signing ID.
+        $needsGroup = in_array('APP_GROUPS', array_merge($capabilities, ...array_column($extensions, 'capabilities')), true);
+        $group = $needsGroup ? 'group.'.$bundle : null;
+
+        $main = $this->ensureOne($registration, $device, $certificate, $bundle, $name, $capabilities, $group);
+        foreach ($extensions as $extension) {
             $this->ensureOne($registration, $device, $certificate, $extension['bundle_identifier'],
-                $name.' '.basename($extension['path'], '.appex'), Capabilities::fromEntitlements($extension['entitlements']));
+                $name.' '.basename($extension['path'], '.appex'), $extension['capabilities'], in_array('APP_GROUPS', $extension['capabilities'], true) ? $group : null);
         }
 
         return $main;
@@ -79,14 +90,19 @@ class ProfileProvisioner
     /**
      * @param  list<string>  $capabilities
      */
-    private function ensureOne(DeviceRegistration $registration, Device $device, Certificate $certificate, string $bundle, string $name, array $capabilities): SigningProfile
+    private function ensureOne(DeviceRegistration $registration, Device $device, Certificate $certificate, string $bundle, string $name, array $capabilities, ?string $group = null): SigningProfile
     {
         $team = $registration->team;
         $profile = SigningProfile::query()
             ->where(['apple_team_id' => $team->id, 'bundle_identifier' => $bundle, 'device_id' => $device->id])
             ->first();
         if ($profile !== null && $profile->isUsable() && $profile->certificate_id === $certificate->id) {
-            return $profile;
+            // A profile made before its App Group existed lacks it: replace it once the group is assigned,
+            // otherwise keep using it (no new profile per install while the portal is unavailable).
+            if ($group === null || self::carriesGroup($profile, $group) || ! $this->assignGroup($team, $group, $bundle, $name)) {
+                return $profile;
+            }
+            $group = null; // assigned just now
         }
 
         try {
@@ -105,8 +121,11 @@ class ProfileProvisioner
             }
 
             $bundleResource = $this->apple->ensureBundleId($team, $bundle, $name);
-            // Before the profile: Apple builds its entitlements from the App ID's capabilities.
+            // Before the profile: Apple builds its entitlements from the App ID's capabilities and groups.
             $this->apple->ensureCapabilities($team, $bundleResource, $capabilities);
+            if ($group !== null) {
+                $this->assignGroup($team, $group, $bundle, $name);
+            }
             // Apple refuses a second profile with the same name, and profiles this service
             // does not know about can exist in the team (another environment, a restored
             // database), so every name is unique. The bundle ID goes last: Apple keeps 100 characters.
@@ -145,6 +164,32 @@ class ProfileProvisioner
         ], actor: Actor::system('signing'));
 
         return $profile;
+    }
+
+    /**
+     * Assigns the app's App Group through the developer portal. Never blocks signing:
+     * without a configured Apple ID, or with an expired session, the profile is made without
+     * the group and the operator is told how to fix it.
+     */
+    private function assignGroup(AppleTeam $team, string $group, string $bundle, string $name): bool
+    {
+        try {
+            return $this->appGroups->ensure($team, $group, $bundle, $name);
+        } catch (AppGroupUnavailable $e) {
+            Log::warning('signing.app_group_unavailable', ['group' => $group, 'bundle' => $bundle, 'reason' => $e->reason, 'message' => $e->getMessage()]);
+            $this->audit->record('signing.app_group_unavailable', $team, after: ['group' => $group, 'bundle_identifier' => $bundle, 'reason' => $e->reason],
+                reason: $e->reason === 'SESSION_EXPIRED' ? 'Apple ID session expired: run php artisan apple:portal-login' : mb_substr($e->getMessage(), 0, 500),
+                actor: Actor::system('signing'));
+
+            return false;
+        }
+    }
+
+    private static function carriesGroup(SigningProfile $profile, string $group): bool
+    {
+        $parsed = ProvisioningProfile::parse((string) base64_decode((string) $profile->content_encrypted, true));
+
+        return in_array($group, (array) ($parsed['entitlements']['com.apple.security.application-groups'] ?? []), true);
     }
 
     private function certificate(int $teamId): Certificate
