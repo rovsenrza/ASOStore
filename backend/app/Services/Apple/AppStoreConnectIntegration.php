@@ -120,7 +120,8 @@ class AppStoreConnectIntegration implements AppleIntegration
             return;
         }
 
-        $existing = $this->send($team, fn (PendingRequest $http) => $http->get("/bundleIds/{$bundleIdResource}/bundleIdCapabilities", ['limit' => 200]));
+        // This relationship takes no paging parameters (Apple rejects `limit`) and returns them all.
+        $existing = $this->send($team, fn (PendingRequest $http) => $http->get("/bundleIds/{$bundleIdResource}/bundleIdCapabilities"));
         $enabled = array_map(fn (array $capability) => $capability['attributes']['capabilityType'] ?? null, (array) $existing->json('data'));
 
         foreach (array_diff($capabilityTypes, $enabled) as $type) {

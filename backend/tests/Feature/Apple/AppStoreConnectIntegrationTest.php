@@ -57,6 +57,9 @@ it('enables only the capabilities an App ID is missing', function () {
 
     $this->apple->ensureCapabilities($this->team, 'B1', ['NETWORK_EXTENSIONS', 'APP_GROUPS']);
 
+    // Apple refuses paging parameters on this relationship.
+    Http::assertSent(fn (Request $request) => $request->method() === 'GET'
+        && $request->url() === 'https://api.appstoreconnect.apple.com/v1/bundleIds/B1/bundleIdCapabilities');
     $posts = collect(Http::recorded())->map(fn (array $pair) => $pair[0])->filter(fn (Request $request) => $request->method() === 'POST')->values();
     expect($posts)->toHaveCount(1)
         ->and($posts[0]['data']['attributes'])->toBe(['capabilityType' => 'NETWORK_EXTENSIONS'])
