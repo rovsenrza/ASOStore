@@ -27,13 +27,11 @@ final class RecordingAppGroups extends AppGroupProvisioner
         return true;
     }
 
-    public function ensure(AppleTeam $team, string $groupId, string $bundleIdentifier, string $name): bool
+    protected function assign(AppleTeam $team, string $groupId, string $bundleIdentifier, string $name): void
     {
         $this->calls[] = [$groupId, $bundleIdentifier];
         if ($this->failure !== null) {
             throw $this->failure;
         }
-
-        return true;
     }
 }

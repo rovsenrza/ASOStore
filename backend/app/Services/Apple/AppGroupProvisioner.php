@@ -3,6 +3,8 @@
 namespace App\Services\Apple;
 
 use App\Models\AppleTeam;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Str;
 use Throwable;
@@ -36,12 +38,32 @@ class AppGroupProvisioner
             return false;
         }
 
+        // The assignment belongs to the App ID, not the device: once done, later profiles skip the portal.
+        $assigned = "apple-portal:group:{$team->apple_team_id}:{$groupId}:{$bundleIdentifier}";
+        if (Cache::get($assigned) === true) {
+            return true;
+        }
+
+        try {
+            // The portal answers 503 to parallel sessions of one Apple ID: one call per team at a time.
+            Cache::lock('apple-portal:'.$team->apple_team_id, 200)->block(190, fn () => $this->assign($team, $groupId, $bundleIdentifier, $name));
+        } catch (LockTimeoutException) {
+            throw new AppGroupUnavailable('PORTAL_BUSY', 'The developer portal is busy with other App IDs.');
+        }
+        Cache::put($assigned, true, now()->addDays(30));
+
+        return true;
+    }
+
+    /**
+     * @throws AppGroupUnavailable
+     */
+    protected function assign(AppleTeam $team, string $groupId, string $bundleIdentifier, string $name): void
+    {
         $result = $this->run(['ensure', $team->apple_team_id, $groupId, self::groupName($name), $bundleIdentifier], 180);
         if (($result['ok'] ?? false) !== true) {
             throw new AppGroupUnavailable((string) ($result['code'] ?? 'PORTAL_ERROR'), (string) ($result['message'] ?? 'The developer portal did not answer.'));
         }
-
-        return true;
     }
 
     /**

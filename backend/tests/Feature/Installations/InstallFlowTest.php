@@ -492,6 +492,12 @@ it('assigns the app its own App Group before its profiles are made', function ()
     // The app asks for an App Group (its tunnel extension does not): one group, named after the signing ID.
     expect($portal->calls)->toBe([['group.com.ruappstore.vpn', 'com.ruappstore.vpn']])
         ->and(SigningProfile::count())->toBe(2);
+
+    // The group belongs to the App ID: a new profile for it (another device, a renewal) skips the portal.
+    SigningProfile::query()->delete();
+    app(SigningService::class)->prepare(SignedBuild::sole());
+    expect($portal->calls)->toHaveCount(1)
+        ->and(SigningProfile::count())->toBe(2);
 });
 
 it('still signs when the Apple ID session for App Groups has expired, and tells the operator', function () {

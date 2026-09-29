@@ -20,8 +20,12 @@ use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use App\Services\Pipeline\RetryLater;
 use Closure;
-use Illuminate\Support\Facades\Concurrency;
+use Illuminate\Console\Application;
+use Illuminate\Process\Pool;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Process;
+use Laravel\SerializableClosure\SerializableClosure;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -70,7 +74,7 @@ class ProfileProvisioner
         // Each new profile is several Apple calls in a row; extensions are independent, so they run side by side.
         $ids = [$registration->id, $device->id, $certificate->id];
         $results = count($pending) > 1
-            ? Concurrency::run(array_map(fn (array $extension) => self::extensionTask($ids, $extension, $name, $group), $pending))
+            ? self::runSideBySide(array_map(fn (array $extension) => self::extensionTask($ids, $extension, $name, $group), $pending))
             : array_map(fn (array $extension) => $this->ensureExtension(...$ids, extension: $extension, name: $name, group: $group), $pending);
 
         $failures = array_filter($results);
@@ -84,6 +88,39 @@ class ProfileProvisioner
         }
 
         return $main;
+    }
+
+    /**
+     * Concurrency::run() with a longer timeout: its child processes stop after 60 seconds,
+     * and App Group assignments wait for each other at the portal.
+     *
+     * @param  list<Closure(): array<string, mixed>>  $tasks
+     * @return list<array<string, mixed>>
+     */
+    private static function runSideBySide(array $tasks): array
+    {
+        if (config('concurrency.default') === 'sync') {
+            return array_map(fn (Closure $task) => $task(), $tasks);
+        }
+
+        $command = Application::formatCommandString('invoke-serialized-closure');
+        $results = Process::pool(function (Pool $pool) use ($tasks, $command) {
+            foreach ($tasks as $key => $task) {
+                $pool->as((string) $key)->path(base_path())->timeout(240)
+                    ->env(['LARAVEL_INVOKABLE_CLOSURE' => base64_encode(serialize(new SerializableClosure($task)))])
+                    ->command($command);
+            }
+        })->start()->wait();
+
+        return array_map(function (int $key) use ($results) {
+            $output = $results[(string) $key]->throw()->output();
+            $decoded = json_decode(substr($output, 0, strpos($output, "\x1f\x8b") ?: null), true);
+            if (! ($decoded['successful'] ?? false)) {
+                throw new RuntimeException(($decoded['exception'] ?? 'Error').': '.($decoded['message'] ?? mb_substr($output, 0, 500)));
+            }
+
+            return unserialize($decoded['result']);
+        }, array_keys($tasks));
     }
 
     /**

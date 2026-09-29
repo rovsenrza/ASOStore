@@ -26,4 +26,7 @@ them on the new code.
    sudo -u storefront php artisan tinker --execute='App\Jobs\PrepareSigningJob::dispatch(<pipeline job id>);'
    ```
 3. More workers: `APPLE_WORKERS=4 ./scripts/install-queue-workers.sh` (as root). Each prepare also
-   starts one short-lived process per new extension profile (`Concurrency::run`).
+   starts one short-lived process per new extension profile (`ProfileProvisioner::runSideBySide`).
+4. App Group assignments go through the developer portal one at a time per team (it answers 503
+   to parallel sessions) and are remembered for 30 days per App ID. `signing.app_group_unavailable`
+   with `PORTAL_BUSY` means assignments queued up behind each other; the next prepare retries them.
