@@ -107,11 +107,29 @@ class AppStoreConnectIntegration implements AppleIntegration
         $created = $this->send($team, fn (PendingRequest $http) => $http->post('/bundleIds', [
             'data' => [
                 'type' => 'bundleIds',
-                'attributes' => ['identifier' => $identifier, 'name' => mb_substr(preg_replace('/[^A-Za-z0-9 ]/', ' ', $name) ?: 'App', 0, 60), 'platform' => 'IOS'],
+                'attributes' => ['identifier' => $identifier, 'name' => self::appIdName($name, $identifier), 'platform' => 'IOS'],
             ],
         ]));
 
         return (string) $created->json('data.id');
+    }
+
+    /**
+     * Apple accepts only Latin letters, digits and spaces in an App ID's name. A Latin name
+     * is kept; any other (e.g. "Яндекс Пэй") is named after the bundle ID, which is Latin:
+     * com.ruappstore.yandex-pay → "Yandex Pay", com.ruappstore.yandex-pay.widget → "Yandex Pay Widget".
+     */
+    public static function appIdName(string $name, string $identifier): string
+    {
+        $clean = fn (string $text) => trim((string) preg_replace('/\s+/', ' ', (string) preg_replace('/[^A-Za-z0-9 ]/', ' ', $text)));
+        if (preg_match('/^[\x20-\x7E]+$/', $name) === 1 && $clean($name) !== '') {
+            return mb_substr($clean($name), 0, 60);
+        }
+
+        $prefix = (string) config('storefront.artifacts.own_bundle_prefix');
+        $words = $prefix !== '' && str_starts_with($identifier, $prefix) ? substr($identifier, strlen($prefix)) : $identifier;
+
+        return mb_substr(ucwords(strtolower($clean(str_replace(['.', '-', '_'], ' ', $words)))) ?: 'App', 0, 60);
     }
 
     public function ensureCapabilities(AppleTeam $team, string $bundleIdResource, array $capabilityTypes): void

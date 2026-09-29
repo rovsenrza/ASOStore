@@ -66,6 +66,13 @@ it('enables only the capabilities an App ID is missing', function () {
         ->and($posts[0]['data']['relationships']['bundleId']['data'])->toBe(['type' => 'bundleIds', 'id' => 'B1']);
 });
 
+it('names App IDs in Latin letters, which is all Apple accepts', function () {
+    expect(AppStoreConnectIntegration::appIdName('Яндекс Пэй', 'com.ruappstore.yandex-pay'))->toBe('Yandex Pay')
+        ->and(AppStoreConnectIntegration::appIdName('Яндекс Пэй Widget', 'com.ruappstore.yandex-pay.widget'))->toBe('Yandex Pay Widget')
+        ->and(AppStoreConnectIntegration::appIdName('AmneziaVPN tunnel', 'x.y'))->toBe('AmneziaVPN tunnel')
+        ->and(AppStoreConnectIntegration::appIdName('✓✓✓', 'org.example.app'))->toBe('Org Example App');
+});
+
 it('registers an iOS device', function () {
     Http::fake(['api.appstoreconnect.apple.com/v1/devices' => Http::response(($this->device)(), 201)]);
 

@@ -4,6 +4,7 @@ namespace App\Services\Apple;
 
 use App\Models\AppleTeam;
 use Illuminate\Support\Facades\Process;
+use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -78,6 +79,8 @@ class AppGroupProvisioner
     /** Apple accepts letters, digits and spaces in a group's name. */
     public static function groupName(string $name): string
     {
-        return mb_substr(trim((string) preg_replace('/[^A-Za-z0-9 ]+/', ' ', 'Ru AppStore '.$name)) ?: 'Ru AppStore', 0, 50);
+        $clean = trim((string) preg_replace('/\s+/', ' ', (string) preg_replace('/[^A-Za-z0-9 ]+/', ' ', 'Ru AppStore '.Str::ascii($name))));
+
+        return mb_substr($clean ?: 'Ru AppStore', 0, 50);
     }
 }
