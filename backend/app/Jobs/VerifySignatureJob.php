@@ -15,6 +15,8 @@ class VerifySignatureJob extends PipelineQueueJob
 {
     public const TYPE = 'VerifySignatureJob';
 
+    public const QUEUE = 'files';
+
     public int $timeout = 1800;
 
     protected function run(PipelineJob $job): string

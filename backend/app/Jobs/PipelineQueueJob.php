@@ -29,7 +29,16 @@ abstract class PipelineQueueJob implements ShouldBeUnique, ShouldQueue
     /** Apps with many extensions need many Apple calls; queue.database.retry_after must stay above this. */
     public int $timeout = 300;
 
-    public function __construct(public int $pipelineJobId) {}
+    /**
+     * Apple calls and file work run on separate queues and workers, so a large IPA
+     * never holds up a customer's profile (ops/systemd).
+     */
+    public const QUEUE = 'apple';
+
+    public function __construct(public int $pipelineJobId)
+    {
+        $this->onQueue(static::QUEUE);
+    }
 
     /**
      * Does the work and returns the result code stored on the job.

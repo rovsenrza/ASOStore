@@ -53,6 +53,6 @@ Schedule::call(fn () => app(RetentionService::class)->run())
 // Shared-hosting queue mode (IMPLEMENTATION_PLAN D6): cron runs a short-lived worker every
 // minute. Set STOREFRONT_SCHEDULED_QUEUE_WORKER=false when a supervised worker runs instead.
 if (config('storefront.scheduled_queue_worker')) {
-    Schedule::command('queue:work --stop-when-empty --max-time=50')
+    Schedule::command('queue:work --queue=apple,default,files --stop-when-empty --max-time=50')
         ->name('queue:work-scheduled')->everyMinute()->withoutOverlapping()->runInBackground();
 }

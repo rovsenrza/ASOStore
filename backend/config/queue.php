@@ -44,6 +44,17 @@ return [
             'after_commit' => false,
         ],
 
+        // Workers of the files queue use this: inspection and verification may run 30 minutes,
+        // and a shorter retry_after would hand them out twice (ops/systemd).
+        'database_files' => [
+            'driver' => 'database',
+            'connection' => env('DB_QUEUE_CONNECTION'),
+            'table' => env('DB_QUEUE_TABLE', 'jobs'),
+            'queue' => 'files',
+            'retry_after' => (int) env('DB_FILES_QUEUE_RETRY_AFTER', 1900),
+            'after_commit' => false,
+        ],
+
         'beanstalkd' => [
             'driver' => 'beanstalkd',
             'host' => env('BEANSTALKD_QUEUE_HOST', 'localhost'),

@@ -6,7 +6,9 @@ use App\Enums\PipelineJobStatus;
 use App\Enums\RoleSlug;
 use App\Enums\SignedBuildStatus;
 use App\Http\Middleware\VerifyWorkerSignature;
+use App\Jobs\InspectArtifactJob;
 use App\Jobs\PrepareSigningJob;
+use App\Jobs\VerifySignatureJob;
 use App\Models\AppArtifact;
 use App\Models\AppleTeam;
 use App\Models\AuditLog;
@@ -358,7 +360,7 @@ it('signs a fresh build after the certificate of the old one is revoked', functi
  * A published VPN-style app whose own bundle ID belongs to another team: the listing
  * signs it as com.ruappstore.vpn, and its packet-tunnel extension goes along.
  */
-function preparedVpnApp(object $test): CatalogApp
+function preparedVpnApp(object $test, bool $widget = false): CatalogApp
 {
     runnerHeartbeat()->assertOk();
     approveTeamFor('com.ruappstore.vpn', $test->team);
@@ -366,10 +368,13 @@ function preparedVpnApp(object $test): CatalogApp
     $manager = userWithRoles(RoleSlug::CatalogManager);
     $listing = CatalogApp::factory()->create(['visibility' => 'PUBLISHED', 'bundle_identifier' => 'com.ruappstore.vpn']);
     $tunnel = ['application-identifier' => 'OTHERTEAM1.org.example.vpn.tunnel', 'com.apple.developer.networking.networkextension' => ['packet-tunnel-provider']];
-    $artifact = inspected(uploadIpa($manager, $listing, IpaBuilder::app('org.example.vpn')
+    $ipa = IpaBuilder::app('org.example.vpn')
         ->executable(IpaBuilder::machO(entitlements: ['application-identifier' => 'OTHERTEAM1.org.example.vpn', 'com.apple.security.application-groups' => ['group.org.example.vpn']]))
-        ->withExtension('Tunnel', 'org.example.vpn.tunnel', entitlements: $tunnel)
-        ->build()));
+        ->withExtension('Tunnel', 'org.example.vpn.tunnel', entitlements: $tunnel);
+    if ($widget) {
+        $ipa->withExtension('Widget', 'org.example.vpn.widget', entitlements: ['application-identifier' => 'OTHERTEAM1.org.example.vpn.widget']);
+    }
+    $artifact = inspected(uploadIpa($manager, $listing, $ipa->build()));
     test()->postJson("/api/v1/admin/artifacts/{$artifact->public_id}/review", [
         'decision' => 'approve',
         'checklist' => ['source_verified' => true, 'distribution_rights_confirmed' => true, 'inspection_report_reviewed' => true],
@@ -378,12 +383,12 @@ function preparedVpnApp(object $test): CatalogApp
     test()->postJson("/api/v1/admin/artifacts/{$artifact->public_id}/publish")->assertOk();
     forgetGuards();
 
-    expect($artifact->refresh()->signingExtensions())->toBe([[
+    expect($artifact->refresh()->signingExtensions()[0])->toBe([
         'path' => 'PlugIns/Tunnel.appex',
         'source_bundle_identifier' => 'org.example.vpn.tunnel',
         'bundle_identifier' => 'com.ruappstore.vpn.tunnel',
         'entitlements' => $tunnel,
-    ]]);
+    ]);
 
     $token = $test->customer->createToken('ios')->plainTextToken;
     RefreshToken::create([
@@ -442,6 +447,24 @@ it('signs an app extension with its own profile under the listing bundle ID', fu
     $link = $this->withToken($this->vpnToken)->postJson("/api/v1/installations/{$installation->public_id}/authorize")->assertOk()->json('data');
     forgetGuards();
     expect($this->get($link['manifest_url'])->assertOk()->getContent())->toContain('<string>com.ruappstore.vpn</string>');
+});
+
+it('makes the profiles of several extensions side by side, and reuses them next time', function () {
+    preparedVpnApp($this, widget: true);
+
+    expect(SigningProfile::orderBy('bundle_identifier')->pluck('bundle_identifier')->all())
+        ->toBe(['com.ruappstore.vpn', 'com.ruappstore.vpn.tunnel', 'com.ruappstore.vpn.widget']);
+    $uuids = SigningProfile::orderBy('id')->pluck('uuid')->all();
+
+    $build = SignedBuild::sole();
+    expect(app(SigningService::class)->prepare($build->fresh()))->toBe('QUEUED_FOR_RUNNER')
+        ->and(SigningProfile::orderBy('id')->pluck('uuid')->all())->toBe($uuids);
+});
+
+it('routes Apple work and file work to separate queues', function () {
+    expect((new PrepareSigningJob(1))->queue)->toBe('apple')
+        ->and((new VerifySignatureJob(1))->queue)->toBe('files')
+        ->and((new InspectArtifactJob(1))->queue)->toBe('files');
 });
 
 it('rejects a signed build whose extension kept its original bundle ID', function () {

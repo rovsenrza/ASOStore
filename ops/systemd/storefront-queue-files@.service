@@ -1,0 +1,18 @@
+# File work: IPA inspection and signature verification, up to 30 minutes for large IPAs.
+# The database_files connection gives these jobs a retry_after above their timeout.
+# Installed by scripts/install-queue-workers.sh; `php artisan queue:restart` (deploy) reloads the code.
+[Unit]
+Description=Storefront queue worker (files) %i
+After=network.target mysql.service
+
+[Service]
+User=storefront
+Group=storefront
+WorkingDirectory=/var/www/storefront/app/backend
+ExecStart=/usr/bin/php8.3 artisan queue:work database_files --queue=files --sleep=1 --timeout=1800 --max-time=3600 --memory=512
+Restart=always
+RestartSec=2
+TimeoutStopSec=1830
+
+[Install]
+WantedBy=multi-user.target

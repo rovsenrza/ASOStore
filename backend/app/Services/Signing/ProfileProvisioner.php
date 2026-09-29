@@ -19,6 +19,8 @@ use App\Services\Apple\AppleRetryableException;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use App\Services\Pipeline\RetryLater;
+use Closure;
+use Illuminate\Support\Facades\Concurrency;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -60,13 +62,82 @@ class ProfileProvisioner
         $needsGroup = in_array('APP_GROUPS', array_merge($capabilities, ...array_column($extensions, 'capabilities')), true);
         $group = $needsGroup ? 'group.'.$bundle : null;
 
+        // The app first: it creates the App Group its extensions join.
         $main = $this->ensureOne($registration, $device, $certificate, $bundle, $name, $capabilities, $group);
-        foreach ($extensions as $extension) {
-            $this->ensureOne($registration, $device, $certificate, $extension['bundle_identifier'],
-                $name.' '.basename($extension['path'], '.appex'), $extension['capabilities'], in_array('APP_GROUPS', $extension['capabilities'], true) ? $group : null);
+
+        $pending = array_values(array_filter($extensions, fn (array $extension) => ! $this->hasCurrentProfile(
+            $team, $device, $certificate, $extension['bundle_identifier'], self::extensionGroup($extension, $group))));
+        // Each new profile is several Apple calls in a row; extensions are independent, so they run side by side.
+        $ids = [$registration->id, $device->id, $certificate->id];
+        $results = count($pending) > 1
+            ? Concurrency::run(array_map(fn (array $extension) => self::extensionTask($ids, $extension, $name, $group), $pending))
+            : array_map(fn (array $extension) => $this->ensureExtension(...$ids, extension: $extension, name: $name, group: $group), $pending);
+
+        $failures = array_filter($results);
+        $retry = array_filter($failures, fn (array $failure) => $failure['error'] === 'retry');
+        if ($retry !== []) {
+            throw new RetryLater(reset($retry)['message'], max(array_column($retry, 'seconds')));
+        }
+        if ($failures !== []) {
+            $failure = reset($failures);
+            throw new SigningUnavailable($failure['reason'], $failure['message']);
         }
 
         return $main;
+    }
+
+    /**
+     * Its own method: the closure is serialized from its source, which must hold no other closure on the line.
+     *
+     * @param  array{int, int, int}  $ids
+     * @param  array{bundle_identifier: string, path: string, capabilities: list<string>}  $extension
+     */
+    private static function extensionTask(array $ids, array $extension, string $name, ?string $group): Closure
+    {
+        return static fn () => app(self::class)->ensureExtension(...$ids, extension: $extension, name: $name, group: $group);
+    }
+
+    /**
+     * One extension's profile. Runs in a child process, which exceptions do not cross intact,
+     * so failures come back as data.
+     *
+     * @param  array{bundle_identifier: string, path: string, capabilities: list<string>}  $extension
+     * @return array{error?: 'retry'|'unavailable', reason?: string, message?: string, seconds?: int}
+     */
+    public function ensureExtension(int $registrationId, int $deviceId, int $certificateId, array $extension, string $name, ?string $group): array
+    {
+        try {
+            $this->ensureOne(DeviceRegistration::query()->findOrFail($registrationId), Device::query()->findOrFail($deviceId),
+                Certificate::query()->findOrFail($certificateId), $extension['bundle_identifier'],
+                $name.' '.basename($extension['path'], '.appex'), $extension['capabilities'], self::extensionGroup($extension, $group));
+
+            return [];
+        } catch (RetryLater $e) {
+            return ['error' => 'retry', 'message' => $e->getMessage(), 'seconds' => $e->seconds];
+        } catch (SigningUnavailable $e) {
+            return ['error' => 'unavailable', 'reason' => $e->reason, 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * @param  array{capabilities: list<string>}  $extension
+     */
+    private static function extensionGroup(array $extension, ?string $group): ?string
+    {
+        return in_array('APP_GROUPS', $extension['capabilities'], true) ? $group : null;
+    }
+
+    /**
+     * True when ensureOne() would keep the existing profile without calling Apple.
+     */
+    private function hasCurrentProfile(AppleTeam $team, Device $device, Certificate $certificate, string $bundle, ?string $group): bool
+    {
+        $profile = SigningProfile::query()
+            ->where(['apple_team_id' => $team->id, 'bundle_identifier' => $bundle, 'device_id' => $device->id])
+            ->first();
+
+        return $profile !== null && $profile->isUsable() && $profile->certificate_id === $certificate->id
+            && ($group === null || self::carriesGroup($profile, $group));
     }
 
     /**

@@ -1,0 +1,18 @@
+# Apple work: profiles and device registrations. Customers wait on these, so several run at once.
+# Installed by scripts/install-queue-workers.sh; `php artisan queue:restart` (deploy) reloads the code.
+[Unit]
+Description=Storefront queue worker (apple) %i
+After=network.target mysql.service
+
+[Service]
+User=storefront
+Group=storefront
+WorkingDirectory=/var/www/storefront/app/backend
+ExecStart=/usr/bin/php8.3 artisan queue:work database --queue=apple,default --sleep=1 --timeout=300 --max-time=3600 --memory=256
+Restart=always
+RestartSec=2
+# Let the running job finish on stop (its timeout plus a margin).
+TimeoutStopSec=330
+
+[Install]
+WantedBy=multi-user.target

@@ -13,6 +13,8 @@ class InspectArtifactJob extends PipelineQueueJob
 {
     public const TYPE = 'InspectArtifactJob';
 
+    public const QUEUE = 'files';
+
     public int $timeout = 1800;
 
     public static function idempotencyKey(AppArtifact $artifact): string

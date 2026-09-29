@@ -8,6 +8,7 @@ from the alert or symptom an operator actually sees, and names the exact screens
 | [Apple API outage](apple-api-outage.md) | Registrations stuck in `APPLE_PENDING`, `apple_api_429_count` rising, `APPLE_UNAVAILABLE` |
 | [Quota reconciliation mismatch](quota-mismatch.md) | Alert `quota.mismatch` |
 | [Signing runner offline](runner-offline.md) | Alert `runner-offline`, installs stuck in «Подготовка» |
+| [Queue workers](queue-workers.md) | Installs stuck in «Подготовка» with the runner online, alert `queue_backlog` |
 | [Artifact quarantine](artifact-quarantine.md) | Artifact in `QUARANTINED` (malware scan hit) |
 | [Certificate expiry](certificate-expiry.md) | Alert `certificate.expiring`, team `EXPIRING` |
 | [Database restore](database-restore.md) | Data loss or corruption; monthly drill |
