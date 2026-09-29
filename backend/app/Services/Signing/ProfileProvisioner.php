@@ -107,9 +107,12 @@ class ProfileProvisioner
             $bundleResource = $this->apple->ensureBundleId($team, $bundle, $name);
             // Before the profile: Apple builds its entitlements from the App ID's capabilities.
             $this->apple->ensureCapabilities($team, $bundleResource, $capabilities);
+            // Apple refuses a second profile with the same name, and profiles this service
+            // does not know about can exist in the team (another environment, a restored
+            // database), so every name is unique. The bundle ID goes last: Apple keeps 100 characters.
             $created = $this->apple->createAdHocProfile(
                 $team,
-                sprintf('%s %s %s', config('storefront.brand'), $bundle, $device->udid_hint),
+                sprintf('%s %s %s %s', config('storefront.brand'), $device->udid_hint, now()->format('ymdHis'), $bundle),
                 $bundleResource,
                 $certificate->apple_certificate_id,
                 $registration->apple_device_id,

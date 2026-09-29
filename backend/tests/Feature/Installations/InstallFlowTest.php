@@ -149,6 +149,8 @@ it('installs a published app on a registered iPhone through the whole flow', fun
     $profile = SigningProfile::sole();
     expect($profile->bundle_identifier)->toBe('com.example.demo')
         ->and($profile->device_id)->toBe($this->device->id)
+        // Unique per creation: Apple refuses a duplicate name, even one this database never saw.
+        ->and($profile->name)->toMatch('/ \d{12} com\.example\.demo$/')
         ->and(PipelineJob::where('type', SigningService::RUNNER_JOB_TYPE)->sole()->status)->toBe(PipelineJobStatus::Queued);
 
     runnerSigns($this);
