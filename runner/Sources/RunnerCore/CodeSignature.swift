@@ -23,6 +23,9 @@ public struct CodeSignature: Sendable {
     var blobs: [Int: Data]
     /// The slice bytes the code hashes cover.
     var slice: Data
+    /// A bare Mach-O's own Info.plist (`__TEXT,__info_plist`): what special slot 1
+    /// hashes when there is no bundle, e.g. the Swift runtime dylibs older apps embed.
+    var embeddedInfoPlist: Data?
 
     /// First 20 bytes of the CodeDirectory hash, as codesign prints CDHash.
     public var cdHash: String { Data(Self.digest(codeDirectory, type: hashType).prefix(20)).hex }
@@ -63,6 +66,7 @@ public struct CodeSignature: Sendable {
         let commandCount = Int(bytes.u32(16, big: false))
         var offset = headerSize
         var signatureRange: Range<Int>?
+        var infoPlist: Data?
         for _ in 0..<commandCount {
             guard offset + 8 <= slice.count else { throw invalid(url, "load commands out of range") }
             let command = bytes.u32(offset, big: false), size = Int(bytes.u32(offset + 4, big: false))
@@ -70,6 +74,10 @@ public struct CodeSignature: Sendable {
                 let start = Int(bytes.u32(offset + 8, big: false)), length = Int(bytes.u32(offset + 12, big: false))
                 guard start + length <= slice.count else { throw invalid(url, "signature out of range") }
                 signatureRange = start..<start + length
+            }
+            // LC_SEGMENT_64 (0x19) / LC_SEGMENT (0x1) named __TEXT: look for its __info_plist section.
+            if (command == 0x19 || command == 0x1), bytes.name(offset + 8) == "__TEXT" {
+                infoPlist = infoPlist ?? embeddedInfoPlist(bytes, segment: offset, is64: command == 0x19)
             }
             guard size >= 8 else { throw invalid(url, "bad load command") }
             offset += size
@@ -120,8 +128,25 @@ public struct CodeSignature: Sendable {
             codeHashes: (0..<codeCount).map { hash(hashOffset + $0 * hashSize) },
             specialHashes: special,
             blobs: blobs,
-            slice: slice
+            slice: slice,
+            embeddedInfoPlist: infoPlist
         )
+    }
+
+    /// The bytes of `__TEXT,__info_plist` in the segment command at `segment`, if any.
+    private static func embeddedInfoPlist(_ bytes: Bytes, segment: Int, is64: Bool) -> Data? {
+        // segment_command(_64): sections follow the 56 (72) byte header; section(_64) is 68 (80) bytes.
+        let sectionCount = Int(bytes.u32(segment + (is64 ? 64 : 48), big: false))
+        let first = segment + (is64 ? 72 : 56), stride = is64 ? 80 : 68
+        for index in 0..<min(sectionCount, 255) {
+            let section = first + index * stride
+            guard bytes.name(section) == "__info_plist" else { continue }
+            let size = is64 ? Int(bytes.u64(section + 40, big: false)) : Int(bytes.u32(section + 36, big: false))
+            let start = Int(bytes.u32(section + (is64 ? 48 : 40), big: false))
+            guard size > 0, start > 0, start + size <= bytes.count else { return nil }
+            return bytes.data.subdata(in: start..<start + size)
+        }
+        return nil
     }
 
     // MARK: Checking
@@ -140,7 +165,7 @@ public struct CodeSignature: Sendable {
         for (slot, expected) in specialHashes where expected.contains(where: { $0 != 0 }) {
             let content: Data?
             switch slot {
-            case 1: content = bundle.flatMap { try? Data(contentsOf: $0.appendingPathComponent("Info.plist")) }
+            case 1: content = bundle.flatMap { try? Data(contentsOf: $0.appendingPathComponent("Info.plist")) } ?? embeddedInfoPlist
             case 3: content = bundle.flatMap { try? Data(contentsOf: $0.appendingPathComponent("_CodeSignature/CodeResources")) }
             default: content = blobs[slot]
             }
@@ -219,6 +244,12 @@ private struct Bytes {
 
     func u64(_ offset: Int, big: Bool) -> UInt64 {
         (0..<8).reduce(UInt64(0)) { $0 << 8 | UInt64(byte(offset + (big ? $1 : 7 - $1))) }
+    }
+
+    /// A fixed 16-byte Mach-O name (segment or section), NUL-padded.
+    func name(_ offset: Int) -> String {
+        let bytes = (0..<16).map { byte(offset + $0) }.prefix { $0 != 0 }
+        return String(decoding: bytes, as: UTF8.self)
     }
 
     func cString(_ offset: Int) -> String? {

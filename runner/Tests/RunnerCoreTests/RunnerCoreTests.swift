@@ -255,6 +255,50 @@ struct SigningTests {
 
 // MARK: - Fixtures
 
+/// Swift runtime dylibs that older apps embed carry their Info.plist inside the binary
+/// (`__TEXT,__info_plist`); codesign hashes it into special slot 1 with no bundle around.
+@Suite(.enabled(if: Tools.available("codesign") && Tools.available("clang")))
+struct EmbeddedInfoPlistTests {
+    private func signedDylib(plist: String) throws -> (URL, URL) {
+        let work = FileManager.default.temporaryDirectory.appendingPathComponent("embedded-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let source = work.appendingPathComponent("lib.c"), info = work.appendingPathComponent("Info.plist"), dylib = work.appendingPathComponent("libsample.dylib")
+        try "int sample(void) { return 42; }".write(to: source, atomically: true, encoding: .utf8)
+        try plist.write(to: info, atomically: true, encoding: .utf8)
+        try Shell.require("TEST_SETUP", "clang", ["-dynamiclib", source.path, "-o", dylib.path, "-Wl,-sectcreate,__TEXT,__info_plist,\(info.path)"])
+        try Shell.require("TEST_SETUP", "codesign", ["-f", "-s", "-", "-i", "com.example.runtime.sample", dylib.path])
+        return (work, dylib)
+    }
+
+    private let plist = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.example.runtime.sample</string></dict></plist>
+    """
+
+    @Test func verifiesTheInfoPlistSlotOfABareDylib() throws {
+        let (work, dylib) = try signedDylib(plist: plist)
+        defer { try? FileManager.default.removeItem(at: work) }
+
+        let signature = try #require(try CodeSignature.read(fileAt: dylib).first)
+        #expect(signature.specialHashes[1]?.contains { $0 != 0 } == true)
+        try signature.verifyHashes(bundle: nil)
+    }
+
+    @Test func rejectsAChangedEmbeddedInfoPlist() throws {
+        let (work, dylib) = try signedDylib(plist: plist)
+        defer { try? FileManager.default.removeItem(at: work) }
+
+        var bytes = try Data(contentsOf: dylib)
+        let marker = Data("com.example.runtime.sample</string>".utf8)
+        let range = try #require(bytes.range(of: marker))
+        bytes[range.lowerBound] = UInt8(ascii: "C")
+        try bytes.write(to: dylib)
+
+        let signature = try #require(try CodeSignature.read(fileAt: dylib).first)
+        #expect(throws: (any Error).self) { try signature.verifyHashes(bundle: nil) }
+    }
+}
+
 enum Tools {
     static func available(_ name: String) -> Bool { (try? Shell.locate(name)) != nil }
 
