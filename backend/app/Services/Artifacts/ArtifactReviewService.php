@@ -2,6 +2,7 @@
 
 namespace App\Services\Artifacts;
 
+use App\Enums\AppVisibility;
 use App\Enums\ArtifactStatus;
 use App\Enums\ErrorCode;
 use App\Exceptions\ApiException;
@@ -143,6 +144,14 @@ class ArtifactReviewService
             $version->save();
 
             $this->states->transition($artifact, ArtifactStatus::Published, actor: $by, extra: ['app_version_id' => $version->id, 'status_reason' => null]);
+
+            // A draft listing goes live with its first build (an imported card waits for its IPA).
+            if ($app->visibility === AppVisibility::Draft && $previous->isEmpty()
+                && ! AppArtifact::query()->where('app_id', $app->id)->whereKeyNot($artifact->id)->whereIn('status', [ArtifactStatus::Expired->value, ArtifactStatus::Revoked->value])->exists()) {
+                $app->forceFill(['visibility' => AppVisibility::Published])->save();
+                $this->audit->record('app.visibility_changed', $app, before: ['visibility' => AppVisibility::Draft->value],
+                    after: ['visibility' => AppVisibility::Published->value], reason: 'First build published.', actor: $by);
+            }
             $this->audit->record('artifact.published', $artifact, after: [
                 'app_id' => $app->public_id,
                 'version' => $artifact->version,

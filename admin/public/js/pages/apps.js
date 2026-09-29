@@ -118,6 +118,40 @@ document.querySelector('#add-app').addEventListener('click', () => {
   });
 });
 
+// One click from an App Store link to a draft card with icon, screenshots and description;
+// the IPA is uploaded next and publishing it publishes the card.
+document.querySelector('#import-app').hidden = !manage;
+document.querySelector('#import-app').addEventListener('click', () => {
+  const form = el('form', { className: 'stack', noValidate: true },
+    el('div', { className: 'form-status' }),
+    field(t('apps.importUrl'), el('input', {
+      name: 'url', type: 'url', required: true, maxLength: 500, autocomplete: 'off',
+      placeholder: 'https://apps.apple.com/ru/app/…/id123456789',
+    }), t('apps.importHint')),
+    field(t('apps.sourceType'), select('source_type', SOURCE_TYPES.map((s) => [s, t(`sourceTypes.${s}`)]), 'OWN_BUILD')),
+    el('div', { className: 'button-row' }, el('button', { type: 'submit', className: 'button button--primary' }, t('apps.importSubmit'))));
+  const panel = openDialog(t, { title: t('apps.import'), body: form });
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true;
+    submit.textContent = t('apps.importing');
+    try {
+      const { data } = await api.post('/admin/apps/import', Object.fromEntries(new FormData(form)));
+      panel.close();
+      toast(t('apps.imported', { name: data.name }), { tone: 'ok' });
+      for (const warning of data.warnings ?? []) toast(warning, { timeoutMs: 10000 });
+      appsTable.reload();
+      openEditor(data.id);
+    } catch (error) {
+      form.querySelector('.form-status').replaceChildren(errorNotice(t, error));
+      submit.disabled = false;
+      submit.textContent = t('apps.importSubmit');
+    }
+  });
+});
+
 async function openEditor(id) {
   const panel = openDialog(t, { title: t('common.loading'), body: el('p', {}, t('common.loading')), wide: true, onClose: () => appsTable.reload() });
 
@@ -150,8 +184,14 @@ function editor(app, refresh) {
 
   const nodes = [
     el('dl', { className: 'details' },
-      [[t('apps.bundle'), app.bundle_identifier ?? t('common.none')], ['Slug', app.slug], [t('apps.updated'), formatDateTime(app.updated_at)]]
+      [[t('apps.bundle'), app.bundle_identifier ?? t('common.none')], ['Slug', app.slug],
+        ...(app.app_store_id ? [['App Store', app.app_store_id]] : []), [t('apps.updated'), formatDateTime(app.updated_at)]]
         .map(([term, value]) => el('div', {}, el('dt', {}, term), el('dd', { className: 'mono' }, value)))),
+    // Next step after creating a card: its IPA, with this app already chosen.
+    manage && !app.deleted_at && !app.has_published_artifact
+      ? el('div', { className: 'notice stack' }, el('p', {}, t('apps.nextUpload')),
+        el('a', { className: 'button button--primary', href: `artifacts.html?app=${encodeURIComponent(app.id)}` }, t('apps.uploadIpa')))
+      : null,
     form,
     media(app, refresh),
     versions(app, refresh),
@@ -176,7 +216,7 @@ function editor(app, refresh) {
     nodes.push(lifecycle);
   }
 
-  return nodes;
+  return nodes.filter(Boolean);
 }
 
 function media(app, refresh) {

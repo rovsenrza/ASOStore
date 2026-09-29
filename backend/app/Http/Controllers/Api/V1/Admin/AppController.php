@@ -14,6 +14,7 @@ use App\Models\AppleTeam;
 use App\Models\AppPublisher;
 use App\Models\CatalogApp;
 use App\Services\Audit\AuditService;
+use App\Services\Catalog\AppStoreImporter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -75,6 +76,21 @@ class AppController extends Controller
         $this->audit->record('app.created', $app, after: ['name' => $app->name, 'visibility' => $app->visibility->value, 'source_type' => $app->source_type->value]);
 
         return ApiResponse::ok($this->detail($request, $app), 201);
+    }
+
+    /**
+     * A draft listing from an App Store link (AppStoreImporter); the IPA comes next.
+     */
+    public function import(Request $request, AppStoreImporter $importer): JsonResponse
+    {
+        $data = $request->validate([
+            'url' => ['required', 'string', 'max:500'],
+            'source_type' => ['sometimes', Rule::enum(SourceType::class)],
+        ]);
+
+        $result = $importer->import($data['url'], $request->user(), SourceType::from($data['source_type'] ?? SourceType::OwnBuild->value));
+
+        return ApiResponse::ok($this->detail($request, $result['app']) + ['warnings' => $result['warnings']], 201);
     }
 
     public function update(Request $request, string $app): JsonResponse

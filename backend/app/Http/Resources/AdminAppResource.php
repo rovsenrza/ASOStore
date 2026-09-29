@@ -52,6 +52,7 @@ class AdminAppResource extends JsonResource
                 'description' => $this->description,
                 'support_url' => $this->support_url,
                 'privacy_url' => $this->privacy_url,
+                'app_store_id' => $this->app_store_id,
                 'screenshots' => $this->screenshots->map(fn (AppScreenshot $screenshot) => $screenshot->present())->all(),
                 'versions' => $this->versions->map(fn (AppVersion $version) => [
                     'id' => $version->public_id,

@@ -132,6 +132,7 @@ Route::prefix('admin')->name('api.admin.')->group(function () {
 
         Route::get('/apps', [AdminAppController::class, 'index'])->can('catalog.view')->name('apps.index');
         Route::post('/apps', [AdminAppController::class, 'store'])->can('catalog.manage')->name('apps.store');
+        Route::post('/apps/import', [AdminAppController::class, 'import'])->can('catalog.manage')->middleware('throttle:30,1')->name('apps.import');
         Route::get('/apps/{app}', [AdminAppController::class, 'show'])->can('catalog.view')->name('apps.show');
         Route::patch('/apps/{app}', [AdminAppController::class, 'update'])->can('catalog.manage')->name('apps.update');
         Route::delete('/apps/{app}', [AdminAppController::class, 'destroy'])->can('catalog.manage')->name('apps.destroy');

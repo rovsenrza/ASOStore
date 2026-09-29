@@ -1152,6 +1152,47 @@ paths:
         "422":
           $ref: "#/components/responses/Error"
 
+  /admin/apps/import:
+    post:
+      tags: [Admin]
+      operationId: adminImportApp
+      summary: Create a draft listing from an App Store link
+      description: >-
+        Requires catalog.manage. Looks the app up in the App Store (Russian text when the listing has it) and
+        creates a DRAFT listing with name, description, category, publisher, age rating, icon, screenshots and a
+        com.ruappstore.* signing bundle ID the primary Apple team is approved for. Publishing the listing's first
+        build publishes the listing. `warnings` lists what could not be filled in (images, a missing Russian description).
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url: { type: string, maxLength: 500, description: 'https://apps.apple.com/{country}/app/{name}/id{digits}, or the numeric App Store ID' }
+                source_type: { $ref: "#/components/schemas/SourceType" }
+      responses:
+        "201":
+          description: Success; the listing detail plus `warnings`
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminAppDetailResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "404":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+
   /admin/apps/{id}:
     get:
       tags: [Admin]

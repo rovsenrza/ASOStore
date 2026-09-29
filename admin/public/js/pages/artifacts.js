@@ -50,6 +50,12 @@ async function loadApps() {
       el('option', { value: '' }, data.length ? t('artifacts.chooseApp') : t('artifacts.noApps')),
       ...data.map((app) => el('option', { value: app.id }, app.name)),
     );
+    // artifacts.html?app=… (the «Загрузить IPA» button on a card) chooses the app.
+    const preselected = new URLSearchParams(location.search).get('app');
+    if (preselected && apps.some((app) => app.id === preselected)) {
+      appSelect.value = preselected;
+      appSelect.dispatchEvent(new Event('change'));
+    }
   } catch (error) {
     form.querySelector('.form-status').replaceChildren(errorNotice(t, error, loadApps));
   }
