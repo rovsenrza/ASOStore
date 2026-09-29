@@ -71,7 +71,7 @@ class InstallStateResolver
             // offer the install again. The signed build is reused, so it is ready at once.
             $latest->status === InstallationStatus::Delivered => $this->state(InstallStateStatus::Get, installation: $latest),
             ! $sameBuild => $this->state(InstallStateStatus::Get),
-            $latest->status === InstallationStatus::Preparing => $this->state(InstallStateStatus::Preparing, progress: $this->progress($latest), installation: $latest),
+            $latest->status === InstallationStatus::Preparing => $this->state(InstallStateStatus::Preparing, progress: $latest->signedBuild?->progress(), installation: $latest),
             in_array($latest->status, [InstallationStatus::ReadyToInstall, InstallationStatus::Authorized, InstallationStatus::ManifestFetched], true) => $this->state(InstallStateStatus::ReadyToInstall, installation: $latest),
             $latest->status === InstallationStatus::Failed => $this->state(InstallStateStatus::Failed, installation: $latest, rawReason: $latest->status_reason),
             default => $this->state(InstallStateStatus::Get),
@@ -85,17 +85,6 @@ class InstallStateResolver
         }
 
         return $this->devices[$user->id];
-    }
-
-    private function progress(Installation $installation): ?float
-    {
-        return match ($installation->signedBuild?->status->value) {
-            'SIGNING_PENDING' => 0.2,
-            'SIGNING' => 0.5,
-            'SIGNED' => 0.8,
-            'SIGNATURE_VERIFIED' => 0.9,
-            default => null,
-        };
     }
 
     /**

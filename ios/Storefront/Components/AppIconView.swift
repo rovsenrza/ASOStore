@@ -9,9 +9,10 @@ struct AppIconView: View {
     var body: some View {
         Group {
             if let url = app.iconURL {
-                AsyncImage(url: url) { phase in
+                AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.25))) { phase in
                     if let image = phase.image {
                         image.resizable().scaledToFill()
+                            .transition(.opacity)
                     } else {
                         placeholder
                     }
@@ -21,7 +22,7 @@ struct AppIconView: View {
             }
         }
         .frame(width: size, height: size)
-        .clipShape(.rect(cornerRadius: size * 0.22))
+        .clipShape(.rect(cornerRadius: size * 0.22, style: .continuous))
         .accessibilityHidden(true)
     }
 

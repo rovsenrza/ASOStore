@@ -67,6 +67,7 @@ struct SearchView: View {
     @Environment(\.catalog) private var catalog
     @State private var model = SearchModel()
     @FocusState private var searching: Bool
+    @Namespace private var zoom
 
     var body: some View {
         NavigationStack {
@@ -78,10 +79,10 @@ struct SearchView: View {
                         searchResults
                     } else {
                         listingPicker
-                        StateContainerView(state: model.lists[model.listing] ?? .loading, retry: reloadLists) { apps in
+                        StateContainerView(state: model.lists[model.listing] ?? .loading, retry: reloadLists, skeleton: .rows) { apps in
                             rows(apps)
                         }
-                        .frame(minHeight: 300)
+                        .frame(minHeight: 300, alignment: .top)
                     }
                 }
                 .padding(.bottom, AppSpacing.generous)
@@ -93,6 +94,7 @@ struct SearchView: View {
             .refreshable { await model.loadLists(catalog) }
             .task(id: model.query) { await model.search(catalog) }
             .task { await model.loadLists(catalog) }
+            .environment(\.zoomNamespace, zoom)
             .storeDestinations()
         }
     }
@@ -168,17 +170,18 @@ struct SearchView: View {
             ContentUnavailableView.search(text: model.query)
                 .frame(minHeight: 300)
         default:
-            StateContainerView(state: model.results, retry: retrySearch) { apps in
+            StateContainerView(state: model.results, retry: retrySearch, skeleton: .rows) { apps in
                 rows(apps)
             }
-            .frame(minHeight: 300)
+            .frame(minHeight: 300, alignment: .top)
         }
     }
 
     private func rows(_ apps: [StoreApp]) -> some View {
         LazyVStack(spacing: 0) {
             ForEach(apps) { app in
-                StoreAppRow(app: app)
+                StoreAppRow(app: app, source: "search")
+                    .scrollReveal()
                 Divider().padding(.leading, 76)
             }
         }

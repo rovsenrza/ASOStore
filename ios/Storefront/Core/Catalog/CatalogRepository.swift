@@ -16,8 +16,24 @@ nonisolated enum CatalogKind: String, Sendable {
     }
 }
 
-nonisolated enum CatalogSort: String, Sendable {
-    case featured, updated, new
+nonisolated enum CatalogSort: String, CaseIterable, Sendable {
+    case featured, new, updated, name
+
+    var title: String {
+        switch self {
+        case .featured: "Популярные"
+        case .new: "Новые"
+        case .updated: "Обновлённые"
+        case .name: "По алфавиту"
+        }
+    }
+}
+
+/// One page of the full catalog list.
+nonisolated struct CatalogPage: Sendable {
+    let apps: [AppSummaryDTO]
+    let total: Int
+    let hasMore: Bool
 }
 
 /// Catalog reads for the native app (FULL_PLAN §11 "CatalogRepository").
@@ -39,6 +55,28 @@ nonisolated struct CatalogRepository: Sendable {
         }
         let response = try await api.get("/apps", query: query, as: [AppSummaryDTO].self)
         return (response.data, response.meta.pagination?.total ?? response.data.count)
+    }
+
+    /// The whole catalog, a page at a time, narrowed by kind and category (Каталог, «Все приложения»).
+    func list(kind: CatalogKind, category: String?, sort: CatalogSort, page: Int, perPage: Int = 30) async throws -> CatalogPage {
+        var query = [
+            URLQueryItem(name: "sort", value: sort.rawValue),
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "per_page", value: String(perPage)),
+        ]
+        if let kind = kind.queryValue {
+            query.append(URLQueryItem(name: "kind", value: kind))
+        }
+        if let category {
+            query.append(URLQueryItem(name: "category", value: category))
+        }
+        let response = try await api.get("/apps", query: query, as: [AppSummaryDTO].self)
+        let pagination = response.meta.pagination
+        return CatalogPage(
+            apps: response.data,
+            total: pagination?.total ?? response.data.count,
+            hasMore: pagination.map { $0.page < $0.lastPage } ?? false
+        )
     }
 
     func app(id: String) async throws -> Fetched<AppDetailDTO> {

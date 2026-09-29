@@ -3,15 +3,30 @@ import SwiftUI
 /// Renders every LoadState a screen can be in, with retry on each failure
 /// (FULL_PLAN §11). Features supply only the loaded content.
 struct StateContainerView<Value: Sendable, Content: View>: View {
+    /// What to show while loading, shaped like the content on its way.
+    enum Skeleton {
+        case rows
+        case feed
+    }
+
     let state: LoadState<Value>
     let retry: () -> Void
+    var skeleton: Skeleton?
     @ViewBuilder let content: (Value) -> Content
 
     var body: some View {
         switch state {
         case .loading:
-            ProgressView("Загрузка…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            switch skeleton {
+            case .rows:
+                SkeletonRows()
+                    .padding(.horizontal, AppSpacing.standard)
+            case .feed:
+                FeedSkeleton()
+            case nil:
+                ProgressView("Загрузка…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
         case .loaded(let value):
             content(value)
         case .empty:

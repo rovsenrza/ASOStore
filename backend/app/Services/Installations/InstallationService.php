@@ -303,14 +303,7 @@ class InstallationService
             'build_number' => $installation->artifact->build_number,
             'preparation' => [
                 'stage' => $build?->status->value,
-                'progress' => match ($build?->status) {
-                    SignedBuildStatus::SigningPending => 0.2,
-                    SignedBuildStatus::Signing => 0.5,
-                    SignedBuildStatus::Signed => 0.8,
-                    SignedBuildStatus::SignatureVerified => 0.9,
-                    SignedBuildStatus::Deliverable => 1.0,
-                    default => null,
-                },
+                'progress' => $build?->progress(),
             ],
             'delivered_at' => $installation->delivered_at?->toIso8601ZuluString(),
             'created_at' => $installation->created_at?->toIso8601ZuluString(),

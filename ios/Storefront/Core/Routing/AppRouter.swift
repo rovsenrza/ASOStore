@@ -9,11 +9,18 @@ final class AppRouter {
     var sheet: StoreSheet?
     /// Shown as an alert when a deep link cannot be completed.
     var alertMessage: String?
+    /// An app page a link asked for; Каталог opens it and clears this.
+    var requestedAppID: String?
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         var tab = StorefrontTab.home
         var sheet: StoreSheet?
+        var appID: String?
         #if DEBUG
+        if let index = arguments.firstIndex(of: "-demoApp"), arguments.indices.contains(index + 1) {
+            tab = .catalog
+            appID = arguments[index + 1]
+        }
         if let index = arguments.firstIndex(of: "-demoTab"), arguments.indices.contains(index + 1) {
             let requested = arguments[index + 1]
             if let requestedTab = StorefrontTab(rawValue: requested) {
@@ -25,6 +32,7 @@ final class AppRouter {
         #endif
         selectedTab = tab
         self.sheet = sheet
+        requestedAppID = appID
     }
 
     func handle(_ url: URL, session: SessionStore) async {
@@ -42,9 +50,9 @@ final class AppRouter {
             } catch {
                 alertMessage = "Не удалось войти по ссылке."
             }
-        case .app:
-            // App pages load from the API from Phase 4; until then open the catalog.
-            selectedTab = .apps
+        case .app(let id):
+            selectedTab = .catalog
+            requestedAppID = id
         }
     }
 }

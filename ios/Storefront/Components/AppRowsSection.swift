@@ -20,7 +20,7 @@ struct AppRowsSection: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .buttonStyle(.plain)
+            .buttonStyle(PressableStyle())
             .padding(.horizontal, AppSpacing.standard)
             .accessibilityHint("Показать все")
 
@@ -29,7 +29,7 @@ struct AppRowsSection: View {
                     ForEach(columns.indices, id: \.self) { index in
                         VStack(spacing: 0) {
                             ForEach(Array(columns[index].enumerated()), id: \.element.id) { row, app in
-                                StoreAppRow(app: app)
+                                StoreAppRow(app: app, source: title)
                                 if row < columns[index].count - 1 {
                                     Divider().padding(.leading, 76)
                                 }
@@ -61,12 +61,19 @@ struct AppListView: View {
     let route: AppListRoute
 
     var body: some View {
-        List(route.apps) { app in
-            StoreAppRow(app: app)
-                .listRowBackground(AppPalette.canvas)
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(route.apps) { app in
+                    StoreAppRow(app: app, source: "all-\(route.title)")
+                        .scrollReveal()
+                    Divider().padding(.leading, 76)
+                }
+            }
+            .padding(.horizontal, AppSpacing.standard)
+            .padding(.bottom, AppSpacing.generous)
         }
-        .listStyle(.plain)
+        .background(AppPalette.canvas)
         .navigationTitle(route.title)
-        .navigationBarTitleDisplayMode(.inline)
+        .navigationBarTitleDisplayMode(.large)
     }
 }

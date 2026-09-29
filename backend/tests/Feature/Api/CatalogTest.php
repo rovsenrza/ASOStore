@@ -126,6 +126,7 @@ it('ranks by real downloads and splits games from apps', function () {
 
     $this->getJson('/api/v1/apps?kind=apps')->assertOk()->assertJsonPath('data.0.name', 'Notes')->assertJsonPath('data.0.category.kind', 'APPS');
     $this->getJson('/api/v1/apps?kind=games&sort=new')->assertOk()->assertJsonPath('data.0.name', 'Puzzle');
+    expect(collect($this->getJson('/api/v1/apps?sort=name')->assertOk()->json('data'))->pluck('name')->all())->toBe(['Notes', 'Puzzle', 'Racer']);
 });
 
 it('shows each app in one list only', function () {

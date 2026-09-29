@@ -1,54 +1,41 @@
 import SwiftUI
 
-/// Every published app of one category.
+/// Every published app of one category, a page at a time, in the order the customer picks.
 struct CategoryAppsView: View {
     let category: StoreCategory
     @Environment(\.catalog) private var catalog
-    @State private var state: LoadState<[StoreApp]> = .loading
-    @State private var isStale = false
+    @State private var model: CatalogListModel
+
+    init(category: StoreCategory) {
+        self.category = category
+        let model = CatalogListModel()
+        model.filter.category = category.id
+        _model = State(initialValue: model)
+    }
 
     var body: some View {
-        StateContainerView(state: state, retry: reload) { apps in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 14) {
-                    if isStale {
-                        StaleDataBanner()
-                    }
-                    if !category.subtitle.isEmpty {
-                        Text(category.subtitle)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
-                    LazyVStack(spacing: 0) {
-                        ForEach(apps) { app in
-                            StoreAppRow(app: app)
-                            Divider().padding(.leading, 76)
-                        }
-                    }
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                if !category.subtitle.isEmpty {
+                    Text(category.subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, AppSpacing.standard)
-                .padding(.bottom, 36)
+                CatalogAppList(model: model, source: "category-\(category.id)") {
+                    Task { await model.reload(catalog) }
+                }
             }
+            .padding(.horizontal, AppSpacing.standard)
+            .padding(.bottom, 36)
         }
         .background(AppPalette.canvas)
         .navigationTitle(category.title)
-        .task { await load() }
-    }
-
-    private func reload() {
-        Task { await load() }
-    }
-
-    private func load() async {
-        do {
-            let result = try await catalog.apps(category: category.id)
-            isStale = result.isStale
-            state = result.value.isEmpty ? .empty : .loaded(result.value.map(StoreApp.init))
-        } catch is CancellationError {
-            return
-        } catch {
-            state = LoadState(error: error)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                SortMenu(sort: $model.filter.sort, inToolbar: true)
+            }
         }
+        .refreshable { await model.reload(catalog) }
+        .task(id: model.filter) { await model.reload(catalog) }
     }
 }
-

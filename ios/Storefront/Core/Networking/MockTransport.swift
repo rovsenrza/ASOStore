@@ -115,11 +115,12 @@ nonisolated struct MockTransport: HTTPTransport {
         return (try? JSONSerialization.data(withJSONObject: body)) ?? Data()
     }
 
-    /// Applies ?q= and ?category= to the apps-list fixture, like the API does.
+    /// Applies ?q=, ?category= and ?kind= to the apps-list fixture, like the API does.
     static func filterApps(_ body: Data, query: [URLQueryItem]) -> Data {
         let q = query.first { $0.name == "q" }?.value?.lowercased() ?? ""
         let category = query.first { $0.name == "category" }?.value
-        guard (!q.isEmpty || category != nil),
+        let kind = query.first { $0.name == "kind" }?.value?.uppercased()
+        guard (!q.isEmpty || category != nil || kind != nil),
               var envelope = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
               let apps = envelope["data"] as? [[String: Any]] else { return body }
 
@@ -130,7 +131,8 @@ nonisolated struct MockTransport: HTTPTransport {
                 .compactMap { $0?.lowercased() }
             let matchesQuery = q.isEmpty || haystack.contains { $0.contains(q) }
             let matchesCategory = category == nil || categoryInfo?["slug"] as? String == category
-            return matchesQuery && matchesCategory
+            let matchesKind = kind == nil || categoryInfo?["kind"] as? String == kind
+            return matchesQuery && matchesCategory && matchesKind
         }
         envelope["data"] = filtered
         if var meta = envelope["meta"] as? [String: Any], var pagination = meta["pagination"] as? [String: Any] {

@@ -27,6 +27,7 @@ struct ManagerView: View {
     @Environment(InstallationCoordinator.self) private var installations: InstallationCoordinator?
     @State private var state: LoadState<[InstallationDTO]> = .loading
     @State private var filter: Filter = .all
+    @Namespace private var filterSelection
 
     var body: some View {
         NavigationStack {
@@ -55,22 +56,32 @@ struct ManagerView: View {
     }
 
     private var filters: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 2) {
             ForEach(Filter.allCases) { option in
+                let isSelected = filter == option
                 Button {
-                    withAnimation(.snappy) { filter = option }
+                    withAnimation(Motion.select) { filter = option }
                 } label: {
                     Label(option.title, systemImage: option.symbol)
                         .font(.subheadline.weight(.semibold))
                         .padding(.horizontal, 14)
-                        .frame(height: 38)
-                        .foregroundStyle(filter == option ? Color(.systemBackground) : .primary)
-                        .background(filter == option ? AnyShapeStyle(.primary) : AnyShapeStyle(AppPalette.ctaFill), in: Capsule())
+                        .frame(height: 36)
+                        .foregroundStyle(isSelected ? Color.white : Color.primary)
+                        .background {
+                            if isSelected {
+                                Capsule().fill(AppPalette.accent)
+                                    .matchedGeometryEffect(id: "filter", in: filterSelection)
+                            }
+                        }
+                        .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
-                .accessibilityAddTraits(filter == option ? .isSelected : [])
+                .buttonStyle(PressableStyle(scale: 0.95))
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
         }
+        .padding(4)
+        .glassCapsule()
+        .sensoryFeedback(.selection, trigger: filter)
         .padding(.horizontal, AppSpacing.standard)
     }
 
@@ -107,6 +118,7 @@ struct ManagerView: View {
                 LazyVStack(spacing: 0) {
                     ForEach(shown) { item in
                         ManagerRow(installation: item)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
                         Divider().padding(.leading, 76)
                     }
                 }
@@ -187,7 +199,7 @@ private struct ManagerRow: View {
 
     private var statusText: String {
         switch installation.status {
-        case "PREPARING": "Подготовка для этого iPhone"
+        case "PREPARING": "Подготовка · \(InstallStage(progress: installation.preparation.progress).title)"
         case "READY_TO_INSTALL", "AUTHORIZED": "Готово к установке"
         case "MANIFEST_FETCHED": "Загружается"
         case "DELIVERED": "Загружено — проверьте экран «Домой»"

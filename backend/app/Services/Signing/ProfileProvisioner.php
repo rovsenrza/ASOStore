@@ -21,7 +21,9 @@ use App\Services\Audit\AuditService;
 use App\Services\Pipeline\RetryLater;
 use Closure;
 use Illuminate\Console\Application;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Process\Pool;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Process;
 use Laravel\SerializableClosure\SerializableClosure;
@@ -58,6 +60,19 @@ class ProfileProvisioner
             throw new SigningUnavailable('TEAM_NOT_ELIGIBLE', "Team {$team->apple_team_id} is not approved for {$bundle}.");
         }
         $certificate = $this->certificate($team->id);
+
+        // The page warm-up (WarmProfilesJob) and the install may ask at once: one maker per (device, app).
+        try {
+            return Cache::lock("signing-profiles:{$device->id}:{$bundle}", 300)
+                ->block(120, fn () => $this->makeProfiles($artifact, $registration, $device, $certificate, $bundle));
+        } catch (LockTimeoutException) {
+            throw new RetryLater('Profiles for this app are still being made.', 15);
+        }
+    }
+
+    private function makeProfiles(AppArtifact $artifact, DeviceRegistration $registration, Device $device, Certificate $certificate, string $bundle): SigningProfile
+    {
+        $team = $registration->team;
         $name = (string) $artifact->app?->name;
 
         $capabilities = Capabilities::fromEntitlements($artifact->inspection['entitlements'] ?? []);

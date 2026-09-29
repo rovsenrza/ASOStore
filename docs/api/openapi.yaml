@@ -109,8 +109,8 @@ paths:
           schema: { type: string, enum: [apps, games] }
         - name: sort
           in: query
-          description: 'featured (default), updated (newest release first) or new (newest listing first).'
-          schema: { type: string, enum: [featured, updated, new], default: featured }
+          description: 'featured (default), updated (newest release first), new (newest listing first) or name (A–Я).'
+          schema: { type: string, enum: [featured, updated, new, name], default: featured }
         - name: page
           in: query
           schema: { type: integer, minimum: 1, default: 1 }
@@ -135,7 +135,7 @@ paths:
       tags: [Catalog]
       operationId: getApp
       summary: 'App page'
-      description: 'Returns 404 NOT_FOUND for listings customers cannot see.'
+      description: 'Returns 404 NOT_FOUND for listings customers cannot see. For an eligible device it also starts making that device''s signing profiles in the background (at most every 10 minutes), so a following prepare does not wait for Apple.'
       parameters:
         - $ref: "#/components/parameters/AppId"
       responses:
@@ -2143,7 +2143,7 @@ paths:
     get:
       tags: [Install]
       operationId: getInstallation
-      summary: Installation progress for the calling device (poll with backoff 3 s → 30 s)
+      summary: Installation progress for the calling device (poll every 1 s → 5 s)
       description: 'Only installations on the calling device are visible; others answer 404.'
       security:
         - bearerAuth: []

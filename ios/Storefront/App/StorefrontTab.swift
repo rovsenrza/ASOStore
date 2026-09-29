@@ -1,7 +1,7 @@
 enum StorefrontTab: String, Hashable {
     case home
-    case games
-    case apps
+    /// Every app in one list, narrowed by kind (games or apps), category and order.
+    case catalog
     case manager
     case search
 }

@@ -59,6 +59,7 @@ extension StoreApp {
             artwork: .derived(from: detail.id),
             installState: InstallState(detail.installState),
             iconURL: detail.iconUrl,
+            featureImageURL: detail.featureImageUrl,
             screenshots: detail.screenshots.map(\.url),
             minIOSVersion: detail.latestVersion?.minIosVersion,
             supportURL: detail.supportUrl.flatMap(URL.init(string:)),
@@ -79,7 +80,9 @@ extension StoreCategory {
             title: category.title,
             subtitle: category.subtitle ?? "",
             systemImage: CategorySymbol.named(category.slug),
-            artwork: .derived(from: category.slug)
+            artwork: .derived(from: category.slug),
+            kind: category.kind,
+            appCount: category.appCount
         )
     }
 }

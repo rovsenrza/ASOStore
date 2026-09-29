@@ -76,6 +76,7 @@ nonisolated struct AppDetailDTO: Codable, Hashable, Sendable, Identifiable {
     let category: CategoryRefDTO
     let publisher: PublisherRefDTO
     let iconUrl: URL?
+    let featureImageUrl: URL?
     let ageRating: String
     let latestVersion: LatestVersionDTO?
     let installState: InstallStateDTO

@@ -31,6 +31,27 @@ extension View {
         }
     }
 
+    /// Tinted Liquid Glass capsule for a control that carries colour (the ready-to-install
+    /// action); a solid capsule before iOS 26.
+    @ViewBuilder
+    func glassCapsule(tint: Color) -> some View {
+        if #available(iOS 26, *) {
+            glassEffect(.regular.tint(tint).interactive(), in: .capsule)
+        } else {
+            background(tint, in: Capsule())
+        }
+    }
+
+    /// Round Liquid Glass button face (toolbar-like actions over content).
+    @ViewBuilder
+    func glassCircle() -> some View {
+        if #available(iOS 26, *) {
+            glassEffect(.regular.interactive(), in: .circle)
+        } else {
+            background(.ultraThinMaterial, in: Circle())
+        }
+    }
+
     /// Liquid Glass card on iOS 26 and later, with a material fallback on
     /// earlier supported releases.
     @ViewBuilder

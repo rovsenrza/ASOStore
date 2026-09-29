@@ -9,6 +9,7 @@ use App\Http\Middleware\VerifyWorkerSignature;
 use App\Jobs\InspectArtifactJob;
 use App\Jobs\PrepareSigningJob;
 use App\Jobs\VerifySignatureJob;
+use App\Jobs\WarmProfilesJob;
 use App\Models\AppArtifact;
 use App\Models\AppleTeam;
 use App\Models\AuditLog;
@@ -25,6 +26,7 @@ use App\Services\Apple\AppGroupProvisioner;
 use App\Services\Apple\AppGroupUnavailable;
 use App\Services\Pipeline\PipelineJobService;
 use App\Services\Signing\SigningService;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
@@ -535,4 +537,35 @@ it('runs a preparation again after its queue worker was killed mid-attempt', fun
     expect($job->status)->toBe(PipelineJobStatus::Succeeded)
         ->and($job->attempt)->toBe(2)
         ->and($job->attempts()->orderBy('id')->pluck('result_code')->all())->toBe(['ERROR', 'SUBJECT_MISSING']);
+});
+
+it('makes the profiles while the customer reads the app page, once per ten minutes', function () {
+    runnerHeartbeat()->assertOk();
+    $token = $this->customer->createToken('ios')->plainTextToken;
+    RefreshToken::create([
+        'user_id' => $this->customer->id, 'device_id' => $this->device->id, 'family_id' => 'f-warm',
+        'token_hash' => hash('sha256', 'r-warm'), 'access_token_id' => $this->customer->tokens()->latest('id')->value('id'),
+        'expires_at' => now()->addDay(),
+    ]);
+
+    $this->withToken($token)->getJson("/api/v1/apps/{$this->catalogApp->public_id}")->assertOk();
+    // Profiles only: nothing is signed until the customer asks.
+    expect(SigningProfile::sole()->bundle_identifier)->toBe('com.example.demo')
+        ->and(SignedBuild::count())->toBe(0);
+
+    Queue::fake();
+    $this->withToken($token)->getJson("/api/v1/apps/{$this->catalogApp->public_id}")->assertOk();
+    Queue::assertNotPushed(WarmProfilesJob::class);
+
+    // The install finds the profile made: no second one.
+    Queue::fake([]);
+    $uuid = SigningProfile::sole()->uuid;
+    $this->withToken($token)->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")->assertStatus(202);
+    expect(SigningProfile::sole()->uuid)->toBe($uuid);
+});
+
+it('does not warm anything for visitors or devices Apple has not registered yet', function () {
+    Queue::fake();
+    $this->getJson("/api/v1/apps/{$this->catalogApp->public_id}")->assertOk();
+    Queue::assertNotPushed(WarmProfilesJob::class);
 });

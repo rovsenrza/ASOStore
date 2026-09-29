@@ -8,6 +8,10 @@ struct AppDetailView: View {
     @State private var loadError: APIError?
     @State private var isStale = false
     @State private var expandsDescription = false
+    /// The header's install button has scrolled away: the glass bar at the bottom takes over.
+    @State private var headerHidden = false
+    @State private var viewer: ScreenshotSelection?
+    @Namespace private var screenshotZoom
 
     init(app: StoreApp) {
         _app = State(initialValue: app)
@@ -15,28 +19,56 @@ struct AppDetailView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 26) {
-                if isStale {
-                    StaleDataBanner()
+            VStack(alignment: .leading, spacing: 0) {
+                if app.featureImageURL != nil {
+                    StretchyBanner(url: app.featureImageURL)
                 }
-                appHeader
-                if let loadError {
-                    errorNotice(loadError)
+                VStack(alignment: .leading, spacing: 28) {
+                    if isStale {
+                        StaleDataBanner()
+                    }
+                    appHeader
+                    if let loadError {
+                        errorNotice(loadError)
+                    }
+                    facts
+                    screenshots
+                    about
+                    whatsNew
+                    information
                 }
-                Divider()
-                metadata
-                Divider()
-                screenshots
-                about
-                whatsNew
-                information
+                .padding(.horizontal, AppSpacing.standard)
+                .padding(.top, app.featureImageURL == nil ? 8 : -44)
+                .padding(.bottom, 40)
             }
-            .padding(.horizontal, AppSpacing.standard)
-            .padding(.bottom, 40)
         }
         .background(AppPalette.canvas)
-        .navigationTitle(app.name)
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top > (app.featureImageURL == nil ? 190 : 390)
+        } action: { _, hidden in
+            withAnimation(Motion.state) { headerHidden = hidden }
+        }
+        .safeAreaInset(edge: .bottom) {
+            if headerHidden {
+                InstallBar(app: app)
+                    .padding(.horizontal, AppSpacing.standard)
+                    .padding(.bottom, 6)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                AppIconView(app: app, size: 30)
+                    .opacity(headerHidden ? 1 : 0)
+                    .scaleEffect(headerHidden ? 1 : 0.6)
+                    .accessibilityLabel(app.name)
+            }
+        }
+        .fullScreenCover(item: $viewer) { selection in
+            ScreenshotViewer(urls: app.screenshots, selection: selection.index)
+                .navigationTransition(.zoom(sourceID: selection.index, in: screenshotZoom))
+        }
         .task { await load() }
         .refreshable { await load() }
     }
@@ -44,9 +76,11 @@ struct AppDetailView: View {
     private func load() async {
         do {
             let detail = try await catalog.app(id: app.id)
-            app = StoreApp(detail.value)
-            isStale = detail.isStale
-            loadError = nil
+            withAnimation(Motion.reveal) {
+                app = StoreApp(detail.value)
+                isStale = detail.isStale
+                loadError = nil
+            }
         } catch is CancellationError {
             return
         } catch let error as APIError {
@@ -69,56 +103,98 @@ struct AppDetailView: View {
         }
     }
 
+    // MARK: Header
+
     private var appHeader: some View {
-        HStack(alignment: .top, spacing: 18) {
-            AppIconView(app: app, size: 118)
+        VStack(alignment: .leading, spacing: 18) {
+            HStack(alignment: .bottom, spacing: 16) {
+                AppIconView(app: app, size: 108)
+                    .overlay(RoundedRectangle(cornerRadius: 108 * 0.22, style: .continuous).strokeBorder(AppPalette.separator.opacity(0.35), lineWidth: 0.5))
+                    .shadow(color: .black.opacity(0.18), radius: 14, y: 6)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(app.name)
-                    .font(.title2.bold())
-                Text(app.subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                Text(app.developer)
-                    .font(.subheadline)
-                    .foregroundStyle(AppPalette.accent)
-
-                Spacer(minLength: 8)
-                AppActionButton(app: app)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(app.name)
+                        .font(.title2.bold())
+                        .lineLimit(3)
+                    if !app.subtitle.isEmpty {
+                        Text(app.subtitle)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                    Text(app.developer)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(AppPalette.accent)
+                        .lineLimit(1)
+                }
+                .padding(.bottom, 4)
             }
-            .frame(minHeight: 118, alignment: .topLeading)
+
+            AppActionButton(app: app, style: .prominent)
         }
-        .padding(.top, 8)
     }
 
-    private var metadata: some View {
-        HStack(spacing: 0) {
-            metadataItem(value: app.version.isEmpty ? "—" : app.version, label: "ВЕРСИЯ", detail: "Текущая")
-            Divider().frame(height: 52)
-            metadataItem(value: app.ageRating, label: "ВОЗРАСТ", detail: "Лет")
-            Divider().frame(height: 52)
-            metadataItem(value: app.size, label: "РАЗМЕР", detail: "Приложение")
+    // MARK: Facts
+
+    /// Version, age, size, category and iOS as a row that scrolls sideways.
+    private var facts: some View {
+        ScrollView(.horizontal) {
+            HStack(alignment: .top, spacing: 0) {
+                fact(label: "Версия", value: app.version.isEmpty ? "—" : app.version, symbol: nil)
+                factDivider
+                fact(label: "Возраст", value: app.ageRating, symbol: nil)
+                factDivider
+                fact(label: "Размер", value: app.size, symbol: nil)
+                factDivider
+                fact(label: "Категория", value: nil, symbol: app.systemImage, caption: app.category)
+                if let minIOS = app.minIOSVersion {
+                    factDivider
+                    fact(label: "Совместимость", value: "iOS \(minIOS)+", symbol: nil)
+                }
+            }
+            .padding(.vertical, 14)
         }
-        .frame(maxWidth: .infinity)
+        .scrollIndicators(.hidden)
+        .contentMargins(.horizontal, AppSpacing.standard, for: .scrollContent)
+        .padding(.horizontal, -AppSpacing.standard)
+        .overlay(alignment: .top) { Divider() }
+        .overlay(alignment: .bottom) { Divider() }
     }
 
-    private func metadataItem(value: String, label: String, detail: String) -> some View {
-        VStack(spacing: 3) {
-            Text(label)
+    private var factDivider: some View {
+        Divider().frame(height: 40).padding(.top, 6)
+    }
+
+    private func fact(label: String, value: String?, symbol: String?, caption: String? = nil) -> some View {
+        VStack(spacing: 5) {
+            Text(label.uppercased())
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.tertiary)
-            Text(value)
-                .font(.title3.bold())
-                .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            Text(detail)
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            if let symbol {
+                Image(systemName: symbol)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(height: 24)
+            } else {
+                Text(value ?? "—")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .frame(height: 24)
+            }
+            if let caption {
+                Text(caption)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
         }
-        .frame(maxWidth: .infinity)
+        .frame(minWidth: 96)
+        .padding(.horizontal, 6)
+        .accessibilityElement(children: .combine)
     }
+
+    // MARK: Screenshots
 
     @ViewBuilder
     private var screenshots: some View {
@@ -135,26 +211,34 @@ struct AppDetailView: View {
                             }
                         } else {
                             ForEach(Array(app.screenshots.enumerated()), id: \.offset) { index, url in
-                                AsyncImage(url: url) { phase in
-                                    if let image = phase.image {
-                                        image.resizable().scaledToFit()
-                                    } else {
-                                        AppPalette.elevated
-                                    }
+                                Button {
+                                    viewer = ScreenshotSelection(index: index)
+                                } label: {
+                                    ScreenshotImage(url: url)
+                                        .frame(width: 236, height: 460)
+                                        .clipShape(.rect(cornerRadius: 26, style: .continuous))
+                                        .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(AppPalette.separator.opacity(0.3), lineWidth: 0.5))
                                 }
-                                .frame(width: 248, height: 470)
-                                .clipShape(.rect(cornerRadius: 28))
+                                .buttonStyle(PressableStyle(scale: 0.97))
+                                .matchedTransitionSource(id: index, in: screenshotZoom)
+                                .scrollTransition(axis: .horizontal) { content, phase in
+                                    content.scaleEffect(phase.isIdentity ? 1 : 0.94)
+                                }
                                 .accessibilityLabel("Снимок экрана \(index + 1) из \(app.screenshots.count)")
                             }
                         }
                     }
+                    .scrollTargetLayout()
                 }
+                .scrollTargetBehavior(.viewAligned)
                 .scrollIndicators(.hidden)
                 .contentMargins(.horizontal, AppSpacing.standard, for: .scrollContent)
                 .padding(.horizontal, -AppSpacing.standard)
             }
         }
     }
+
+    // MARK: Text
 
     @ViewBuilder
     private var about: some View {
@@ -166,10 +250,17 @@ struct AppDetailView: View {
                     .font(.body)
                     .lineSpacing(3)
                     .lineLimit(expandsDescription ? nil : 4)
-                Button(expandsDescription ? "Свернуть" : "Ещё") {
-                    expandsDescription.toggle()
+                Button {
+                    withAnimation(Motion.reveal) { expandsDescription.toggle() }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(expandsDescription ? "Свернуть" : "Ещё")
+                        Image(systemName: "chevron.down")
+                            .font(.caption.weight(.bold))
+                            .rotationEffect(.degrees(expandsDescription ? 180 : 0))
+                    }
+                    .font(.body.weight(.medium))
                 }
-                .font(.body)
             }
         }
     }
@@ -178,64 +269,180 @@ struct AppDetailView: View {
     private var whatsNew: some View {
         if !app.whatsNew.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
+                HStack(alignment: .firstTextBaseline) {
                     Text("Что нового")
                         .font(.title2.bold())
                     Spacer()
-                    Text("Версия \(app.version)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if !app.version.isEmpty {
+                        Text("Версия \(app.version)")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Text(app.whatsNew)
                     .font(.body)
+                    .lineSpacing(3)
             }
-            .padding(.top, 4)
         }
     }
 
     private var information: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 12) {
             Text("Информация")
                 .font(.title2.bold())
-                .padding(.bottom, 8)
-            informationRow(title: "Продавец", value: app.developer)
-            informationRow(title: "Категория", value: app.category)
-            informationRow(title: "Совместимость", value: app.minIOSVersion.map { "iOS \($0) и новее" } ?? "iPhone")
-            informationRow(title: "Возраст", value: app.ageRating)
-            if let supportURL = app.supportURL {
-                linkRow(title: "Поддержка", url: supportURL)
+            VStack(spacing: 0) {
+                informationRow(title: "Продавец", value: app.developer)
+                informationRow(title: "Категория", value: app.category)
+                informationRow(title: "Размер", value: app.size)
+                informationRow(title: "Совместимость", value: app.minIOSVersion.map { "iOS \($0) и новее" } ?? "iPhone")
+                informationRow(title: "Возраст", value: app.ageRating, isLast: app.supportURL == nil && app.privacyURL == nil)
+                if let supportURL = app.supportURL {
+                    linkRow(title: "Поддержка", url: supportURL, isLast: app.privacyURL == nil)
+                }
+                if let privacyURL = app.privacyURL {
+                    linkRow(title: "Конфиденциальность", url: privacyURL, isLast: true)
+                }
             }
-            if let privacyURL = app.privacyURL {
-                linkRow(title: "Конфиденциальность", url: privacyURL)
-            }
+            .padding(.horizontal, 16)
+            .background(AppPalette.card, in: .rect(cornerRadius: 20, style: .continuous))
         }
     }
 
-    private func informationRow(title: String, value: String) -> some View {
-        HStack {
+    private func informationRow(title: String, value: String, isLast: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline) {
             Text(title).foregroundStyle(.secondary)
-            Spacer()
+            Spacer(minLength: 16)
             Text(value).multilineTextAlignment(.trailing)
         }
         .font(.subheadline)
-        .padding(.vertical, 12)
-        .overlay(alignment: .bottom) { Divider() }
+        .padding(.vertical, 13)
+        .overlay(alignment: .bottom) { if !isLast { Divider() } }
+        .accessibilityElement(children: .combine)
     }
 
-    private func linkRow(title: String, url: URL) -> some View {
+    private func linkRow(title: String, url: URL, isLast: Bool) -> some View {
         Link(destination: url) {
             HStack {
-                Text(title).foregroundStyle(.secondary)
+                Text(title).foregroundStyle(.primary)
                 Spacer()
-                Text("Открыть")
-                Image(systemName: "chevron.right")
+                Image(systemName: "arrow.up.right")
                     .font(.caption.bold())
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(AppPalette.accent)
             }
             .font(.subheadline)
-            .padding(.vertical, 12)
-            .overlay(alignment: .bottom) { Divider() }
+            .padding(.vertical, 13)
+            .overlay(alignment: .bottom) { if !isLast { Divider() } }
         }
+    }
+}
+
+// MARK: - Pieces
+
+/// The banner above the header. Pulling down stretches it instead of showing a gap.
+private struct StretchyBanner: View {
+    let url: URL?
+    private let height = 280.0
+
+    var body: some View {
+        GeometryReader { proxy in
+            let pull = max(0, proxy.frame(in: .scrollView).minY)
+            ScreenshotImage(url: url)
+                .frame(width: proxy.size.width, height: height + pull)
+                .clipped()
+                .overlay {
+                    // The header below sits on the canvas: fade the artwork into it.
+                    LinearGradient(stops: [.init(color: .clear, location: 0.45), .init(color: AppPalette.canvas, location: 1)], startPoint: .top, endPoint: .bottom)
+                }
+                .offset(y: -pull)
+        }
+        .frame(height: height)
+        .accessibilityHidden(true)
+    }
+}
+
+/// A remote screenshot or banner that fades in over a quiet placeholder.
+private struct ScreenshotImage: View {
+    let url: URL?
+
+    var body: some View {
+        AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.3))) { phase in
+            if let image = phase.image {
+                image.resizable().scaledToFill().transition(.opacity)
+            } else {
+                AppPalette.elevated.shimmering()
+            }
+        }
+    }
+}
+
+/// Pinned to the bottom once the header scrolls away: the app and its install action on glass.
+private struct InstallBar: View {
+    let app: StoreApp
+
+    var body: some View {
+        HStack(spacing: 12) {
+            AppIconView(app: app, size: 40)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(app.name)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                Text(app.developer)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            AppActionButton(app: app)
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
+        .glassCard(cornerRadius: 26)
+    }
+}
+
+private struct ScreenshotSelection: Identifiable {
+    let index: Int
+    var id: Int { index }
+}
+
+/// Screenshots full screen, swiping between them; zooms out of the one tapped.
+private struct ScreenshotViewer: View {
+    let urls: [URL]
+    @State var selection: Int
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack(alignment: .topTrailing) {
+            Color.black.ignoresSafeArea()
+            TabView(selection: $selection) {
+                ForEach(Array(urls.enumerated()), id: \.offset) { index, url in
+                    AsyncImage(url: url) { phase in
+                        if let image = phase.image {
+                            image.resizable().scaledToFit()
+                        } else {
+                            ProgressView().tint(.white)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .tag(index)
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: urls.count > 1 ? .always : .never))
+
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 44, height: 44)
+                    .glassCircle()
+            }
+            .padding(16)
+            .accessibilityLabel("Закрыть")
+        }
+        .statusBarHidden()
     }
 }
 

@@ -2,15 +2,19 @@
 
 namespace App\Http\Controllers\Api\V1\Customer;
 
+use App\Enums\DeviceRegistrationStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AppDetailResource;
 use App\Http\Resources\AppSummaryResource;
 use App\Http\Resources\VersionResource;
 use App\Http\Responses\ApiResponse;
+use App\Jobs\WarmProfilesJob;
 use App\Models\CatalogApp;
+use App\Services\Devices\CurrentDevice;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class AppController extends Controller
 {
@@ -20,8 +24,8 @@ class AppController extends Controller
             'q' => ['nullable', 'string', 'max:100'],
             'category' => ['nullable', 'string', 'max:64'],
             'kind' => ['nullable', 'in:apps,games'],
-            // featured (default), updated (newest release first), new (newest listing first)
-            'sort' => ['nullable', 'in:featured,updated,new'],
+            // featured (default), updated (newest release first), new (newest listing first), name (A–Я)
+            'sort' => ['nullable', 'in:featured,updated,new,name'],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:'.config('storefront.catalog.per_page_max')],
         ]);
@@ -31,6 +35,7 @@ class AppController extends Controller
             ->with(AppSummaryResource::RELATIONS);
 
         match ($validated['sort'] ?? 'featured') {
+            'name' => $query->orderBy('name')->orderBy('id'),
             'updated' => $query->withMax('versions', 'released_at')->orderByDesc('versions_max_released_at')->orderBy('name'),
             'new' => $query->orderByDesc('created_at')->orderByDesc('id'),
             default => $query->orderByRaw('featured_rank IS NULL, featured_rank')->orderBy('name'),
@@ -61,8 +66,26 @@ class AppController extends Controller
     public function show(Request $request, string $app): JsonResponse
     {
         $model = $this->findVisible($app)->load([...AppSummaryResource::RELATIONS, 'screenshots']);
+        $this->warmProfiles($model, $request);
 
         return ApiResponse::ok((new AppDetailResource($model))->resolve($request));
+    }
+
+    /**
+     * The customer is reading the app page: make this iPhone's profiles now, so a tap on
+     * «Установить» does not wait for Apple. At most once per ten minutes per (app, device).
+     */
+    private function warmProfiles(CatalogApp $app, Request $request): void
+    {
+        $artifact = $app->publishedArtifact;
+        $device = $artifact === null ? null : app(CurrentDevice::class)->resolve($request);
+        if ($device === null || $device->latestRegistration?->status !== DeviceRegistrationStatus::Eligible) {
+            return;
+        }
+
+        if (Cache::add("warm-profiles:{$artifact->id}:{$device->id}", true, now()->addMinutes(10))) {
+            WarmProfilesJob::dispatch($artifact->id, $device->id);
+        }
     }
 
     public function versions(Request $request, string $app): JsonResponse

@@ -50,7 +50,7 @@ final class CatalogUITests: XCTestCase {
 
     @MainActor
     func testBrowseOpensACategory() {
-        let app = launch(tab: "apps")
+        let app = launch()
 
         let productivity = app.buttons["category-productivity"]
         for _ in 0..<6 where !productivity.isHittable {
@@ -89,7 +89,7 @@ final class CatalogUITests: XCTestCase {
 
     @MainActor
     func testUnauthorizedCatalogRequestsShowSignInState() {
-        let app = launch("unauthorized", tab: "apps")
+        let app = launch("unauthorized", tab: "catalog")
 
         XCTAssertTrue(app.staticTexts["Нужен вход"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Войдите в аккаунт, чтобы продолжить."].exists)
@@ -98,7 +98,7 @@ final class CatalogUITests: XCTestCase {
 
     @MainActor
     func testExpiredCatalogRequestsShowRenewalState() {
-        let app = launch("expired", tab: "apps")
+        let app = launch("expired", tab: "catalog")
 
         XCTAssertTrue(app.staticTexts["Сеанс истёк"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Войдите снова, чтобы продолжить."].exists)
@@ -118,10 +118,22 @@ final class CatalogUITests: XCTestCase {
     }
 
     @MainActor
-    func testGamesTabShowsOnlyGames() {
-        let app = launch(tab: "games")
+    func testCatalogListsEveryAppAndFiltersByKindAndCategory() {
+        let app = launch(tab: "catalog")
 
+        // One list with every app: games and apps alike, without opening a shelf.
+        XCTAssertTrue(app.staticTexts["Orbit Mail"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["Каталог"].exists)
+
+        app.buttons["kind-games"].tap()
         XCTAssertTrue(app.staticTexts["Neon Drift"].firstMatch.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["Orbit Mail"].exists)
+
+        app.buttons["kind-all"].tap()
+        let productivity = app.buttons["category-productivity"]
+        XCTAssertTrue(productivity.waitForExistence(timeout: 10))
+        productivity.tap()
+        XCTAssertTrue(app.staticTexts["Focus Notes"].firstMatch.waitForExistence(timeout: 10))
         XCTAssertFalse(app.staticTexts["Orbit Mail"].exists)
     }
 

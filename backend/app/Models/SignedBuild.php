@@ -50,6 +50,22 @@ class SignedBuild extends Model
     }
 
     /**
+     * How far preparation got, for the customer's progress bar. Waiting for the Apple
+     * profile and waiting for a runner are both SIGNING_PENDING; the profile tells them apart.
+     */
+    public function progress(): ?float
+    {
+        return match ($this->status) {
+            SignedBuildStatus::SigningPending => $this->signing_profile_id === null ? 0.15 : 0.35,
+            SignedBuildStatus::Signing => 0.5,
+            SignedBuildStatus::Signed => 0.8,
+            SignedBuildStatus::SignatureVerified => 0.9,
+            SignedBuildStatus::Deliverable => 1.0,
+            default => null,
+        };
+    }
+
+    /**
      * Deliverable, not expired, and its certificate is still valid: a build
      * signed with a revoked certificate would not launch (IMPLEMENTATION_PLAN R2).
      */

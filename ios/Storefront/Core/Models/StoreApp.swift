@@ -28,3 +28,10 @@ struct StoreApp: Identifiable, Hashable {
     var supportURL: URL?
     var privacyURL: URL?
 }
+
+extension StoreApp {
+    /// Only the ID is known (a link): the app page fills in the rest from the API.
+    static func loading(id: String) -> StoreApp {
+        StoreApp(id: id, name: "", subtitle: "", category: "", developer: "", systemImage: "app.fill", artwork: .derived(from: id), installState: .unavailable)
+    }
+}

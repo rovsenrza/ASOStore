@@ -9,16 +9,12 @@ struct StorefrontTabView: View {
         @Bindable var router = router
 
         TabView(selection: $router.selectedTab) {
-            Tab("Главная", systemImage: "rectangle.stack.fill", value: .home) {
-                FeedScreen(kind: .all)
+            Tab("Главная", systemImage: "sparkles.rectangle.stack.fill", value: .home) {
+                FeedScreen()
             }
 
-            Tab("Игры", systemImage: "gamecontroller.fill", value: .games) {
-                FeedScreen(kind: .games)
-            }
-
-            Tab("Приложения", systemImage: "square.stack.3d.up.fill", value: .apps) {
-                FeedScreen(kind: .apps)
+            Tab("Каталог", systemImage: "square.grid.2x2.fill", value: .catalog) {
+                CatalogView()
             }
 
             Tab("Менеджер", systemImage: "arrow.down.app.fill", value: .manager) {
@@ -29,6 +25,7 @@ struct StorefrontTabView: View {
                 SearchView()
             }
         }
+        .modifier(MinimizingTabBar())
         .sheet(item: $router.sheet) { sheet in
             switch sheet {
             case .account: AccountSheet()
@@ -51,6 +48,17 @@ struct StorefrontTabView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(router.alertMessage ?? "")
+        }
+    }
+}
+
+/// iOS 26: the tab bar shrinks while scrolling down, giving the list the screen.
+private struct MinimizingTabBar: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *) {
+            content.tabBarMinimizeBehavior(.onScrollDown)
+        } else {
+            content
         }
     }
 }

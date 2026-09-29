@@ -26,7 +26,7 @@ final class InstallationCoordinator {
         repository: PreparationRepository,
         store: ActiveInstallationStore = .shared,
         openURL: @escaping @MainActor (URL) async -> Bool,
-        pollDelay: @escaping @Sendable (Int) -> Duration = { attempt in .seconds(min(3 * (1 << min(attempt, 4)), 30)) }
+        pollDelay: @escaping @Sendable (Int) -> Duration = { attempt in .seconds(min(1 + attempt, 5)) }
     ) {
         self.repository = repository
         self.store = store
