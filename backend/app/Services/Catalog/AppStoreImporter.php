@@ -8,10 +8,8 @@ use App\Enums\ErrorCode;
 use App\Enums\SourceType;
 use App\Exceptions\ApiException;
 use App\Models\AppCategory;
-use App\Models\AppleTeam;
 use App\Models\AppPublisher;
 use App\Models\CatalogApp;
-use App\Models\TeamAppEligibility;
 use App\Models\User;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
@@ -43,6 +41,7 @@ class AppStoreImporter
     public function __construct(
         private readonly CatalogImageService $images,
         private readonly AuditService $audit,
+        private readonly TeamEligibilityGranter $eligibility,
     ) {}
 
     /**
@@ -72,20 +71,12 @@ class AppStoreImporter
                 'age_rating' => self::ageRating((string) ($listing['contentAdvisoryRating'] ?? '')),
                 'support_url' => self::https($listing['sellerUrl'] ?? null),
             ]);
-            $by = Actor::user($actor);
             $this->audit->record('app.imported', $app, after: [
                 'name' => $app->name, 'app_store_id' => $id, 'link' => $link, 'bundle_identifier' => $app->bundle_identifier,
-            ], actor: $by);
+            ], actor: Actor::user($actor));
 
             // The signing ID is ours (com.ruappstore.*), so the primary team may sign it.
-            $team = AppleTeam::primary();
-            if ($team !== null) {
-                $row = TeamAppEligibility::query()->updateOrCreate(
-                    ['apple_team_id' => $team->id, 'bundle_identifier' => $app->bundle_identifier],
-                    ['evidence' => "Imported from the App Store ({$id}); signed as our own bundle ID.", 'status' => 'APPROVED', 'approved_by' => $actor->id, 'approved_at' => now()],
-                );
-                $this->audit->record('team.eligibility.approved', $row, after: ['team' => $team->apple_team_id, 'bundle_identifier' => $app->bundle_identifier], actor: $by);
-            }
+            $this->eligibility->grantFor($app, $actor, "Imported from the App Store ({$id}); signed as our own bundle ID.");
 
             return $app;
         });
@@ -192,7 +183,7 @@ class AppStoreImporter
 
     private function signingBundleIdentifier(string $slug): string
     {
-        $base = 'com.ruappstore.'.(trim((string) preg_replace('/[^a-z0-9-]+/', '-', strtolower($slug)), '-') ?: 'app');
+        $base = config('storefront.artifacts.own_bundle_prefix').(trim((string) preg_replace('/[^a-z0-9-]+/', '-', strtolower($slug)), '-') ?: 'app');
         $candidate = $base;
         for ($i = 2; CatalogApp::withTrashed()->where('bundle_identifier', $candidate)->exists(); $i++) {
             $candidate = "{$base}{$i}";

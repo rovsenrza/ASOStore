@@ -113,12 +113,17 @@ it('rejects approved artifacts that can never be installed', function (Closure $
     'source type differs from the listing' => [fn () => [IpaBuilder::app(), 'PARTNER_BUILD'], 'SOURCE_TYPE_MISMATCH'],
 ]);
 
-it('blocks bundle IDs no Apple team is approved to distribute', function () {
+it('refuses to approve a bundle ID no Apple team is approved for, and keeps the file in review', function () {
+    $approvals = TeamAppEligibility::query()->get();
     TeamAppEligibility::query()->delete();
     $artifact = inReview($this);
 
-    approve($artifact)->assertOk()->assertJsonPath('data.artifact.status', 'REJECTED');
-    expect($artifact->refresh()->status_reason)->toBe('TEAM_NOT_ELIGIBLE');
+    // A missing approval is a setting to fix, not a reason to reject the file for good.
+    approve($artifact)->assertStatus(409)->assertJsonPath('error.details.code', 'TEAM_NOT_ELIGIBLE');
+    expect($artifact->refresh()->status)->toBe(ArtifactStatus::ProvenanceReview);
+
+    $approvals->each(fn (TeamAppEligibility $row) => TeamAppEligibility::create($row->only(['apple_team_id', 'bundle_identifier', 'evidence', 'status', 'approved_by', 'approved_at'])));
+    approve($artifact)->assertOk()->assertJsonPath('data.artifact.status', 'READY');
 });
 
 it('blocks source types the compliance decision does not allow', function () {

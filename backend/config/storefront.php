@@ -103,6 +103,9 @@ return [
         // Require an approved team_app_eligibilities row for the bundle ID before an
         // artifact can pass COMPATIBILITY_CHECK or be signed (IMPLEMENTATION_PLAN P7-BE-03).
         'require_team_eligibility' => (bool) env('STOREFRONT_REQUIRE_TEAM_ELIGIBILITY', true),
+        // Signing bundle IDs under this prefix are ours: a listing that carries one is
+        // approved for the primary team automatically (TeamEligibilityGranter).
+        'own_bundle_prefix' => env('STOREFRONT_OWN_BUNDLE_PREFIX', 'com.ruappstore.'),
         // When true, the uploader of an artifact cannot approve it (four-eyes review).
         'independent_review' => (bool) env('STOREFRONT_INDEPENDENT_REVIEW', false),
         // Provenance review checklist (P0-02). Every item must be confirmed to approve;

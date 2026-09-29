@@ -15,6 +15,7 @@ use App\Models\AppPublisher;
 use App\Models\CatalogApp;
 use App\Services\Audit\AuditService;
 use App\Services\Catalog\AppStoreImporter;
+use App\Services\Catalog\TeamEligibilityGranter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -65,7 +66,7 @@ class AppController extends Controller
         return ApiResponse::ok($this->detail($request, $this->find($app)));
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(Request $request, TeamEligibilityGranter $eligibility): JsonResponse
     {
         $data = $request->validate($this->rules(creating: true));
 
@@ -74,6 +75,7 @@ class AppController extends Controller
             'visibility' => $data['visibility'] ?? AppVisibility::Draft->value,
         ]);
         $this->audit->record('app.created', $app, after: ['name' => $app->name, 'visibility' => $app->visibility->value, 'source_type' => $app->source_type->value]);
+        $eligibility->grantFor($app, $request->user(), 'Listing created with our own signing bundle ID.');
 
         return ApiResponse::ok($this->detail($request, $app), 201);
     }
@@ -93,7 +95,7 @@ class AppController extends Controller
         return ApiResponse::ok($this->detail($request, $result['app']) + ['warnings' => $result['warnings']], 201);
     }
 
-    public function update(Request $request, string $app): JsonResponse
+    public function update(Request $request, string $app, TeamEligibilityGranter $eligibility): JsonResponse
     {
         $model = $this->find($app);
         $data = $request->validate($this->rules(creating: false, appId: $model->id));
@@ -122,6 +124,8 @@ class AppController extends Controller
                 $data['reason'] ?? null,
             );
         }
+        // Also on a plain save, so a card made before this rule gets its approval.
+        $eligibility->grantFor($model, $request->user(), 'Listing carries our own signing bundle ID.');
 
         return ApiResponse::ok($this->detail($request, $model));
     }

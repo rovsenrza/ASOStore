@@ -147,7 +147,11 @@ class ChunkedUploadService
                 ]);
             }
 
-            $duplicate = AppArtifact::query()->where('sha256', $sha256)->first();
+            // A file that was rejected, or failed inspection or provenance, may come again once
+            // the reason is fixed (e.g. the team approval); any other copy is a duplicate.
+            $duplicate = AppArtifact::query()->where('sha256', $sha256)
+                ->whereNotIn('status', [ArtifactStatus::Rejected->value, ArtifactStatus::InspectionFailed->value, ArtifactStatus::ProvenanceFailed->value])
+                ->first();
             if ($duplicate !== null) {
                 $this->fail($upload, ErrorCode::DuplicateArtifact->value);
                 Storage::disk('artifacts')->deleteDirectory("uploads/{$upload->public_id}");

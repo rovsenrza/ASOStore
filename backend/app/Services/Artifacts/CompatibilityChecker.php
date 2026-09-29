@@ -50,7 +50,7 @@ class CompatibilityChecker
         return ['blocking' => $blocking, 'warnings' => $warnings];
     }
 
-    private function hasEligibleTeam(string $bundleIdentifier): bool
+    public function hasEligibleTeam(string $bundleIdentifier): bool
     {
         return TeamAppEligibility::query()
             ->where(['bundle_identifier' => $bundleIdentifier, 'status' => 'APPROVED'])

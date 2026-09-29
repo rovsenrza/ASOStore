@@ -3,6 +3,7 @@
 use App\Enums\AppVisibility;
 use App\Enums\RoleSlug;
 use App\Models\AppCategory;
+use App\Models\AppPublisher;
 use App\Models\CatalogApp;
 use App\Models\TeamAppEligibility;
 use Illuminate\Http\Client\Request;
@@ -124,4 +125,18 @@ it('publishes a draft listing together with its first build', function () {
     asStaff($this->manager)->postJson("/api/v1/admin/artifacts/{$artifact->public_id}/publish")->assertOk();
 
     expect($listing->refresh()->visibility)->toBe(AppVisibility::Published);
+});
+
+it('approves the primary team for a card created by hand with our own signing bundle ID', function () {
+    $body = [
+        'name' => 'Яндекс Пэй', 'category_id' => AppCategory::sole()->public_id,
+        'publisher_id' => AppPublisher::factory()->create()->public_id, 'source_type' => 'OWN_BUILD',
+    ];
+
+    asStaff($this->manager)->postJson('/api/v1/admin/apps', $body + ['bundle_identifier' => 'com.ruappstore.yandex-pay'])->assertCreated();
+    asStaff($this->manager)->postJson('/api/v1/admin/apps', ['name' => 'Other'] + $body + ['bundle_identifier' => 'com.example.other'])->assertCreated();
+
+    expect(TeamAppEligibility::allows($this->team->id, 'com.ruappstore.yandex-pay'))->toBeTrue()
+        // Someone else's ID still needs an explicit approval.
+        ->and(TeamAppEligibility::allows($this->team->id, 'com.example.other'))->toBeFalse();
 });

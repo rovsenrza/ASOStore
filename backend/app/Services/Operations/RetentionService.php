@@ -47,7 +47,11 @@ class RetentionService
             ->where('updated_at', '<', now()->subDays($days['rejected_artifact_days']))
             ->get();
         foreach ($rejected as $artifact) {
-            $disk->delete($artifact->storage_path);
+            // The same file uploaded again after a rejection shares this path; keep it for that one.
+            $shared = AppArtifact::query()->whereKeyNot($artifact->id)->where('storage_path', $artifact->storage_path)->whereNull('purged_at')->exists();
+            if (! $shared) {
+                $disk->delete($artifact->storage_path);
+            }
             $artifact->forceFill(['purged_at' => now()])->save();
             $summary['rejected_artifacts']++;
         }

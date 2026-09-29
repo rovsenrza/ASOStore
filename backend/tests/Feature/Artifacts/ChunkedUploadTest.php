@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\ArtifactStatus;
 use App\Enums\RoleSlug;
 use App\Models\AppArtifact;
 use App\Models\AuditLog;
@@ -9,6 +10,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
+use Tests\Support\IpaBuilder;
 
 beforeEach(function () {
     // Inspection has its own tests (InspectArtifactTest).
@@ -103,7 +105,7 @@ it('rejects a corrupt chunk and a mismatched final checksum', function () {
 });
 
 it('links duplicate content to the existing artifact', function () {
-    $contents = 'same ipa payload';
+    $contents = IpaBuilder::app()->build();
     $first = startUpload($this->manager, $this->catalogApp, $contents);
     putChunk($first['id'], 0, $contents)->assertOk();
     $artifactId = $this->postJson("/api/v1/admin/uploads/{$first['id']}/complete")->json('data.id');
@@ -114,6 +116,21 @@ it('links duplicate content to the existing artifact', function () {
         ->assertStatus(409)
         ->assertJsonPath('error.code', 'DUPLICATE_ARTIFACT')
         ->assertJsonPath('error.details.artifact_id', $artifactId);
+});
+
+it('accepts a file again after its earlier upload was rejected', function () {
+    $contents = IpaBuilder::app()->build();
+    $first = startUpload($this->manager, $this->catalogApp, $contents);
+    putChunk($first['id'], 0, $contents)->assertOk();
+    $rejected = $this->postJson("/api/v1/admin/uploads/{$first['id']}/complete")->json('data.id');
+    AppArtifact::where('public_id', $rejected)->update(['status' => ArtifactStatus::Rejected->value, 'status_reason' => 'TEAM_NOT_ELIGIBLE']);
+
+    $second = startUpload($this->manager, $this->catalogApp, $contents);
+    putChunk($second['id'], 0, $contents)->assertOk();
+    $again = $this->postJson("/api/v1/admin/uploads/{$second['id']}/complete")->assertCreated()->json('data.id');
+
+    expect($again)->not->toBe($rejected)
+        ->and(AppArtifact::where('sha256', hash('sha256', $contents))->count())->toBe(2);
 });
 
 it('requires a provenance declaration and limits upload changes to managers', function () {

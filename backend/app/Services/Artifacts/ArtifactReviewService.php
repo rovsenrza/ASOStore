@@ -58,6 +58,15 @@ class ArtifactReviewService
 
             $this->assertIndependent($artifact, $reviewer);
             $this->assertChecklist($checklist);
+            // A missing team approval is a setting to fix, not a reason to reject the file for good:
+            // refuse the approval and keep the artifact in review.
+            $bundle = $artifact->signingBundleIdentifier();
+            if (config('storefront.artifacts.require_team_eligibility') && ! $this->compatibility->hasEligibleTeam($bundle)) {
+                throw new ApiException(ErrorCode::Conflict, "Ни одна команда Apple не одобрена для Bundle ID {$bundle}. Задайте в карточке приложения Bundle ID для подписи com.ruappstore.… (одобряется автоматически) или добавьте {$bundle} в «Разрешённые приложения» команды, затем одобрите снова.", [
+                    'code' => 'TEAM_NOT_ELIGIBLE',
+                    'bundle_identifier' => $bundle,
+                ]);
+            }
             if (($artifact->inspection['malware_scan']['status'] ?? null) !== MalwareScanner::CLEAN && ! $scanAcknowledged) {
                 throw new ApiException(ErrorCode::ValidationFailed, 'Подтвердите результат антивирусной проверки.', [
                     'fields' => ['acknowledge_scan_result' => ['The malware scan did not report this file as clean.']],
