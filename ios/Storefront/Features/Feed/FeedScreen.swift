@@ -22,6 +22,7 @@ final class FeedModel {
 struct FeedScreen: View {
     let kind: CatalogKind
     @Environment(\.catalog) private var catalog
+    @Environment(SessionStore.self) private var session
     @State private var model = FeedModel()
 
     var body: some View {
@@ -48,7 +49,8 @@ struct FeedScreen: View {
             .refreshable { await model.load(catalog, kind: kind) }
             .toolbarVisibility(.hidden, for: .navigationBar)
             .storeDestinations()
-            .task { await model.load(catalog, kind: kind) }
+            // Install buttons depend on who is signed in: reload when that changes.
+            .task(id: session.user?.id) { await model.load(catalog, kind: kind) }
         }
     }
 
@@ -128,5 +130,6 @@ extension View {
     let api = APIClient.configured(environment: APIEnvironment(baseURL: URL(string: "http://127.0.0.1:8000/api/v1")!, mode: .mock))
     FeedScreen(kind: .all)
         .environment(\.catalog, CatalogRepository(api: api, cache: .catalog))
+        .environment(SessionStore(api: api))
         .environment(AppRouter())
 }

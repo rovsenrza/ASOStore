@@ -31,6 +31,7 @@ use App\Http\Controllers\Api\V1\Customer\StorefrontStatusController;
 use App\Http\Controllers\Api\V1\Customer\SupportController;
 use App\Http\Controllers\Api\V1\Customer\TokenController;
 use App\Http\Controllers\Api\V1\HealthController;
+use App\Http\Middleware\RejectStaleBearerToken;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -94,15 +95,17 @@ Route::post('/devices/enrollment/callback', [EnrollmentController::class, 'callb
 // Called by the native app with the one-time code from storefront://claim.
 Route::post('/storefront/claims/redeem', [ClaimController::class, 'redeem'])->middleware('throttle:claims')->name('api.storefront.claims.redeem');
 
-// Storefront and catalog (public; install_state depends on the caller)
-Route::prefix('storefront')->group(function () {
-    Route::get('/feed', FeedController::class)->name('api.storefront.feed');
-    Route::get('/status', StorefrontStatusController::class)->name('api.storefront.status');
-});
+// Storefront and catalog (public; install_state depends on the caller, so a stale token gets 401)
+Route::middleware(RejectStaleBearerToken::class)->group(function () {
+    Route::prefix('storefront')->group(function () {
+        Route::get('/feed', FeedController::class)->name('api.storefront.feed');
+        Route::get('/status', StorefrontStatusController::class)->name('api.storefront.status');
+    });
 
-Route::get('/apps', [AppController::class, 'index'])->name('api.apps.index');
-Route::get('/apps/{app}', [AppController::class, 'show'])->name('api.apps.show');
-Route::get('/apps/{app}/versions', [AppController::class, 'versions'])->name('api.apps.versions');
+    Route::get('/apps', [AppController::class, 'index'])->name('api.apps.index');
+    Route::get('/apps/{app}', [AppController::class, 'show'])->name('api.apps.show');
+    Route::get('/apps/{app}/versions', [AppController::class, 'versions'])->name('api.apps.versions');
+});
 
 // Admin: browser session + staff role + TOTP (IMPLEMENTATION_PLAN D4, §5.9)
 Route::prefix('admin')->name('api.admin.')->group(function () {

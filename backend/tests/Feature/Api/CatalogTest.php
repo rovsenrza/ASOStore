@@ -171,3 +171,26 @@ it('reports the signed-out storefront status', function () {
         ->assertJsonPath('data.stage', 'signed_out')
         ->assertJsonPath('data.next_action', 'sign_in');
 });
+
+it('asks the app to refresh an expired token instead of treating it as a guest', function () {
+    CatalogApp::factory()->create();
+    $user = subscribedCustomer();
+    $token = $user->createToken('ios', ['*'], now()->addMinutes(15));
+
+    // Valid token: the caller is known.
+    $this->withToken($token->plainTextToken)->getJson('/api/v1/storefront/feed')->assertOk();
+    forgetGuards();
+
+    // Expired or revoked: 401, so the native app runs /auth/refresh and retries.
+    $this->travel(16)->minutes();
+    $this->withToken($token->plainTextToken)->getJson('/api/v1/storefront/feed')
+        ->assertUnauthorized()->assertJsonPath('error.code', 'UNAUTHENTICATED');
+    forgetGuards();
+    $this->withToken('garbage|token')->getJson('/api/v1/apps')->assertUnauthorized();
+    forgetGuards();
+
+    // No token at all is still a guest.
+    $this->withoutToken();
+    $this->getJson('/api/v1/storefront/feed')->assertOk();
+    $this->getJson('/api/v1/apps')->assertOk();
+});
