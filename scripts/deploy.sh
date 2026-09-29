@@ -20,6 +20,8 @@ trap 'php artisan up' EXIT
 composer install --no-dev --prefer-dist --no-interaction --optimize-autoloader
 composer audit --no-interaction
 php artisan migrate --force
+# Catalog icons and screenshots live on the public disk.
+[[ -L public/storage ]] || php artisan storage:link
 
 # Static portal and admin without mock fixtures (IMPLEMENTATION_PLAN D1, D13).
 MOCKS=0 "$ROOT/scripts/build-public.sh"
