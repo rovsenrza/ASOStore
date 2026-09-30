@@ -46,7 +46,7 @@ class CatalogApp extends Model
 
     protected $fillable = [
         'slug', 'name', 'subtitle', 'description', 'bundle_identifier', 'app_store_id', 'category_id', 'publisher_id',
-        'source_type', 'visibility', 'age_rating', 'icon_path', 'is_storefront', 'featured_rank',
+        'source_type', 'visibility', 'age_rating', 'icon_path', 'banner_path', 'is_storefront', 'featured_rank',
         'support_url', 'privacy_url',
     ];
 
@@ -111,19 +111,15 @@ class CatalogApp extends Model
         return $this->hasMany(Installation::class, 'app_id');
     }
 
-    /**
-     * The first screenshot, shown as the banner of hero cards.
-     *
-     * @return HasOne<AppScreenshot, $this>
-     */
-    public function coverScreenshot(): HasOne
-    {
-        return $this->hasOne(AppScreenshot::class, 'app_id')->ofMany(['sort_order' => 'min', 'id' => 'min']);
-    }
-
     public function iconUrl(): ?string
     {
         return $this->icon_path ? Storage::disk('public')->url($this->icon_path) : null;
+    }
+
+    /** The wide picture of the Home banner card; set in the admin, never a screenshot. */
+    public function bannerUrl(): ?string
+    {
+        return $this->banner_path ? Storage::disk('public')->url($this->banner_path) : null;
     }
 
     /**

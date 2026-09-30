@@ -54,6 +54,27 @@ class CatalogImageService
         return $this->write($resized, "catalog/{$appPublicId}/screenshot-".Str::lower(Str::random(12)).'.jpg', 'jpeg');
     }
 
+    /**
+     * The Home banner picture: landscape, stored as a JPEG no wider than 1600 px. The app crops
+     * it to its card (about 16:10 on Home, 2:1 on the app page), so keep the subject centred.
+     *
+     * @return array{path: string, width: int, height: int}
+     */
+    public function storeBanner(UploadedFile $file, string $appPublicId): array
+    {
+        $image = $this->load($file);
+        [$width, $height] = [imagesx($image), imagesy($image)];
+
+        if ($width < 1000 || $width < $height * 1.3) {
+            throw $this->invalid('banner', 'Баннер должен быть горизонтальным (шире высоты хотя бы в 1,3 раза) и не уже 1000 пикселей. Рекомендуем 1600×1000.');
+        }
+
+        $targetWidth = min($width, 1600);
+        $resized = $this->resize($image, $targetWidth, (int) round($height * $targetWidth / $width), keepAlpha: false);
+
+        return $this->write($resized, "catalog/{$appPublicId}/banner-".Str::lower(Str::random(8)).'.jpg', 'jpeg');
+    }
+
     public function delete(?string $path): void
     {
         if ($path) {

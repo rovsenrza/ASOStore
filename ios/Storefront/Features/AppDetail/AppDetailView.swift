@@ -44,7 +44,8 @@ struct AppDetailView: View {
         }
         .background(AppPalette.canvas)
         .onScrollGeometryChange(for: Bool.self) { geometry in
-            geometry.contentOffset.y + geometry.contentInsets.top > (app.featureImageURL == nil ? 190 : 390)
+            // Past the header's install button (the banner, when there is one, sits above it).
+            geometry.contentOffset.y + geometry.contentInsets.top > 190 + (app.featureImageURL == nil ? 0 : StretchyBanner.height - 44)
         } action: { _, hidden in
             withAnimation(Motion.state) { headerHidden = hidden }
         }
@@ -341,13 +342,13 @@ struct AppDetailView: View {
 /// The banner above the header. Pulling down stretches it instead of showing a gap.
 private struct StretchyBanner: View {
     let url: URL?
-    private let height = 280.0
+    static let height = 196.0
 
     var body: some View {
         GeometryReader { proxy in
             let pull = max(0, proxy.frame(in: .scrollView).minY)
             ScreenshotImage(url: url)
-                .frame(width: proxy.size.width, height: height + pull)
+                .frame(width: proxy.size.width, height: Self.height + pull)
                 .clipped()
                 .overlay {
                     // The header below sits on the canvas: fade the artwork into it.
@@ -355,7 +356,7 @@ private struct StretchyBanner: View {
                 }
                 .offset(y: -pull)
         }
-        .frame(height: height)
+        .frame(height: Self.height)
         .accessibilityHidden(true)
     }
 }

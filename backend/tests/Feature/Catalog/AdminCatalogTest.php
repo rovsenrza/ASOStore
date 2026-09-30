@@ -118,6 +118,32 @@ it('resizes screenshots, orders them and shows them to customers', function () {
     $this->getJson("/api/v1/apps/{$id}")->assertJsonCount(1, 'data.screenshots');
 });
 
+it('shows the banner set in the admin on hero cards, never a screenshot', function () {
+    $id = ($this->create)(['visibility' => 'PUBLISHED'])->json('data.id');
+    $this->post("/api/v1/admin/apps/{$id}/screenshots", ['screenshot' => pngUpload(1170, 2532)], ['Accept' => 'application/json'])->assertCreated();
+    forgetGuards();
+    // A portrait screenshot does not fit a wide card.
+    $this->getJson("/api/v1/apps/{$id}")->assertJsonPath('data.feature_image_url', null);
+
+    asStaff($this->manager)->post("/api/v1/admin/apps/{$id}/banner", ['banner' => pngUpload(1170, 2532)], ['Accept' => 'application/json'])
+        ->assertUnprocessable()
+        ->assertJsonStructure(['error' => ['details' => ['fields' => ['banner']]]]);
+    $url = $this->post("/api/v1/admin/apps/{$id}/banner", ['banner' => pngUpload(2400, 1500)], ['Accept' => 'application/json'])
+        ->assertOk()
+        ->json('data.banner_url');
+
+    $path = CatalogApp::where('public_id', $id)->value('banner_path');
+    expect(getimagesizefromstring(Storage::disk('public')->get($path)))->toMatchArray([0 => 1600, 1 => 1000, 'mime' => 'image/jpeg']);
+    $this->getJson('/api/v1/admin/apps?visibility=PUBLISHED')->assertJsonPath('data.0.banner_url', $url);
+    forgetGuards();
+    $this->getJson("/api/v1/apps/{$id}")->assertJsonPath('data.feature_image_url', $url);
+
+    asStaff($this->manager)->deleteJson("/api/v1/admin/apps/{$id}/banner")->assertOk();
+    Storage::disk('public')->assertMissing($path);
+    forgetGuards();
+    $this->getJson("/api/v1/apps/{$id}")->assertJsonPath('data.feature_image_url', null);
+});
+
 it('adds versions with release notes and refuses duplicates', function () {
     $id = ($this->create)(['visibility' => 'PUBLISHED'])->json('data.id');
 

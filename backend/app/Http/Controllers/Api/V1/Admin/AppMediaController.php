@@ -34,6 +34,30 @@ class AppMediaController extends Controller
         return ApiResponse::ok(['icon_url' => $model->iconUrl()]);
     }
 
+    public function banner(Request $request, string $app): JsonResponse
+    {
+        $request->validate(['banner' => ['required', 'file', 'mimes:png,jpg,jpeg,webp', 'max:12288']]);
+        $model = $this->find($app);
+
+        $stored = $this->images->storeBanner($request->file('banner'), $model->public_id);
+        $this->images->delete($model->banner_path);
+        $model->forceFill(['banner_path' => $stored['path']])->save();
+        $this->audit->record('app.banner_changed', $model);
+
+        return ApiResponse::ok(['banner_url' => $model->bannerUrl()]);
+    }
+
+    public function destroyBanner(string $app): JsonResponse
+    {
+        $model = $this->find($app);
+
+        $this->images->delete($model->banner_path);
+        $model->forceFill(['banner_path' => null])->save();
+        $this->audit->record('app.banner_removed', $model);
+
+        return ApiResponse::ok(['banner_url' => null]);
+    }
+
     public function storeScreenshot(Request $request, string $app): JsonResponse
     {
         $request->validate(['screenshot' => ['required', 'file', 'mimes:png,jpg,jpeg,webp', 'max:8192']]);

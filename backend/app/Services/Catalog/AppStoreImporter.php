@@ -91,15 +91,10 @@ class AppStoreImporter
             $warnings[] = 'Не удалось загрузить иконку — добавьте её вручную.';
         }
 
-        $shots = array_slice((array) ($listing['screenshotUrls'] ?? []), 0, (int) config('storefront.catalog.screenshot_max_count'));
-        foreach (array_values($shots) as $index => $url) {
-            try {
-                $stored = $this->withDownload(self::resize((string) $url, '1290x0w.jpg'),
-                    fn (UploadedFile $file) => $this->images->storeScreenshot($file, $app->public_id));
-                $app->screenshots()->create($stored + ['sort_order' => $index + 1]);
-            } catch (Throwable) {
-                $warnings[] = 'Скриншот '.($index + 1).' не загрузился.';
-            }
+        $shots = (array) ($listing['screenshotUrls'] ?? []);
+        $added = $this->addScreenshots($app, $shots);
+        if ($added < min(count($shots), (int) config('storefront.catalog.screenshot_max_count'))) {
+            $warnings[] = 'Не все скриншоты загрузились.';
         }
         if (! self::hasRussian($listing)) {
             $warnings[] = 'В App Store нет русского описания — переведите его в карточке.';
@@ -114,6 +109,31 @@ class AppStoreImporter
      *
      * @return array{0: string, 1: string}
      */
+    /**
+     * Appends App Store screenshots (mzstatic URLs) after the card's own, up to the maximum.
+     * Returns how many were added; one that fails to download is skipped.
+     *
+     * @param  list<string>  $urls
+     */
+    public function addScreenshots(CatalogApp $app, array $urls): int
+    {
+        $room = (int) config('storefront.catalog.screenshot_max_count') - $app->screenshots()->count();
+        $order = (int) $app->screenshots()->max('sort_order');
+        $added = 0;
+        foreach (array_slice(array_values($urls), 0, max(0, $room)) as $url) {
+            try {
+                $stored = $this->withDownload(self::resize((string) $url, '1290x0w.jpg'),
+                    fn (UploadedFile $file) => $this->images->storeScreenshot($file, $app->public_id));
+                $app->screenshots()->create($stored + ['sort_order' => $order + $added + 1]);
+                $added++;
+            } catch (Throwable) {
+                continue;
+            }
+        }
+
+        return $added;
+    }
+
     public static function parse(string $link): array
     {
         $link = trim($link);

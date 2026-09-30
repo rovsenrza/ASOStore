@@ -37,7 +37,7 @@ struct FeedSkeleton: View {
         VStack(alignment: .leading, spacing: 30) {
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill(AppPalette.ctaFill)
-                .frame(height: 320)
+                .frame(height: HeroCard.height)
                 .shimmering()
                 .padding(.horizontal, AppSpacing.standard)
             VStack(alignment: .leading, spacing: 12) {

@@ -40,6 +40,7 @@ class AdminAppResource extends JsonResource
             'featured_rank' => $this->featured_rank,
             'bundle_identifier' => $this->bundle_identifier,
             'icon_url' => $this->iconUrl(),
+            'banner_url' => $this->bannerUrl(),
             'is_storefront' => $this->is_storefront,
             'latest_version' => $this->latestVersion?->version,
             'has_published_artifact' => $this->publishedArtifact !== null,

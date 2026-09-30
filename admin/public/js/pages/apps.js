@@ -230,6 +230,17 @@ function media(app, refresh) {
       await api.post(`/admin/apps/${app.id}/icon`, body);
     }, refresh) : null)));
 
+  // The wide picture of the Home banner card; a screenshot is portrait and never fits it.
+  const banner = app.banner_url ? el('img', { className: 'banner-preview', src: app.banner_url, alt: t('apps.banner') }) : el('span', { className: 'banner-preview thumb--empty' }, t('apps.noBanner'));
+  section.append(el('div', { className: 'media-row media-row--banner' }, banner, el('div', {}, el('strong', {}, t('apps.banner')), el('p', { className: 'muted' }, t('apps.bannerHint')),
+    manage ? el('div', { className: 'button-row' },
+      upload('image/png,image/jpeg,image/webp', false, async ([file]) => {
+        const body = new FormData();
+        body.append('banner', await prepareImage(file, { maxBytes: 8_000_000, maxWidth: 2400 }));
+        await api.post(`/admin/apps/${app.id}/banner`, body);
+      }, refresh),
+      app.banner_url ? el('button', { type: 'button', className: 'button button--danger', onclick: () => act(() => api.delete(`/admin/apps/${app.id}/banner`), null, refresh) }, t('apps.remove')) : null) : null)));
+
   const shots = el('ol', { className: 'shots' });
   app.screenshots.forEach((shot, index) => {
     const move = async (delta) => {

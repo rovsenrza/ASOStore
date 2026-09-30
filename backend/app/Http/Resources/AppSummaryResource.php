@@ -15,7 +15,7 @@ use Illuminate\Http\Resources\Json\JsonResource;
  */
 class AppSummaryResource extends JsonResource
 {
-    public const RELATIONS = ['category', 'publisher', 'latestVersion', 'coverScreenshot', ...InstallStateResolver::REQUIRED_RELATIONS];
+    public const RELATIONS = ['category', 'publisher', 'latestVersion', ...InstallStateResolver::REQUIRED_RELATIONS];
 
     /**
      * @return array<string, mixed>
@@ -41,7 +41,7 @@ class AppSummaryResource extends JsonResource
             ],
             'icon_url' => $this->iconUrl(),
             // Banner for hero cards: the first screenshot, when there is one.
-            'feature_image_url' => $this->coverScreenshot?->url(),
+            'feature_image_url' => $this->bannerUrl(),
             'age_rating' => $this->age_rating,
             'latest_version' => $this->latestVersion ? [
                 'version' => $this->latestVersion->version,

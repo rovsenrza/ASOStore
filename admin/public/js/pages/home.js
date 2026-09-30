@@ -1,4 +1,4 @@
-import { boot, el, errorNotice } from '../app.js';
+import { boot, el, errorNotice, prepareImage } from '../app.js';
 import { toast } from '../components/toast.js';
 
 // What the Ru AppStore app shows on its Home tab: the editor's banner and its order
@@ -10,7 +10,6 @@ const box = document.querySelector('#home');
 let apps = [];
 let banner = [];      // app ids, in banner order
 let saved = [];
-const screenshots = new Map();
 
 async function load() {
   try {
@@ -20,17 +19,10 @@ async function load() {
       .sort((a, b) => a.featured_rank - b.featured_rank)
       .map((app) => app.id);
     saved = [...banner];
-    await Promise.all(banner.map(checkScreenshots));
     render();
   } catch (error) {
     box.replaceChildren(errorNotice(t, error, load));
   }
-}
-
-async function checkScreenshots(id) {
-  if (screenshots.has(id)) return;
-  const { data } = await api.get(`/admin/apps/${id}`);
-  screenshots.set(id, data.screenshots.length > 0);
 }
 
 const byId = (id) => apps.find((app) => app.id === id);
@@ -41,11 +33,40 @@ function icon(app) {
 }
 
 function row(app, ...actions) {
+  const inBanner = banner.includes(app.id);
   return el('li', { className: 'home-row' },
     icon(app),
+    inBanner ? bannerPreview(app) : null,
     el('span', { className: 'home-row__name' }, el('b', {}, app.name),
-      screenshots.get(app.id) === false && banner.includes(app.id) ? el('small', { className: 'muted' }, t('home.noScreenshot')) : null),
-    manage ? el('span', { className: 'button-row' }, ...actions) : null);
+      inBanner && !app.banner_url ? el('small', { className: 'muted' }, t('home.noBanner')) : null),
+    manage ? el('span', { className: 'button-row' }, inBanner ? bannerUpload(app) : null, ...actions) : null);
+}
+
+function bannerPreview(app) {
+  return app.banner_url
+    ? el('img', { className: 'home-row__banner', src: app.banner_url, alt: '' })
+    : el('span', { className: 'home-row__banner thumb thumb--empty' }, '16:10');
+}
+
+// Sets the card's picture without leaving the page (it is also on the app's page).
+function bannerUpload(app) {
+  const input = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', hidden: true });
+  input.addEventListener('change', async () => {
+    const [file] = input.files;
+    if (!file) return;
+    try {
+      const body = new FormData();
+      body.append('banner', await prepareImage(file, { maxBytes: 8_000_000, maxWidth: 2400 }));
+      const { data } = await api.post(`/admin/apps/${app.id}/banner`, body);
+      app.banner_url = data.banner_url;
+      toast(t('home.bannerUploaded'), { tone: 'ok' });
+      render();
+    } catch (error) {
+      toast(t.error(error), { tone: 'error' });
+    }
+  });
+  return el('span', {}, input,
+    el('button', { type: 'button', className: 'button', onclick: () => input.click() }, t(app.banner_url ? 'home.replaceBanner' : 'home.uploadBanner')));
 }
 
 function move(index, delta) {
@@ -54,9 +75,8 @@ function move(index, delta) {
   render();
 }
 
-async function add(id) {
+function add(id) {
   banner.push(id);
-  try { await checkScreenshots(id); } catch { /* the hint is optional */ }
   render();
 }
 

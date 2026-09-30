@@ -138,6 +138,8 @@ Route::prefix('admin')->name('api.admin.')->group(function () {
         Route::delete('/apps/{app}', [AdminAppController::class, 'destroy'])->can('catalog.manage')->name('apps.destroy');
         Route::post('/apps/{app}/restore', [AdminAppController::class, 'restore'])->can('catalog.manage')->name('apps.restore');
         Route::post('/apps/{app}/icon', [AppMediaController::class, 'icon'])->can('catalog.manage')->name('apps.icon');
+        Route::post('/apps/{app}/banner', [AppMediaController::class, 'banner'])->can('catalog.manage')->name('apps.banner');
+        Route::delete('/apps/{app}/banner', [AppMediaController::class, 'destroyBanner'])->can('catalog.manage')->name('apps.banner.destroy');
         Route::post('/apps/{app}/screenshots', [AppMediaController::class, 'storeScreenshot'])->can('catalog.manage')->name('apps.screenshots.store');
         Route::put('/apps/{app}/screenshots/order', [AppMediaController::class, 'reorderScreenshots'])->can('catalog.manage')->name('apps.screenshots.order');
         Route::delete('/apps/{app}/screenshots/{screenshot}', [AppMediaController::class, 'destroyScreenshot'])->can('catalog.manage')->name('apps.screenshots.destroy');

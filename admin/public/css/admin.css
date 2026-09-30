@@ -362,6 +362,9 @@ label.field input, label.field select, label.field textarea { width: 100%; min-w
 .home-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
 .home-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 .home-row .thumb { width: 40px; height: 40px; flex: none; }
+.home-row__banner { width: 80px; height: 50px; flex: none; border-radius: 8px; object-fit: cover; }
+.home-row__banner.thumb--empty { display: inline-grid; place-items: center; font-size: 0.7rem; font-weight: 600; text-align: center; }
+.banner-preview { width: 256px; max-width: 100%; aspect-ratio: 16 / 10; border-radius: 14px; object-fit: cover; display: grid; place-items: center; border: 1px solid var(--line); }
 .home-row__name { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .home-row__name b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 ol.home-list { counter-reset: banner; }
