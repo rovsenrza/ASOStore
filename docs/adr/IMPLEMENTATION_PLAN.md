@@ -176,7 +176,7 @@ Record each confirmed decision as a short ADR (`docs/adr/0001-….md`).
 | D10 | Signing granularity | **One ad hoc profile per (team, bundle ID, device)** for the MVP, so each signed build is per device. Confirm Apple profile-count limits and re-provisioning behavior in the Phase 6 spike | Matches device-bound authorization and avoids re-signing everyone when a device is added. Alternative: shared multi-device profiles |
 | D11 | API contract | **OpenAPI 3.1, contract-first.** Shared JSON examples in `docs/api/examples/` are used by Laravel response tests **and** iOS decoding tests. Linted with Spectral in CI | Keeps the three clients aligned (FULL_PLAN §9) |
 | D12 | iOS baseline | iOS **18.0** minimum, Swift 6 strict concurrency, `@Observable` stores, no third-party dependencies in the MVP, Swift Testing plus XCUITest | The existing code already uses the iOS 18 `Tab` API |
-| D13 | Shared web code | `shared/js/` (API client, envelope, errors, i18n loader) is copied into both `front/public` and `admin/public` by `scripts/build-public.sh`. No bundler | FULL_PLAN §18.2: "shared API client patterns", no framework |
+| D13 | Shared web code | The customer site remains vanilla HTML/CSS/JS in `front/src/`, built by Vite. Vite bundles imports from `shared/js/`; `scripts/build-public.sh` copies `front/dist/` and the unbundled `shared/js/` used by the admin into Laravel's docroot. No frontend framework | FULL_PLAN §18.2: shared API client patterns; Vite is a build tool, not an application framework |
 | D14 | Local environment | **Laravel Sail** (Docker: PHP, MySQL 8, Mailpit). Static sites are served by the same Laravel app locally | Exact MySQL 8 parity. Alternative: Laravel Herd plus DBngin |
 | D15 | Framework version | The current supported Laravel release at project start. **Check its minimum PHP version against the host**; FULL_PLAN says PHP 8.2+, and newer Laravel releases may need newer PHP | Avoids discovering a hosting mismatch in Phase 8 |
 | D16 | Signing runner platform | **Linux in Docker, signing with zsign** (pinned version and checksum), on the backend's server. Identities are `<name>.key` + `<name>.cer` files in a read-only mount, owned by the container user. `codesign --verify` is replaced by the runner's own check (code page hashes, special slots, CMS signature, signer certificate, team) plus the backend's `VerifySignatureJob`. Decided 2026-09-26 after a benchmark (zsign 1.1.2 vs rcodesign 0.29.0: both verify with Apple's codesign, zsign ~30% faster and actively released) and a real install: a DemoApp signed in a Linux container with no network ran on an iPhone 16 Pro | No Mac to buy, rent or keep awake. Risk: a third-party signer may lag behind Apple format changes — test every iOS beta and keep a Mac able to run the old macOS runner from git history as a fallback |
@@ -200,8 +200,10 @@ Record each confirmed decision as a short ADR (`docs/adr/0001-….md`).
 │   ├── database/{migrations,seeders,factories}/
 │   ├── routes/{api.php,worker.php,web.php}
 │   └── tests/{Unit,Feature,Fixtures/ipa}/
-├── front/public/                # customer portal (FULL_PLAN §10 pages)
-│   ├── *.html  css/  js/pages/  js/i18n/ru.js  assets/
+├── front/                       # customer portal (FULL_PLAN §10 pages)
+│   ├── src/                     # HTML, CSS, JS and shared partials
+│   ├── public/assets/           # static brand, catalog and scene assets
+│   └── dist/                    # generated Vite build, not committed
 ├── admin/public/                # operator panel (FULL_PLAN §3 pages)
 │   ├── *.html  css/  js/pages/  js/components/  js/i18n/ru.js
 ├── shared/js/                   # api-client.js, envelope.js, errors.js, i18n.js, mock-transport.js

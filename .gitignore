@@ -28,6 +28,8 @@ backend/public/*.html
 backend/public/css/
 backend/public/js/
 backend/public/assets/
+backend/public/robots.txt
+backend/public/sitemap.xml
 backend/public/shared/
 backend/public/admin/
 backend/public/mock/
@@ -53,3 +55,6 @@ fixtures/DemoApp/build/
 
 # zsign signing cache written by the runner tests
 runner/.zsign_cache/
+
+# Website build
+front/node_modules/

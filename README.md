@@ -17,7 +17,7 @@ Monorepo for the customer web portal, the native iOS Storefront, the operator ad
 | [ios/](ios/) | Native SwiftUI Storefront (`Storefront.xcodeproj`) |
 | [runner/](runner/) | Signing runner (Swift, Linux/Docker, zsign): leases signing jobs, re-signs per device — see its README |
 | [docs/runbooks/](docs/runbooks/) | Operational runbooks; [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md); [docs/security/](docs/security/) |
-| [scripts/](scripts/) | `deploy.sh` production deploy; `backup.sh` / `restore-drill.sh` encrypted backups and the restore drill; `dev.sh` runs everything locally; `build-public.sh` publishes the web apps into Laravel's docroot; `web-smoke.mjs` checks them; `e2e.sh` runs the browser suite; `generate-api-examples.sh` rebuilds the API examples; `device-payload.php` signs a fake iPhone enrollment answer for tests |
+| [scripts/](scripts/) | `deploy.sh` production deploy; `backup.sh` / `restore-drill.sh` encrypted backups and the restore drill; `dev.sh` runs everything locally; `build-public.sh` publishes the completed Vite build and admin into Laravel's docroot; `web-smoke.mjs` checks them; `e2e.sh` runs the browser suite; `generate-api-examples.sh` rebuilds the API examples; `device-payload.php` signs a fake iPhone enrollment answer for tests |
 | [tests/e2e/](tests/e2e/) | Playwright browser journeys across portal and admin |
 
 Everything is served from one origin (IMPLEMENTATION_PLAN D1): portal at `/`, admin at `/admin/`, API at `/api/v1`.
@@ -36,7 +36,7 @@ mysql -uroot -e "CREATE DATABASE storefront; CREATE DATABASE storefront_test;"
 php artisan migrate --seed          # prints the seeded admin password (or set SEED_ADMIN_PASSWORD)
 
 # Everything at once, from the repo root: web build, API server, queue worker, scheduler
-./scripts/dev.sh                    # http://127.0.0.1:8000 · rerun build-public.sh after editing front/, admin/ or shared/
+./scripts/dev.sh                    # http://127.0.0.1:8000 · rerun npm build in front/ after editing the website, then build-public.sh
 open http://127.0.0.1:8000          # add ?mock=1 to use the example fixtures instead of the API
 
 # iOS

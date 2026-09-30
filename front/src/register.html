@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Регистрация аккаунта — Ru AppStore</title>
+  <meta name="description" content="Создание аккаунта Ru AppStore.">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#0b45e6">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/ru-appstore-logo-32.png">
+  <link rel="apple-touch-icon" href="/assets/brand/ru-appstore-logo-180.png">
+  <link rel="stylesheet" href="/css/site.css">
+  <script type="module" src="/js/pages/register.js"></script>
+</head>
+<body>
+  <!--#header-->
+
+  <main id="main">
+    <section class="page-hero" aria-labelledby="page-title">
+      <h1 id="page-title">Создать аккаунт</h1>
+      <p>Аккаунт нужен, чтобы привязать к нему iPhone и код активации.</p>
+    </section>
+
+    <div class="page-body">
+      <form class="form" id="register-form" novalidate>
+        <div class="form-status"></div>
+        <div class="field">
+          <label for="register-name">Имя</label>
+          <input id="register-name" name="name" type="text" autocomplete="name" maxlength="100" required>
+        </div>
+        <div class="field">
+          <label for="register-email">Эл. почта</label>
+          <input id="register-email" name="email" type="email" autocomplete="email" inputmode="email" required>
+        </div>
+        <div class="field">
+          <label for="register-password">Пароль</label>
+          <input id="register-password" name="password" type="password" autocomplete="new-password" minlength="10" aria-describedby="register-password-hint" required>
+          <p class="field-hint" id="register-password-hint">Не менее 10 символов, хотя бы одна буква и одна цифра.</p>
+        </div>
+        <button class="primary-button" type="submit">Создать аккаунт <span aria-hidden="true">→</span></button>
+        <p class="form-footer">Уже есть аккаунт? <a href="/login.html">Войдите</a></p>
+      </form>
+    </div>
+  </main>
+
+  <!--#footer-->
+</body>
+</html>

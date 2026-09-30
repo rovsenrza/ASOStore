@@ -1,0 +1,13 @@
+{
+  "extends": "stylelint-config-standard",
+  "rules": {
+    "selector-class-pattern": null,
+    "custom-property-pattern": null,
+    "keyframes-name-pattern": null,
+    "no-descending-specificity": null,
+    "declaration-block-no-redundant-longhand-properties": null,
+    "declaration-block-single-line-max-declarations": null,
+    "import-notation": "string",
+    "rule-empty-line-before": null
+  }
+}

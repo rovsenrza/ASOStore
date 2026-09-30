@@ -14,6 +14,20 @@ grep -q '^APP_ENV=production' .env || { echo "backend/.env is not APP_ENV=produc
 grep -q '^APP_DEBUG=false' .env || { echo "APP_DEBUG must be false in production"; exit 1; }
 grep -q '^STOREFRONT_APPLE_DRIVER=appstoreconnect' .env || echo "warning: STOREFRONT_APPLE_DRIVER is not appstoreconnect"
 
+# Prepare the website before putting the API into maintenance mode.
+# A host without Node accepts a build prepared from this exact Git revision.
+if command -v npm >/dev/null; then
+  (cd "$ROOT/front" && npm ci --no-audit --no-fund && npm run build)
+else
+  expected_revision="$(git -C "$ROOT" rev-parse HEAD)"
+  [[ -f "$ROOT/front/dist/index.html" && -f "$ROOT/front/dist/.source-revision" ]] || {
+    echo "Node.js is unavailable and the prebuilt website is missing."; exit 1;
+  }
+  [[ "$(cat "$ROOT/front/dist/.source-revision")" == "$expected_revision" ]] || {
+    echo "The prebuilt website does not match the checked-out Git revision."; exit 1;
+  }
+fi
+
 php artisan down --retry=60 || true
 trap 'php artisan up' EXIT
 
@@ -23,7 +37,7 @@ php artisan migrate --force
 # Catalog icons and screenshots live on the public disk.
 [[ -L public/storage ]] || php artisan storage:link
 
-# Static portal and admin without mock fixtures (IMPLEMENTATION_PLAN D1, D13).
+# Publish the built website and the static admin without mock fixtures.
 MOCKS=0 "$ROOT/scripts/build-public.sh"
 
 php artisan config:cache

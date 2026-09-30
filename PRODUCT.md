@@ -33,7 +33,7 @@ The product turns a normally opaque device-registration and signing workflow int
 - Apple-side device eligibility may remain pending and must be presented honestly.
 - Ru AppStore is prepared, signed, validated, and delivered only after the device is eligible.
 - The web frontend remains the recovery and support channel if Ru AppStore cannot open.
-- Payment and checkout will be added later and are not part of the current implementation priority.
+- Package selection is displayed on the website. The selected term is carried to the activation URL; payment and checkout are not implemented by this repository.
 
 ## Capabilities and Constraints
 
@@ -44,9 +44,9 @@ The product turns a normally opaque device-registration and signing workflow int
 - Activation and recovery entry points
 - Responsive behavior for phone and desktop
 - Accessible loading, error, pending, ready, expired and unsupported states
-- No framework or build step is required for the frontend
+- The web frontend uses vanilla HTML, CSS and JavaScript with a Vite production build. No frontend framework is used.
 - No Apple platform bypass, silent installation, jailbreak flow, or fabricated availability claim
-- Backend calls are represented by a replaceable API adapter and local demo state until the backend is implemented
+- The website uses the live Laravel API through the shared API client. Mock responses are available only in local development.
 
 ## Brand Commitments
 
@@ -70,3 +70,12 @@ The product turns a normally opaque device-registration and signing workflow int
 - Treat security, signing validation, and recovery as parts of the experience.
 - Keep the web bootstrap useful even when the native Ru AppStore app is unavailable.
 - Separate verified product facts from illustrative demo data.
+
+## Website Offer and Copy
+
+- Primary message: familiar apps removed from the Russian App Store can be discovered in Ru AppStore and prepared for an eligible iPhone.
+- Primary action: choose a term and start device registration in Safari. The website must keep preparation and Apple waiting states visible.
+- Term options displayed on the site: 1 month for 590 ₽, 6 months for 1,770 ₽, and 12 months for 2,360 ₽. The 6 month option is the initial selection. All options list the same access features.
+- Catalog proof uses actual app names and icon images from the catalog. The total count is fetched from the API; no number is rendered when the request fails.
+- No checkout or payment provider is connected in this repository. Copy must not imply that choosing a term charges the visitor.
+- No testimonials, install guarantees, instant Apple registration promises, or fabricated rankings are approved.

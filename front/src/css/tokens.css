@@ -1,0 +1,70 @@
+/* Ru AppStore design tokens. Colours are sampled from the logo: its royal-blue field,
+   the sky highlight at the top of the circle, the deep rim, and the ribbon red. */
+:root {
+  /* Brand field */
+  --blue: #0b45e6;
+  --blue-hover: #0838c4;
+  --sky: #239cf8;
+  --deep: #0226ae;
+  --navy: #06164d;
+  --navy-2: #0a2170;
+
+  /* Light surfaces and ink */
+  --paper: #fff;
+  --mist: #f2f6ff;
+  --mist-2: #e6eeff;
+  --ink: #0b1b45;
+  --ink-2: #4a5b82;
+  --line: rgb(11 27 69 / 12%);
+  --line-strong: rgb(11 27 69 / 22%);
+
+  /* On the blue field */
+  --on-blue: #fff;
+  --on-blue-2: #e3ecff;
+  --on-blue-line: rgb(255 255 255 / 22%);
+
+  /* The ribbon red: savings and the one warm mark, never a field */
+  --red: #e0263c;
+  --green: #0f7a5c;
+
+  /* Type */
+  --font-display: "Unbounded Variable", "Unbounded", ui-rounded, system-ui, sans-serif;
+  --font-text: "Onest Variable", "Onest", system-ui, sans-serif;
+  --text-xs: .8125rem;
+  --text-sm: .9375rem;
+  --text-md: 1.0625rem;
+  --text-lg: clamp(1.125rem, 1rem + .4vw, 1.3125rem);
+  --display-sm: clamp(1.5rem, 1.1rem + 1.4vw, 2.1rem);
+  --display-md: clamp(2rem, 1.3rem + 2.6vw, 3.4rem);
+  --display-lg: clamp(2.35rem, 1.4rem + 3.8vw, 4.9rem);
+
+  /* Space: one 8-based rhythm */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+  --s8: 72px;
+  --s9: 112px;
+  --gutter: clamp(20px, 5vw, 80px);
+  --section: clamp(88px, 11vw, 168px);
+  --max: 1320px;
+
+  /* Shape and depth */
+  --r-sm: 12px;
+  --r-md: 20px;
+  --r-lg: 28px;
+  --r-xl: 40px;
+  --r-pill: 999px;
+  --shadow-1: 0 1px 2px rgb(6 22 77 / 8%), 0 8px 24px rgb(6 22 77 / 8%);
+  --shadow-2: 0 2px 6px rgb(6 22 77 / 10%), 0 24px 56px rgb(6 22 77 / 16%);
+  --shadow-blue: 0 10px 30px rgb(2 38 174 / 35%);
+
+  /* Motion */
+  --ease-out: cubic-bezier(.16, 1, .3, 1);
+  --ease-in-out: cubic-bezier(.65, 0, .35, 1);
+  --t-fast: .18s;
+  --t: .32s;
+}

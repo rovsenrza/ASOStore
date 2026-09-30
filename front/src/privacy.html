@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Конфиденциальность — Ru AppStore</title>
+  <meta name="description" content="Как Ru AppStore обрабатывает данные аккаунта и устройства.">
+  <meta name="robots" content="noindex,follow">
+  <link rel="canonical" href="https://ruappstore.com/privacy.html">
+  <meta property="og:type" content="website">
+  <meta property="og:locale" content="ru_RU">
+  <meta property="og:site_name" content="Ru AppStore">
+  <meta property="og:title" content="Конфиденциальность — Ru AppStore">
+  <meta property="og:description" content="Как Ru AppStore обрабатывает данные аккаунта и устройства.">
+  <meta property="og:url" content="https://ruappstore.com/privacy.html">
+  <meta property="og:image" content="https://ruappstore.com/assets/og/ru-appstore-og.jpg">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="theme-color" content="#0b45e6">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/ru-appstore-logo-32.png">
+  <link rel="apple-touch-icon" href="/assets/brand/ru-appstore-logo-180.png">
+  <link rel="stylesheet" href="/css/site.css">
+  <script type="module" src="/js/pages/static.js"></script>
+  <script type="application/ld+json">{"@context": "https://schema.org", "@graph": [{"@type": "BreadcrumbList", "itemListElement": [{"@type": "ListItem", "position": 1, "name": "Ru AppStore", "item": "https://ruappstore.com/"}, {"@type": "ListItem", "position": 2, "name": "Конфиденциальность", "item": "https://ruappstore.com/privacy.html"}]}]}</script>
+</head>
+<body>
+  <!--#header-->
+
+  <main id="main">
+    <section class="page-hero" aria-labelledby="page-title">
+      <h1 id="page-title">Политика конфиденциальности</h1>
+    </section>
+    <div class="page-body">
+      <section class="notice" aria-labelledby="draft-title">
+        <b id="draft-title">Черновик, не утверждён юристом</b>
+        <p>Ниже описано, какие данные сервис фактически обрабатывает. Юридически значимый текст утверждается юристами и заменит этот черновик до запуска.</p>
+      </section>
+      <section class="prose" aria-label="Какие данные мы обрабатываем">
+        <h2>Какие данные мы храним</h2>
+        <ul>
+          <li><b>Аккаунт:</b> имя, адрес эл. почты, пароль (только в виде необратимого хеша Argon2id), язык интерфейса, статус подписки.</li>
+          <li><b>Устройство:</b> идентификатор iPhone (UDID), модель и версия iOS, которые iOS передаёт при установке профиля регистрации. UDID хранится зашифрованным; сотрудники видят только последние четыре символа, полный идентификатор открывается администратором с указанием причины и записью в журнал.</li>
+          <li><b>Установки:</b> какие приложения и версии были подготовлены и загружены на устройство, с датами.</li>
+          <li><b>Журнал безопасности:</b> действия с аккаунтом, устройством и установками, с IP-адресом и кодом запроса. Записи журнала не изменяются; в них не попадают UDID, пароли и токены, а клиенты указываются обезличенным идентификатором.</li>
+          <li><b>Обращения в поддержку:</b> текст обращения и адрес для ответа.</li>
+        </ul>
+        <h2>Зачем</h2>
+        <p>UDID нужен, чтобы зарегистрировать устройство в команде Apple Developer и подписать приложения именно для него. Остальные данные нужны для входа, поддержки и защиты от злоупотреблений.</p>
+        <h2>Сколько храним</h2>
+        <ul>
+          <li>События установки — 365 дней.</li>
+          <li>UDID удалённого аккаунта — до конца года регистрации устройства в Apple: в течение этого года Apple позволяет устройство только отключить, но не удалить.</li>
+          <li>Файлы отклонённых приложений — 90 дней; подписанные сборки, которые больше нельзя установить, — 30 дней.</li>
+        </ul>
+        <h2>Ваши права</h2>
+        <p>На странице <a href="/account.html">аккаунта</a> можно скачать все свои данные и запросить удаление аккаунта. По другим вопросам пишите через <a href="/support.html">поддержку</a>.</p>
+      </section>
+    </div>
+  </main>
+
+  <!--#footer-->
+</body>
+</html>

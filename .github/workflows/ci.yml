@@ -81,6 +81,9 @@ jobs:
           sed -i "s|^STOREFRONT_UDID_HMAC_KEY=.*|STOREFRONT_UDID_HMAC_KEY=$(php -r 'echo base64_encode(random_bytes(32));')|" .env
           php artisan migrate --seed --force
           php artisan serve --port=8000 > /tmp/serve.log 2>&1 &
+      - name: Build and lint website
+        working-directory: front
+        run: npm ci && npm run lint && npm run build
       - run: ./scripts/build-public.sh
       - run: node scripts/web-smoke.mjs
         env:

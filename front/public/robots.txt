@@ -1,0 +1,11 @@
+User-agent: *
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+Disallow: /account.html
+Disallow: /login.html
+Disallow: /register.html
+Disallow: /forgot-password.html
+Disallow: /reset-password.html
+
+Sitemap: https://ruappstore.com/sitemap.xml

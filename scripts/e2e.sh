@@ -12,6 +12,7 @@ MYSQL=(mysql -h "${MYSQL_HOST:-127.0.0.1}" -u"${MYSQL_USER:-root}")
 
 "${MYSQL[@]}" -e "DROP DATABASE IF EXISTS $DB; CREATE DATABASE $DB CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
+(cd "$ROOT/front" && npm ci --no-audit --no-fund && npm run build) >/dev/null
 MOCKS=0 "$ROOT/scripts/build-public.sh" >/dev/null
 
 cd "$ROOT/backend"

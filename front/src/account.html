@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Аккаунт — Ru AppStore</title>
+  <meta name="description" content="Аккаунт Ru AppStore: подписка, код активации и статус вашего iPhone.">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#0b45e6">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/ru-appstore-logo-32.png">
+  <link rel="apple-touch-icon" href="/assets/brand/ru-appstore-logo-180.png">
+  <link rel="stylesheet" href="/css/site.css">
+  <script type="module" src="/js/pages/account.js"></script>
+</head>
+<body>
+  <!--#header-->
+
+  <main id="main">
+    <section class="page-hero" aria-labelledby="page-title">
+      <h1 id="page-title">Аккаунт и устройство</h1>
+      <p>Статус активации, зарегистрированное устройство и готовность Ru AppStore.</p>
+    </section>
+
+    <div class="page-body">
+      <div class="two-column">
+        <section class="panel" aria-labelledby="profile-title">
+          <h2 id="profile-title">Профиль</h2>
+          <div id="profile" aria-live="polite"></div>
+        </section>
+        <section class="panel" aria-labelledby="account-title">
+          <h2 id="account-title">Статус</h2>
+          <div id="account-state" role="status" aria-live="polite"></div>
+        </section>
+        <section class="panel" id="data-panel" aria-labelledby="data-title" hidden>
+          <h2 id="data-title">Ваши данные</h2>
+          <p>Можно скачать всё, что мы храним о вашем аккаунте, или попросить удалить аккаунт. Удаление выполняет сотрудник поддержки после проверки; идентификатор устройства удаляется после окончания года регистрации в Apple.</p>
+          <div class="form-status" id="data-status" role="status" aria-live="polite"></div>
+          <div class="stage-actions">
+            <button class="secondary-button" type="button" id="export-data">Скачать мои данные</button>
+            <button class="secondary-button" type="button" id="delete-account">Запросить удаление аккаунта</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <!--#footer-->
+</body>
+</html>

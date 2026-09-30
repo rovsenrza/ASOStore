@@ -7,6 +7,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${PORT:-8000}"
 
+(cd "$ROOT/front" && npm ci --no-audit --no-fund && npm run build)
 "$ROOT/scripts/build-public.sh"
 cd "$ROOT/backend"
 php artisan migrate --no-interaction

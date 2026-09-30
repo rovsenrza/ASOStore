@@ -31,7 +31,7 @@ test('catalog manager creates, versions and publishes a listing', async ({ page 
   await signInAdmin(page);
   await page.goto('/admin/apps.html');
 
-  await page.getByRole('button', { name: 'Добавить приложение' }).click();
+  await page.getByRole('button', { name: 'Добавить вручную' }).click();
   const create = page.locator('.panel-dialog');
   await create.getByLabel('Название', { exact: true }).fill(appName);
   await create.getByLabel('Подзаголовок').fill('Все мысли рядом');
@@ -64,7 +64,7 @@ test('a draft listing is hidden from the public catalog', async ({ page }) => {
   await page.goto('/admin/apps.html');
 
   const draftName = `Черновик ${Date.now()}`;
-  await page.getByRole('button', { name: 'Добавить приложение' }).click();
+  await page.getByRole('button', { name: 'Добавить вручную' }).click();
   const create = page.locator('.panel-dialog');
   await create.getByLabel('Название', { exact: true }).fill(draftName);
   await create.getByRole('button', { name: 'Сохранить', exact: true }).click();

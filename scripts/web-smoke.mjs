@@ -28,7 +28,8 @@ function localReferences(body, url, contentType) {
     for (const [, ref] of body.matchAll(/\s(?:href|src)="([^"#]+)(?:#[^"]*)?"/g)) refs.push(ref);
   }
   if (contentType.includes('javascript')) {
-    for (const [, ref] of body.matchAll(/(?:import|from)\s*['"]([^'"]+)['"]/g)) refs.push(ref);
+    for (const [, ref] of body.matchAll(/^\s*(?:import|export)\s+(?:[^'"\n]*?\s+from\s*)?['"]([^'"]+)['"]/gm)) refs.push(ref);
+    for (const [, ref] of body.matchAll(/\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g)) refs.push(ref);
   }
   return refs
     .filter((ref) => !/^(https?:|data:|mailto:|tel:)/.test(ref))
