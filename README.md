@@ -72,6 +72,7 @@ iOS only posts the device answer to an HTTPS address it can reach. Expose the lo
 | Command | What |
 |---|---|
 | `php artisan activation:issue --count=N [--days=D] [--note=…]` | Issue activation codes (printed once) |
+| `php artisan telegram:store-bot` | Run the Telegram subscription bot (configure `TELEGRAM_STORE_*` first) |
 | `php artisan admin:reset-totp EMAIL --reason=…` | Break-glass reset of a staff authenticator |
 | `php artisan apple:store-key PATH` / `apple:connect …` | Store the Apple key encrypted; connect the primary team (more teams: Admin → Команды Apple) |
 | `php artisan runner:create NAME` | Register a signing runner; prints its worker key once (runner/README.md) |
@@ -80,6 +81,17 @@ iOS only posts the device answer to an HTTPS address it can reach. Expose the lo
 | `BACKUP_PASSPHRASE=… ./scripts/restore-drill.sh` | Restore the newest backup into a throwaway DB and verify it |
 
 Cron on the server: `* * * * * cd backend && php artisan schedule:run` — runs the queue worker (D6), lease recovery, link expiry, quota reconciliation, metrics, alerts and retention.
+
+### Telegram store bot
+
+`php artisan telegram:store-bot` runs the Ru AppStore sales bot (long polling; systemd unit in [ops/systemd/storefront-telegram-bot.service](ops/systemd/storefront-telegram-bot.service)). Code: [backend/app/Services/TelegramStore](backend/app/Services/TelegramStore).
+
+- **Funnel:** plans (1 / 6 / 12 months, 590 / 1770 / 2360 ₽ by default) with per-month price and saving → order with a 30-minute window → balance and/or payment method → activation code in the chat, always available again under Profile → My orders. Opening a new order cancels the previous unpaid one; expired orders are swept every minute, held balance is refunded and the customer gets a one-tap "order again" message.
+- **Referrals:** every customer has a `t.me/<bot>?start=ref_<code>` link. The referrer earns a share (15 % by default) of the money each invited customer pays, credited to an internal balance that pays for orders fully or partly. Every balance change has a ledger row (`telegram_store_balance_transactions`).
+- **Admin panel** (`/admin`, for `TELEGRAM_STORE_ADMIN_IDS`): sales stats by period (mock payments listed separately), review queue with confirm / reject, price and referral-share editing, broadcasts (preview first, sent by `TelegramStoreBroadcastJob` on the queue, blocked users are marked), customer lookup (`/user <id|@name>`) and balance adjustments. `/paid <ORDER_ID>` confirms a payment; `/cancel` leaves a multi-step input.
+- **Payments:** `TELEGRAM_STORE_MOCK_PAYMENTS=true` shows payment methods only to admins and `TELEGRAM_STORE_TESTER_IDS`; a simulated payment completes the order for real, so the whole funnel can be tested. Everyone else sees that online payment opens soon. With mock off, each configured `TELEGRAM_STORE_*_URL` is a payment method and an admin confirms the payment. A real provider implements `Payments\PaymentGateway`, is returned by `GatewayResolver`, and calls `OrderService::complete()` from its webhook.
+
+Broadcasts run on the `default` queue (the `storefront-queue-apple@` workers also serve it). After a deploy, restart the bot: `systemctl restart storefront-telegram-bot`. Only one process may poll a bot token: stop the server bot before running it locally. Rotate the bot token if it has ever been pasted into chat or committed.
 
 ## Checks
 

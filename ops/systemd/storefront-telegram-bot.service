@@ -1,0 +1,15 @@
+[Unit]
+Description=Storefront Telegram subscription bot
+After=network.target mysql.service
+
+[Service]
+User=storefront
+Group=storefront
+WorkingDirectory=/var/www/storefront/app/backend
+ExecStart=/usr/bin/php8.3 artisan telegram:store-bot
+Restart=always
+RestartSec=3
+TimeoutStopSec=45
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,333 @@
+<?php
+
+use App\Enums\RoleSlug;
+use App\Jobs\TelegramStoreBroadcastJob;
+use App\Models\ActivationCode;
+use App\Models\TelegramStoreBroadcast;
+use App\Models\TelegramStoreCustomer;
+use App\Models\TelegramStoreOrder;
+use App\Services\TelegramStore\BalanceLedger;
+use App\Services\TelegramStore\Bot\UpdateRouter;
+use App\Services\TelegramStore\OrderService;
+use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
+
+const ADMIN_ID = 1000;
+const TESTER_ID = 2000;
+const BUYER_ID = 3000;
+
+beforeEach(function () {
+    config([
+        'telegram_store.token' => 'test-token',
+        'telegram_store.bot_username' => 'RuAppStoreBot',
+        'telegram_store.admin_ids' => [(string) ADMIN_ID],
+        'telegram_store.tester_ids' => [(string) TESTER_ID],
+        'telegram_store.mock_payments' => true,
+        'telegram_store.payments' => ['card' => 'https://pay.example/card', 'sbp' => null, 'paypal' => null],
+        'telegram_store.welcome_banner' => '',
+        'telegram_store.support_url' => 'https://t.me/support',
+        'telegram_store.activation_url' => 'https://store.example/activate.html',
+    ]);
+    userWithRoles(RoleSlug::Admin);
+    $this->blocked = [];
+    Http::fake(function (Request $request) {
+        if (in_array($request['chat_id'] ?? null, $this->blocked, true)) {
+            return Http::response(['ok' => false, 'error_code' => 403, 'description' => 'Forbidden: bot was blocked by the user'], 403);
+        }
+
+        return Http::response(['ok' => true, 'result' => ['message_id' => 77]]);
+    });
+
+    $this->text = fn (int $userId, string $text) => app(UpdateRouter::class)->handle([
+        'update_id' => 1,
+        'message' => ['message_id' => 10, 'from' => ['id' => $userId, 'first_name' => 'U'.$userId], 'chat' => ['id' => $userId, 'type' => 'private'], 'text' => $text],
+    ]);
+    $this->press = fn (int $userId, string $data) => app(UpdateRouter::class)->handle([
+        'update_id' => 2,
+        'callback_query' => [
+            'id' => 'cb', 'data' => $data, 'from' => ['id' => $userId, 'first_name' => 'U'.$userId],
+            'message' => ['message_id' => 50, 'chat' => ['id' => $userId, 'type' => 'private'], 'text' => 'screen'],
+        ],
+    ]);
+    // Texts the bot sent or edited into a chat, in order.
+    $this->sentTo = fn (int $chatId) => collect(Http::recorded())
+        ->map(fn ($pair) => $pair[0])
+        ->filter(fn (Request $request) => ($request['chat_id'] ?? null) === $chatId && isset($request['text']))
+        ->map(fn (Request $request) => $request['text'])
+        ->values();
+    $this->lastKeyboard = fn (int $chatId) => collect(Http::recorded())
+        ->map(fn ($pair) => $pair[0])
+        ->filter(fn (Request $request) => ($request['chat_id'] ?? null) === $chatId && isset($request['reply_markup']))
+        ->last()['reply_markup']['inline_keyboard'] ?? [];
+    $this->buttons = fn (int $chatId) => collect(($this->lastKeyboard)($chatId))->flatten(1)->pluck('callback_data')->filter()->values()->all();
+});
+
+function customer(int $userId): TelegramStoreCustomer
+{
+    return TelegramStoreCustomer::query()->where('telegram_user_id', $userId)->sole();
+}
+
+function giveBalance(int $userId, int $amount): void
+{
+    app(BalanceLedger::class)->change(customer($userId)->id, $amount, BalanceLedger::ADMIN_ADJUSTMENT);
+}
+
+it('registers a customer on /start and shows the menu', function () {
+    ($this->text)(BUYER_ID, '/start');
+
+    expect(customer(BUYER_ID)->referral_code)->toMatch('/^[a-z0-9]{8}$/')
+        ->and(($this->sentTo)(BUYER_ID)->last())->toContain('Ru AppStore')->toContain('197₽ в месяц')
+        ->and(($this->buttons)(BUYER_ID))->toContain('buy', 'profile', 'invite');
+});
+
+it('binds a referral from the start link and tells the referrer', function () {
+    ($this->text)(TESTER_ID, '/start');
+    $code = customer(TESTER_ID)->referral_code;
+
+    ($this->text)(BUYER_ID, '/start ref_'.$code);
+    // A second /start with another code does not rebind.
+    ($this->text)(BUYER_ID, '/start ref_zzzzzzzz');
+
+    expect(customer(BUYER_ID)->referrer_id)->toBe(customer(TESTER_ID)->id)
+        ->and(($this->sentTo)(TESTER_ID)->last())->toContain('присоединился новый пользователь');
+});
+
+it('offers the new plans with savings', function () {
+    ($this->text)(BUYER_ID, '/buy');
+
+    $labels = collect(($this->lastKeyboard)(BUYER_ID))->flatten(1)->pluck('text')->all();
+    expect($labels[0])->toBe('1 месяц — 590₽')
+        ->and($labels[1])->toBe('6 месяцев — 1 770₽ · 295₽/мес · −50%')
+        ->and($labels[2])->toBe('🔥 12 месяцев — 2 360₽ · 197₽/мес · −67%');
+});
+
+it('lets a tester complete a mock order end to end with a real code and referral bonus', function () {
+    ($this->text)(ADMIN_ID, '/start');
+    ($this->text)(TESTER_ID, '/start ref_'.customer(ADMIN_ID)->referral_code);
+
+    ($this->press)(TESTER_ID, 'plan:month12');
+    $order = TelegramStoreOrder::sole();
+    expect($order->price_rub)->toBe(2360)->and($order->status)->toBe('PENDING')
+        ->and(($this->buttons)(TESTER_ID))->toContain('pay:card:'.$order->public_id, 'pay:sbp:'.$order->public_id);
+
+    ($this->press)(TESTER_ID, 'pay:card:'.$order->public_id);
+    expect(($this->sentTo)(TESTER_ID)->last())->toContain('Тестовая оплата');
+
+    ($this->press)(TESTER_ID, 'mockpay:'.$order->public_id);
+    $order->refresh();
+    $code = app(OrderService::class)->activationCode($order);
+
+    expect($order->status)->toBe('PAID')
+        ->and($order->payment_provider)->toBe('mock')
+        ->and($order->referral_bonus_rub)->toBe(354)
+        ->and(ActivationCode::sole()->duration_days)->toBe(365)
+        ->and($code)->toMatch('/^[0-9A-Z]{4}(-[0-9A-Z]{4}){3}$/')
+        ->and(($this->sentTo)(TESTER_ID)->last())->toContain($code)
+        ->and(customer(ADMIN_ID)->balance_rub)->toBe(354)
+        ->and(customer(ADMIN_ID)->referral_earned_rub)->toBe(354)
+        ->and(($this->sentTo)(ADMIN_ID)->last())->toContain('+354₽');
+
+    // The code stays available from the order list.
+    ($this->press)(TESTER_ID, 'code:'.$order->public_id);
+    expect(($this->sentTo)(TESTER_ID)->last())->toContain($code);
+});
+
+it('keeps mock payments away from regular customers', function () {
+    ($this->text)(BUYER_ID, '/start');
+    ($this->press)(BUYER_ID, 'plan:month1');
+    $order = TelegramStoreOrder::sole();
+
+    expect(($this->sentTo)(BUYER_ID)->last())->toContain('скоро будет доступна')
+        ->and(collect(($this->buttons)(BUYER_ID))->filter(fn ($data) => str_starts_with($data, 'pay:')))->toBeEmpty();
+
+    ($this->press)(BUYER_ID, 'mockpay:'.$order->public_id);
+    ($this->press)(BUYER_ID, 'pay:card:'.$order->public_id);
+
+    expect($order->refresh()->status)->toBe('PENDING')->and(ActivationCode::count())->toBe(0);
+});
+
+it('pays a whole order from the balance without a referral bonus', function () {
+    ($this->text)(ADMIN_ID, '/start');
+    ($this->text)(BUYER_ID, '/start ref_'.customer(ADMIN_ID)->referral_code);
+    giveBalance(BUYER_ID, 1000);
+
+    ($this->press)(BUYER_ID, 'plan:month1');
+    $order = TelegramStoreOrder::sole();
+    expect(($this->buttons)(BUYER_ID))->toContain('bal:'.$order->public_id);
+
+    ($this->press)(BUYER_ID, 'bal:'.$order->public_id);
+
+    expect($order->refresh()->status)->toBe('PAID')
+        ->and($order->payment_provider)->toBe('balance')
+        ->and($order->balance_used_rub)->toBe(590)
+        ->and($order->amount_due_rub)->toBe(0)
+        ->and(customer(BUYER_ID)->balance_rub)->toBe(410)
+        ->and(customer(ADMIN_ID)->balance_rub)->toBe(0);
+});
+
+it('holds part of the balance on an order and returns it on cancel', function () {
+    ($this->text)(BUYER_ID, '/start');
+    giveBalance(BUYER_ID, 300);
+    ($this->press)(BUYER_ID, 'plan:month6');
+    $order = TelegramStoreOrder::sole();
+
+    ($this->press)(BUYER_ID, 'bal:'.$order->public_id);
+    expect($order->refresh()->amount_due_rub)->toBe(1470)->and(customer(BUYER_ID)->balance_rub)->toBe(0);
+
+    ($this->press)(BUYER_ID, 'cancel:'.$order->public_id);
+    expect($order->refresh()->status)->toBe('CANCELLED')
+        ->and(customer(BUYER_ID)->balance_rub)->toBe(300)
+        ->and(DB::table('telegram_store_balance_transactions')->sum('amount_rub'))->toBe('300');
+});
+
+it('replaces an older unpaid order when a new one is opened', function () {
+    ($this->text)(BUYER_ID, '/start');
+    ($this->press)(BUYER_ID, 'plan:month1');
+    ($this->press)(BUYER_ID, 'plan:month6');
+
+    expect(TelegramStoreOrder::query()->orderBy('id')->pluck('status')->all())->toBe(['CANCELLED', 'PENDING']);
+});
+
+it('expires unpaid orders, refunds held balance and invites the customer back', function () {
+    ($this->text)(BUYER_ID, '/start');
+    giveBalance(BUYER_ID, 100);
+    ($this->press)(BUYER_ID, 'plan:month6');
+    $order = TelegramStoreOrder::sole();
+    ($this->press)(BUYER_ID, 'bal:'.$order->public_id);
+
+    $this->travel(31)->minutes();
+    $expired = app(OrderService::class)->expireStale();
+
+    expect($expired)->toHaveCount(1)
+        ->and($order->refresh()->status)->toBe('EXPIRED')
+        ->and(customer(BUYER_ID)->balance_rub)->toBe(100);
+});
+
+describe('manual payment mode', function () {
+    beforeEach(fn () => config(['telegram_store.mock_payments' => false]));
+
+    it('sends the buyer to the payment link and lets an admin confirm after the window', function () {
+        ($this->text)(BUYER_ID, '/start');
+        ($this->press)(BUYER_ID, 'plan:month1');
+        $order = TelegramStoreOrder::sole();
+        expect(($this->buttons)(BUYER_ID))->toContain('pay:card:'.$order->public_id)->not->toContain('pay:sbp:'.$order->public_id);
+
+        ($this->press)(BUYER_ID, 'pay:card:'.$order->public_id);
+        $link = collect(($this->lastKeyboard)(BUYER_ID))->flatten(1)->pluck('url')->filter()->first();
+        expect($link)->toBe('https://pay.example/card?order='.$order->reference().'&amount=590');
+
+        ($this->press)(BUYER_ID, 'paid:'.$order->public_id);
+        expect($order->refresh()->status)->toBe('REVIEW')
+            ->and(($this->buttons)(ADMIN_ID))->toContain('adm:ok:'.$order->public_id);
+
+        // The window passing must not lose a payment the customer already reported.
+        $this->travel(2)->hours();
+        app(OrderService::class)->expireStale();
+        expect($order->refresh()->status)->toBe('REVIEW');
+
+        ($this->press)(ADMIN_ID, 'adm:ok:'.$order->public_id);
+        expect($order->refresh()->status)->toBe('PAID')
+            ->and($order->reviewed_by)->toBe(ADMIN_ID)
+            ->and(($this->sentTo)(BUYER_ID)->last())->toContain(app(OrderService::class)->activationCode($order));
+
+        // A second admin tap does nothing.
+        ($this->press)(ADMIN_ID, 'adm:ok:'.$order->public_id);
+        expect(ActivationCode::count())->toBe(1);
+    });
+
+    it('confirms with /paid and rejects with a refund', function () {
+        ($this->text)(BUYER_ID, '/start');
+        ($this->press)(BUYER_ID, 'plan:month1');
+        $first = TelegramStoreOrder::sole();
+        ($this->text)(ADMIN_ID, '/paid '.$first->reference());
+        expect($first->refresh()->status)->toBe('PAID');
+
+        giveBalance(BUYER_ID, 200);
+        ($this->press)(BUYER_ID, 'plan:month6');
+        $second = TelegramStoreOrder::query()->where('status', 'PENDING')->sole();
+        ($this->press)(BUYER_ID, 'bal:'.$second->public_id);
+        ($this->press)(BUYER_ID, 'paid:'.$second->public_id);
+        ($this->press)(ADMIN_ID, 'adm:no:'.$second->public_id);
+
+        expect($second->refresh()->status)->toBe('REJECTED')
+            ->and(customer(BUYER_ID)->balance_rub)->toBe(200)
+            ->and(($this->sentTo)(BUYER_ID)->last())->toContain('не нашли оплату');
+    });
+});
+
+it('ignores admin actions from other users', function () {
+    ($this->text)(BUYER_ID, '/start');
+    ($this->press)(BUYER_ID, 'plan:month1');
+    $order = TelegramStoreOrder::sole();
+
+    ($this->text)(BUYER_ID, '/paid '.$order->reference());
+    ($this->press)(BUYER_ID, 'adm:ok:'.$order->public_id);
+    ($this->press)(BUYER_ID, 'adm:price:month1');
+    ($this->text)(BUYER_ID, '1');
+
+    expect($order->refresh()->status)->toBe('PENDING')
+        ->and(DB::table('telegram_store_settings')->count())->toBe(0);
+});
+
+it('lets admins change prices and the referral share', function () {
+    ($this->press)(ADMIN_ID, 'adm:price:month1');
+    ($this->text)(ADMIN_ID, 'abc');
+    ($this->text)(ADMIN_ID, '490');
+    ($this->press)(ADMIN_ID, 'adm:ref');
+    ($this->text)(ADMIN_ID, '20');
+
+    ($this->press)(BUYER_ID, 'plan:month1');
+    expect(TelegramStoreOrder::sole()->price_rub)->toBe(490)
+        ->and(($this->sentTo)(ADMIN_ID)->implode("\n"))->toContain('Нужна цена')->toContain('Реферальный бонус: 20%');
+});
+
+it('lets admins adjust a balance and tells the customer about a gift', function () {
+    ($this->text)(BUYER_ID, '/start');
+    ($this->text)(ADMIN_ID, '/user '.BUYER_ID);
+    ($this->press)(ADMIN_ID, 'adm:bal:'.customer(BUYER_ID)->id);
+    ($this->text)(ADMIN_ID, '-5');
+    ($this->text)(ADMIN_ID, '250');
+
+    expect(customer(BUYER_ID)->balance_rub)->toBe(250)
+        ->and(($this->sentTo)(ADMIN_ID)->implode("\n"))->toContain('Нельзя списать больше')
+        ->and(($this->sentTo)(BUYER_ID)->last())->toContain('Вам начислено 250₽');
+});
+
+it('reports sales without counting mock payments', function () {
+    ($this->press)(TESTER_ID, 'plan:month1');
+    ($this->press)(TESTER_ID, 'mockpay:'.TelegramStoreOrder::sole()->public_id);
+    ($this->press)(ADMIN_ID, 'adm:stats:7');
+
+    expect(($this->sentTo)(ADMIN_ID)->last())
+        ->toContain('Оплачено: 0')
+        ->toContain('Выручка: <b>0₽</b>')
+        ->toContain('Тестовых оплат: 1');
+});
+
+it('queues a broadcast after a preview and delivers it, marking blocked users', function () {
+    Queue::fake();
+    ($this->text)(BUYER_ID, '/start');
+    ($this->text)(TESTER_ID, '/start');
+
+    ($this->press)(ADMIN_ID, 'adm:bc');
+    app(UpdateRouter::class)->handle(['update_id' => 3, 'message' => [
+        'message_id' => 99, 'from' => ['id' => ADMIN_ID], 'chat' => ['id' => ADMIN_ID, 'type' => 'private'], 'photo' => [['file_id' => 'x']], 'caption' => 'Скидка!',
+    ]]);
+    expect(($this->buttons)(ADMIN_ID))->toContain('adm:bcgo:99');
+
+    ($this->press)(ADMIN_ID, 'adm:bcgo:99');
+    ($this->press)(ADMIN_ID, 'adm:bcgo:99');
+    Queue::assertPushed(TelegramStoreBroadcastJob::class, 1);
+
+    $this->blocked = [TESTER_ID];
+    app()->call([new TelegramStoreBroadcastJob(TelegramStoreBroadcast::sole()->id), 'handle']);
+
+    $broadcast = TelegramStoreBroadcast::sole();
+    expect($broadcast->status)->toBe('DONE')
+        ->and($broadcast->sent)->toBe(2)
+        ->and($broadcast->failed)->toBe(1)
+        ->and(customer(TESTER_ID)->blocked_at)->not->toBeNull()
+        ->and(($this->sentTo)(ADMIN_ID)->last())->toContain('Доставлено: 2');
+});

@@ -28,6 +28,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 ->group(base_path('routes/worker.php'));
         },
     )
+    ->withCommands()
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->prepend(AssignRequestId::class);
         // Trusted proxies (TRUSTED_PROXIES) are applied in AppServiceProvider::boot, once config is loaded.
