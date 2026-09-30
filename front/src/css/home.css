@@ -247,9 +247,16 @@
 .home-grid li:first-child img { border-radius: 50%; outline: 2px solid #fff; }
 
 @media (width <= 900px) {
-  .how__inner { grid-template-columns: 1fr; grid-template-areas: "title" "device" "copy"; }
-  .how__device { position: relative; top: 0; margin: var(--s4) 0 var(--s2); }
+  .how__inner { grid-template-columns: minmax(0, 1fr); grid-template-areas: "title" "copy" "device"; }
+  .how__device { position: relative; top: 0; margin: var(--s7) 0 0; }
   .phone { width: min(230px, 60vw); }
+}
+
+@media (width <= 520px) {
+  .how__inner > h2 { max-width: 15ch; }
+  .steps { margin-top: var(--s5); }
+  .step p { margin-left: 0; }
+  .js-steps .step:not(.is-active) h3 { color: var(--ink); }
 }
 
 /* Catalog wall */
