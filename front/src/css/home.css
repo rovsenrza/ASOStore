@@ -309,6 +309,7 @@
   width: min(100%, 460px);
   padding: var(--s5);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--s5);
   border-radius: var(--r-xl);
   background: var(--paper);
@@ -320,9 +321,14 @@
 .status-demo__head img { border-radius: 50%; }
 .status-demo__head b { display: block; font: 600 var(--text-lg)/1.2 var(--font-display); letter-spacing: -.02em; }
 .status-demo__head span { font-size: var(--text-sm); color: var(--green); font-weight: 600; }
-.status-demo .setup-progress { padding: 0; border: 0; }
+.status-demo .setup-progress { min-width: 0; padding: 0; border: 0; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.status-demo .setup-progress li { min-width: 0; display: grid; justify-items: center; align-content: start; gap: var(--s2); text-align: center; }
+.status-demo .setup-progress li:not(:last-child)::after { left: calc(50% + 18px); right: calc(-50% + 18px); top: 14px; }
+.status-demo .setup-progress small { min-width: 0; padding: 0; overflow-wrap: anywhere; }
 .status-demo .setup-progress span svg { width: 16px; height: 16px; }
 .status-demo .device-checks { border-top: 1px solid var(--line); }
+.status-demo .device-checks > div { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, auto); gap: var(--s3); }
+.status-demo .device-checks dt, .status-demo .device-checks dd { min-width: 0; }
 .status-demo__cta { padding: 14px; border-radius: var(--r-pill); background: var(--blue); color: #fff; font-weight: 600; text-align: center; }
 .status-demo figcaption { max-width: 100%; font-size: var(--text-sm); color: var(--ink-2); text-align: center; }
 

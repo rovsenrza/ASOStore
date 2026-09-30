@@ -19,7 +19,6 @@ export function setupWall(getMotion) {
     Flip.from(state, {
       duration: .7,
       ease: 'expo.out',
-      absolute: true,
       onEnter: (entering) => gsap.fromTo(entering, { opacity: 0, scale: .7 }, { opacity: 1, scale: 1, duration: .5, ease: 'expo.out' }),
       onLeave: (leaving) => gsap.to(leaving, { opacity: 0, scale: .7, duration: .3 }),
     });

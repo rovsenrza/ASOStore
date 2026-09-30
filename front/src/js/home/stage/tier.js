@@ -25,5 +25,5 @@ export function pickTier() {
 export const TIERS = {
   high: { dpr: 2, antialias: true, tiles: 32 },
   mid: { dpr: 1.25, antialias: false, tiles: 24 },
-  low: { dpr: 1, antialias: false, tiles: 12 },
+  low: { dpr: 2, antialias: true, tiles: 12 },
 };
