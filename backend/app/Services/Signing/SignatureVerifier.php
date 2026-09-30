@@ -4,6 +4,7 @@ namespace App\Services\Signing;
 
 use App\Enums\SignedBuildStatus;
 use App\Models\SignedBuild;
+use App\Services\Artifacts\LocalArtifactFile;
 use App\Services\Audit\Actor;
 use App\Services\Devices\UdidHasher;
 use App\Services\Inspection\IpaInspector;
@@ -62,7 +63,17 @@ class SignatureVerifier
             return 'SIGNED_FILE_MISSING';
         }
 
-        $path = $disk->path($build->storage_path);
+        // Object storage is copied to a temporary file for the whole check.
+        $file = LocalArtifactFile::open($disk, $build->storage_path);
+        try {
+            return $this->checkFile($build, $file->path);
+        } finally {
+            $file->release();
+        }
+    }
+
+    private function checkFile(SignedBuild $build, string $path): ?string
+    {
         if (! hash_equals((string) $build->sha256, (string) hash_file('sha256', $path))) {
             return 'SIGNED_FILE_HASH_MISMATCH';
         }

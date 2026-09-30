@@ -9,11 +9,17 @@ use App\Models\Installation;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use App\Services\Installations\InstallationService;
+use Illuminate\Filesystem\AwsS3V3Adapter;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
+use League\Flysystem\Local\LocalFilesystemAdapter;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\HeaderUtils;
+use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * What iOS itself fetches during an OTA install: the manifest (single-use
@@ -34,7 +40,7 @@ class InstallDeliveryController extends Controller
         ]);
     }
 
-    public function download(Request $request, string $installation): BinaryFileResponse
+    public function download(Request $request, string $installation): SymfonyResponse
     {
         $model = Installation::query()->where('public_id', strtolower($installation))->first();
 
@@ -51,8 +57,10 @@ class InstallDeliveryController extends Controller
             throw new ApiException(ErrorCode::NotFound);
         }
 
-        $path = Storage::disk('artifacts')->path($this->installations->downloadPath($model));
-        $size = (int) filesize($path);
+        /** @var FilesystemAdapter $disk */
+        $disk = Storage::disk('artifacts');
+        $relative = $this->installations->downloadPath($model);
+        $size = (int) $disk->size($relative);
         $range = (string) $request->header('Range');
         [$start, $end] = self::range($range, $size);
 
@@ -68,13 +76,61 @@ class InstallDeliveryController extends Controller
             });
         }
 
-        $response = new BinaryFileResponse($path, 200, [
+        $filename = $model->app->slug.'.ipa';
+        if (! $disk->getAdapter() instanceof LocalFilesystemAdapter) {
+            return $this->streamRemote($request, $disk, $relative, $size, $start, $end, $filename);
+        }
+
+        $response = new BinaryFileResponse($disk->path($relative), 200, [
             'Content-Type' => 'application/octet-stream',
             'Cache-Control' => 'private, no-store',
         ], false);
-        $response->setContentDisposition('attachment', $model->app->slug.'.ipa');
+        $response->setContentDisposition('attachment', $filename);
 
         return $response;
+    }
+
+    /**
+     * Relays the IPA from object storage with the same Range behaviour as a
+     * local file: 206 with Content-Range for a partial request, 416 when the
+     * range cannot be satisfied. Only the requested bytes are fetched.
+     */
+    private function streamRemote(Request $request, FilesystemAdapter $disk, string $relative, int $size, int $start, int $end, string $filename): SymfonyResponse
+    {
+        $headers = [
+            'Content-Type' => 'application/octet-stream',
+            'Cache-Control' => 'private, no-store',
+            'Accept-Ranges' => 'bytes',
+            'Content-Disposition' => HeaderUtils::makeDisposition('attachment', $filename),
+        ];
+        if ($size === 0 || $start > $end || $start >= $size) {
+            return new SymfonyResponse('', 416, $headers + ['Content-Range' => "bytes */{$size}"]);
+        }
+
+        $partial = $start > 0 || $end < $size - 1;
+        $headers['Content-Length'] = (string) ($end - $start + 1);
+        if ($partial) {
+            $headers['Content-Range'] = "bytes {$start}-{$end}/{$size}";
+        }
+        $status = $partial ? 206 : 200;
+        if ($request->isMethod('HEAD')) {
+            return new SymfonyResponse('', $status, $headers);
+        }
+
+        /** @var AwsS3V3Adapter $disk */
+        $object = $disk->getClient()->getObject([
+            'Bucket' => $disk->getConfig()['bucket'],
+            'Key' => $disk->path($relative),
+            'Range' => "bytes={$start}-{$end}",
+        ]);
+
+        return new StreamedResponse(function () use ($object) {
+            $body = $object['Body'];
+            while (! $body->eof() && connection_status() === CONNECTION_NORMAL) {
+                echo $body->read(1024 * 1024);
+                flush();
+            }
+        }, $status, $headers);
     }
 
     /**

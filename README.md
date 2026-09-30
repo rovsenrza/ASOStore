@@ -82,6 +82,10 @@ iOS only posts the device answer to an HTTPS address it can reach. Expose the lo
 
 Cron on the server: `* * * * * cd backend && php artisan schedule:run` — runs the queue worker (D6), lease recovery, link expiry, quota reconciliation, metrics, alerts and retention.
 
+### IPA storage
+
+IPAs (`originals/`, `signed/`) live on the `artifacts` disk. `ARTIFACTS_DRIVER=local` keeps them in `storage/app/artifacts`; `ARTIFACTS_DRIVER=s3` uses the bucket in `AWS_*` (Contabo Object Storage in production, endpoint `https://eu2.contabostorage.com`). Rows always say `storage_disk = artifacts` (the column is immutable), so moving storage means copying the files with the same paths (`rclone copy`) and then switching the driver. From object storage, IPA downloads are relayed with HTTP Range support, and inspection and signature checks work on a temporary local copy (`LocalArtifactFile`).
+
 ### Email confirmation
 
 A website sign-up gets a six-digit code by email (15 minutes, 5 attempts, resend once a minute) and confirms it on `/verify-email.html`. Until then, website sessions receive `EMAIL_NOT_VERIFIED` from activation, device and install endpoints, and `/storefront/status` reports `email_verification_required`. Token sessions (the iOS app) are not affected. Accounts invited by staff or completing a password reset count as confirmed. Mail goes out over SMTP (Brevo in production, see `backend/.env.example`).

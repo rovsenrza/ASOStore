@@ -47,7 +47,21 @@ return [
             'report' => false,
         ],
 
-        'artifacts' => [
+        // IPAs: local disk, or the S3 bucket (Contabo Object Storage) with ARTIFACTS_DRIVER=s3.
+        // Rows keep storage_disk = 'artifacts' either way (it is immutable), so switching moves the files, not the rows.
+        'artifacts' => env('ARTIFACTS_DRIVER', 'local') === 's3' ? [
+            'driver' => 's3',
+            'key' => env('AWS_ACCESS_KEY_ID'),
+            'secret' => env('AWS_SECRET_ACCESS_KEY'),
+            'region' => env('AWS_DEFAULT_REGION', 'default'),
+            'bucket' => env('AWS_BUCKET'),
+            'endpoint' => env('AWS_ENDPOINT'),
+            'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', true),
+            'root' => env('ARTIFACTS_S3_ROOT', ''),
+            'visibility' => 'private',
+            'throw' => true,
+            'report' => true,
+        ] : [
             'driver' => 'local',
             'root' => env('ARTIFACTS_PATH', storage_path('app/artifacts')),
             'visibility' => 'private',

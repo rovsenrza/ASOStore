@@ -26,6 +26,10 @@ use App\Services\Apple\AppGroupProvisioner;
 use App\Services\Apple\AppGroupUnavailable;
 use App\Services\Pipeline\PipelineJobService;
 use App\Services\Signing\SigningService;
+use Aws\CommandInterface;
+use Aws\MockHandler;
+use Aws\Result;
+use GuzzleHttp\Psr7\Utils;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -203,6 +207,57 @@ it('installs a published app on a registered iPhone through the whole flow', fun
         ->assertJsonPath('data.status', 'READY_TO_INSTALL');
     expect(SignedBuild::count())->toBe(1)
         ->and(Installation::count())->toBe(2);
+});
+
+it('relays the IPA from object storage with range support', function () {
+    runnerHeartbeat();
+    Sanctum::actingAs($this->customer);
+    $installation = $this->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")->assertStatus(202)->json('data');
+    runnerSigns($this);
+    $link = $this->postJson("/api/v1/installations/{$installation['id']}/authorize")->assertOk()->json('data');
+    forgetGuards();
+    preg_match('#<string>(http[^<]+/downloads/installations/[^<]+)</string>#', $this->get($link['manifest_url'])->getContent(), $match);
+    $downloadUrl = html_entity_decode($match[1]);
+    $path = SignedBuild::sole()->storage_path;
+    $bytes = Storage::disk('artifacts')->get($path);
+
+    // The same file, now served by an S3 bucket (the AWS SDK's mock handler plays the bucket).
+    $requests = [];
+    $bucket = function (CommandInterface $command) use ($bytes, $path, &$requests) {
+        $requests[] = [$command->getName(), $command['Key'] ?? null, $command['Range'] ?? null];
+        if ($command['Key'] !== $path) {
+            throw new RuntimeException('Unexpected key '.$command['Key']);
+        }
+        if ($command->getName() === 'HeadObject') {
+            return new Result(['ContentLength' => strlen($bytes)]);
+        }
+        preg_match('/^bytes=(\d+)-(\d+)$/', (string) $command['Range'], $range);
+
+        return new Result(['Body' => Utils::streamFor(substr($bytes, (int) $range[1], (int) $range[2] - (int) $range[1] + 1))]);
+    };
+    $mock = new MockHandler;
+    foreach (range(1, 6) as $ignored) {
+        $mock->append($bucket);
+    }
+    Storage::set('artifacts', Storage::build([
+        'driver' => 's3', 'key' => 'key', 'secret' => 'secret', 'region' => 'default', 'bucket' => 'ruappstore-artifacts',
+        'endpoint' => 'https://storage.test', 'use_path_style_endpoint' => true, 'throw' => true, 'handler' => $mock,
+    ]));
+
+    $full = $this->get($downloadUrl)->assertOk()->assertHeader('Accept-Ranges', 'bytes')->assertHeader('Content-Length', (string) strlen($bytes));
+    expect($full->streamedContent())->toBe($bytes);
+    app()->terminate();
+    expect(Installation::sole()->status)->toBe(InstallationStatus::Delivered);
+
+    $part = $this->withHeader('Range', 'bytes=10-19')->get($downloadUrl)
+        ->assertStatus(206)
+        ->assertHeader('Content-Range', 'bytes 10-19/'.strlen($bytes));
+    expect($part->streamedContent())->toBe(substr($bytes, 10, 10))
+        ->and($requests)->toContain(['GetObject', $path, 'bytes=10-19']);
+
+    $this->withHeader('Range', 'bytes='.(strlen($bytes) + 5).'-')->get($downloadUrl)
+        ->assertStatus(416)
+        ->assertHeader('Content-Range', 'bytes */'.strlen($bytes));
 });
 
 it('removes a deleted website listing from the customer catalog and library', function () {

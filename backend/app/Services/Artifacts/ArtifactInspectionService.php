@@ -13,8 +13,6 @@ use App\StateMachines\StateMachine;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use League\Flysystem\Local\LocalFilesystemAdapter;
-use RuntimeException;
 
 /**
  * Moves an uploaded artifact through HASHING and INSPECTING (IMPLEMENTATION_PLAN §5.7)
@@ -59,14 +57,12 @@ class ArtifactInspectionService
             return 'ALREADY_INSPECTED';
         }
 
-        [$path, $temporary] = $this->localCopy($artifact);
+        $file = LocalArtifactFile::open($this->disk($artifact), $artifact->storage_path);
 
         try {
-            $result = $this->inspector->inspect($path);
+            $result = $this->inspector->inspect($file->path);
         } finally {
-            if ($temporary) {
-                @unlink($path);
-            }
+            $file->release();
         }
 
         return $this->finish($artifact, $result, $actor);
@@ -176,32 +172,6 @@ class ArtifactInspectionService
         fclose($stream);
 
         return $size === $artifact->size_bytes && hash_equals($artifact->sha256, hash_final($context));
-    }
-
-    /**
-     * ZipArchive needs a real path; remote disks are copied to a private temporary file.
-     *
-     * @return array{0: string, 1: bool} Path and whether it is a temporary copy.
-     */
-    private function localCopy(AppArtifact $artifact): array
-    {
-        $disk = $this->disk($artifact);
-        if ($disk->getAdapter() instanceof LocalFilesystemAdapter) {
-            return [$disk->path($artifact->storage_path), false];
-        }
-
-        $path = tempnam(sys_get_temp_dir(), 'ipa');
-        $source = $disk->readStream($artifact->storage_path);
-        if ($path === false || $source === null) {
-            throw new RuntimeException('The artifact file cannot be read.');
-        }
-        chmod($path, 0600);
-        $target = fopen($path, 'wb');
-        stream_copy_to_stream($source, $target);
-        fclose($source);
-        fclose($target);
-
-        return [$path, true];
     }
 
     private function disk(AppArtifact $artifact): FilesystemAdapter
