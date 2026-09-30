@@ -4,6 +4,7 @@ namespace App\Services\TelegramStore\Bot;
 
 use App\Models\TelegramStoreCustomer;
 use App\Models\TelegramStoreOrder;
+use App\Models\TelegramStorePromoCode;
 use App\Services\TelegramStore\OrderService;
 use App\Services\TelegramStore\Payments\Checkout;
 use App\Services\TelegramStore\Payments\GatewayResolver;
@@ -58,7 +59,7 @@ class CustomerScreens
         return $rows;
     }
 
-    public function plans(TelegramStoreCustomer $customer): Screen
+    public function plans(TelegramStoreCustomer $customer, ?TelegramStorePromoCode $promo = null): Screen
     {
         $plans = $this->settings->plans();
         $best = collect(array_keys($plans))->sortByDesc(fn ($key) => $this->settings->savingPercent($key))->first();
@@ -78,7 +79,8 @@ class CustomerScreens
         }
         $rows[] = [Screen::button('‹ Меню', 'menu')];
 
-        $text = "<b>💎 Подписка {$this->brandHtml()}</b>\n\n"
+        $text = ($promo ? "🎟 Промокод <b>{$promo->code}</b> активирован: <b>{$promo->label()}</b> — скидка применится к заказу.\n\n" : '')
+            ."<b>💎 Подписка {$this->brandHtml()}</b>\n\n"
             ."✅ Каталог приложений и игр для iPhone\n"
             ."✅ Обновления весь срок подписки\n"
             ."✅ Мгновенная активация по коду\n"
@@ -109,6 +111,9 @@ class CustomerScreens
             "Тариф: {$this->brandHtml()} · {$plan}",
             'Стоимость: '.Format::rub($order->price_rub),
         ];
+        if ($order->discount_rub > 0 && $order->promoCode) {
+            $lines[] = "Промокод {$order->promoCode->code}: −".Format::rub($order->discount_rub);
+        }
         if ($order->balance_used_rub > 0) {
             $lines[] = 'Оплачено балансом: −'.Format::rub($order->balance_used_rub);
         }
@@ -122,6 +127,9 @@ class CustomerScreens
                 ? Screen::button('💰 Оплатить балансом ('.Format::rub($order->amount_due_rub).')', 'bal:'.$order->public_id)
                 : Screen::button('💰 Списать с баланса −'.Format::rub($customer->balance_rub), 'bal:'.$order->public_id)];
         }
+        $rows[] = [$order->promo_code_id
+            ? Screen::button('✖️ Убрать промокод', 'unpromo:'.$order->public_id)
+            : Screen::button('🎟 Ввести промокод', 'promo:'.$order->public_id)];
         $methods = $this->gateways->current()->methods($customer->telegram_user_id);
         foreach ($methods as $method => $label) {
             $rows[] = [Screen::button($label, "pay:{$method}:{$order->public_id}")];
@@ -199,6 +207,15 @@ class CustomerScreens
             ."Откройте страницу активации и введите код — подписка на {$order->duration_days} дней включится сразу.\n\n"
             .'Код всегда можно найти в «Профиль → Мои заказы».',
             $rows,
+        );
+    }
+
+    public function promoPrompt(TelegramStoreOrder $order, ?string $error = null): Screen
+    {
+        return new Screen(
+            ($error ? '❌ '.e($error)."\n\n" : '')
+            ."🎟 <b>Промокод для заказа #{$order->shortReference()}</b>\n\nОтправьте промокод сообщением в этот чат.",
+            [[Screen::button('‹ К заказу', 'order:'.$order->public_id)]],
         );
     }
 

@@ -12,6 +12,7 @@ use Illuminate\Support\Carbon;
  *
  * @property string $public_id
  * @property int $price_rub
+ * @property int $discount_rub
  * @property int $balance_used_rub
  * @property int $amount_due_rub
  * @property int $duration_days
@@ -44,6 +45,8 @@ class TelegramStoreOrder extends Model
             'chat_id' => 'integer',
             'duration_days' => 'integer',
             'price_rub' => 'integer',
+            'discount_rub' => 'integer',
+            'promo_code_id' => 'integer',
             'balance_used_rub' => 'integer',
             'amount_due_rub' => 'integer',
             'referral_bonus_rub' => 'integer',
@@ -57,6 +60,12 @@ class TelegramStoreOrder extends Model
     public function customer(): BelongsTo
     {
         return $this->belongsTo(TelegramStoreCustomer::class, 'customer_id');
+    }
+
+    /** @return BelongsTo<TelegramStorePromoCode, $this> */
+    public function promoCode(): BelongsTo
+    {
+        return $this->belongsTo(TelegramStorePromoCode::class, 'promo_code_id');
     }
 
     public function isPayable(): bool

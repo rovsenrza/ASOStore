@@ -3,9 +3,12 @@
 namespace App\Services\TelegramStore\Bot;
 
 use App\Models\TelegramStoreOrder;
+use App\Services\TelegramStore\CompletedOrder;
 use App\Services\TelegramStore\OrderService;
 use App\Services\TelegramStore\Payments\GatewayResolver;
 use App\Services\TelegramStore\Payments\MockGateway;
+use App\Services\TelegramStore\PromoService;
+use Illuminate\Support\Facades\Cache;
 
 class CustomerHandler
 {
@@ -17,12 +20,28 @@ class CustomerHandler
         private readonly OrderService $orders,
         private readonly GatewayResolver $gateways,
         private readonly AdminHandler $admin,
+        private readonly PromoService $promos,
     ) {}
 
     public function message(Context $ctx, string $text): void
     {
         $command = strtolower(preg_replace('/@\w+$/', '', strtok($text, ' ') ?: ''));
         $lower = mb_strtolower($text);
+
+        // A promo code typed after pressing «Ввести промокод».
+        $awaiting = Cache::get($this->promoStateKey($ctx));
+        if ($awaiting && $text !== '' && ! str_starts_with($text, '/')) {
+            $this->enterPromo($ctx, (string) $awaiting, $text);
+
+            return;
+        }
+        Cache::forget($this->promoStateKey($ctx));
+
+        if ($command === '/start' && preg_match('/^\/start\s+promo_([A-Za-z0-9_-]{3,32})$/', $text, $match)) {
+            $this->rememberPromo($ctx, $match[1]);
+
+            return;
+        }
 
         match (true) {
             in_array($command, ['/start', '/menu'], true), $lower === 'меню' => $this->messenger->welcome($ctx->chatId),
@@ -42,7 +61,7 @@ class CustomerHandler
             $this->messenger->answer($ctx);
             $this->messenger->show($ctx, match ($data) {
                 'menu' => $this->screens->menu(),
-                'buy' => $this->screens->plans($customer),
+                'buy' => $this->screens->plans($customer, $this->promos->remembered($customer->telegram_user_id)),
                 'profile' => $this->screens->profile($customer),
                 'orders' => $this->screens->orders($customer),
                 'invite' => $this->screens->invite($customer),
@@ -61,12 +80,17 @@ class CustomerHandler
             }
             $this->messenger->answer($ctx);
             $order = $this->orders->create($customer, $match[1]);
+            if ($completed = $this->promos->applyRemembered($order)) {
+                $this->finish($ctx, $completed);
+
+                return;
+            }
             $this->messenger->show($ctx, $this->screens->order($order, $customer->refresh()));
 
             return;
         }
 
-        if (! preg_match('/^(order|bal|paid|mockpay|cancel|code|pay:(\w+)):'.self::ORDER.'$/', $data, $match)) {
+        if (! preg_match('/^(order|bal|paid|mockpay|cancel|code|promo|unpromo|pay:(\w+)):'.self::ORDER.'$/', $data, $match)) {
             $this->messenger->answer($ctx);
 
             return;
@@ -87,8 +111,73 @@ class CustomerHandler
             'mockpay' => $this->simulatePayment($ctx, $order),
             'cancel' => $this->cancel($ctx, $order),
             'code' => $this->showCode($ctx, $order),
+            'promo' => $this->askPromo($ctx, $order),
+            'unpromo' => $this->removePromo($ctx, $order),
             default => $this->messenger->answer($ctx),
         };
+    }
+
+    private function askPromo(Context $ctx, TelegramStoreOrder $order): void
+    {
+        if (! $order->isPayable()) {
+            $this->showOrder($ctx, $order);
+
+            return;
+        }
+        $this->messenger->answer($ctx);
+        Cache::put($this->promoStateKey($ctx), $order->public_id, now()->addMinutes(15));
+        $this->messenger->show($ctx, $this->screens->promoPrompt($order));
+    }
+
+    private function enterPromo(Context $ctx, string $reference, string $code): void
+    {
+        $order = $this->orders->find($reference, $ctx->userId());
+        if (! $order || ! $order->isPayable()) {
+            Cache::forget($this->promoStateKey($ctx));
+            $this->messenger->show($ctx, $this->screens->plans($ctx->customer));
+
+            return;
+        }
+        $result = $this->promos->apply($order, $code);
+        if (is_string($result)) {
+            $this->messenger->show($ctx, $this->screens->promoPrompt($order, $result));
+
+            return;
+        }
+        Cache::forget($this->promoStateKey($ctx));
+        $result instanceof CompletedOrder
+            ? $this->finish($ctx, $result)
+            : $this->messenger->show($ctx, $this->screens->order($order, $ctx->customer->refresh()));
+    }
+
+    private function removePromo(Context $ctx, TelegramStoreOrder $order): void
+    {
+        $this->promos->remove($order);
+        $this->messenger->answer($ctx, 'Промокод убран');
+        $this->messenger->show($ctx, $this->screens->order($order, $ctx->customer->refresh()));
+    }
+
+    private function rememberPromo(Context $ctx, string $code): void
+    {
+        $promo = $this->promos->find($code);
+        if (! $promo || ! $promo->active || ($promo->expires_at && $promo->expires_at->isPast())) {
+            $this->messenger->show($ctx, new Screen('Промокод по ссылке недействителен, но вы можете выбрать тариф 👇', $this->screens->menuRows()));
+
+            return;
+        }
+        $this->promos->remember($ctx->userId(), $promo);
+        $this->messenger->show($ctx, $this->screens->plans($ctx->customer, $promo));
+    }
+
+    private function finish(Context $ctx, CompletedOrder $completed): void
+    {
+        $this->messenger->show($ctx, $this->screens->paidPlaceholder($completed->order));
+        $this->messenger->orderCompleted($completed);
+    }
+
+    private function promoStateKey(Context $ctx): string
+    {
+        return 'telegram_store.customer_promo_state.'.$ctx->userId();
     }
 
     private function showOrder(Context $ctx, TelegramStoreOrder $order): void

@@ -6,9 +6,11 @@ use App\Jobs\TelegramStoreBroadcastJob;
 use App\Models\TelegramStoreBroadcast;
 use App\Models\TelegramStoreCustomer;
 use App\Models\TelegramStoreOrder;
+use App\Models\TelegramStorePromoCode;
 use App\Services\TelegramStore\BalanceLedger;
 use App\Services\TelegramStore\CustomerService;
 use App\Services\TelegramStore\OrderService;
+use App\Services\TelegramStore\PromoService;
 use App\Services\TelegramStore\StoreSettings;
 use App\Services\TelegramStore\TelegramApi;
 use Carbon\CarbonInterface;
@@ -25,6 +27,11 @@ class AdminHandler
 {
     private const ORDER = '([0-9a-z]{26})';
 
+    private const PROMO_HELP = "Отправьте промокод одной строкой:\n"
+        ."<code>КОД СКИДКА [лимит N] [до ДД.ММ.ГГГГ] [тариф 6,12] [заметка текст]</code>\n\n"
+        ."Примеры:\n<code>BLOGER20 20% лимит 100 заметка Канал Вани</code>\n<code>YEAR500 500₽ тариф 12 до 31.12.2026</code>\n\n"
+        .'Один покупатель использует код один раз.';
+
     private const PERIODS = ['1' => 'сегодня', '7' => '7 дней', '30' => '30 дней', 'all' => 'всё время'];
 
     public function __construct(
@@ -35,6 +42,7 @@ class AdminHandler
         private readonly StoreSettings $settings,
         private readonly BalanceLedger $ledger,
         private readonly TelegramApi $api,
+        private readonly PromoService $promos,
     ) {}
 
     /**
@@ -62,6 +70,11 @@ class AdminHandler
         }
         if ($command === '/paid' && preg_match('/^[0-9A-Z]{26}$/i', $argument)) {
             $this->confirm($ctx, strtolower($argument));
+
+            return true;
+        }
+        if ($command === '/promo' && $argument !== '') {
+            $this->createPromo($ctx, $argument);
 
             return true;
         }
@@ -99,6 +112,10 @@ class AdminHandler
             $action === 'bc' => $this->ask($ctx, ['action' => 'broadcast']),
             (bool) preg_match('/^bcgo:(\d+)$/', $action, $m) => $this->startBroadcast($ctx, (int) $m[1]),
             $action === 'find' => $this->ask($ctx, ['action' => 'find']),
+            $action === 'promos' => $this->messenger->show($ctx, $this->promoList()),
+            $action === 'promonew' => $this->ask($ctx, ['action' => 'promo']),
+            (bool) preg_match('/^promo:(\d+)$/', $action, $m) => $this->showPromo($ctx, (int) $m[1]),
+            (bool) preg_match('/^promotog:(\d+)$/', $action, $m) => $this->togglePromo($ctx, (int) $m[1]),
             (bool) preg_match('/^bal:(\d+)$/', $action, $m) => $this->ask($ctx, ['action' => 'balance', 'customer' => (int) $m[1]]),
             default => null,
         };
@@ -126,13 +143,13 @@ class AdminHandler
             .'<b>Сегодня:</b> '.(clone $paidToday)->count().' покупок · '.Format::rub((int) (clone $paidToday)->sum('amount_due_rub'))
             .' · '.TelegramStoreCustomer::query()->where('created_at', '>=', $today)->count()." новых\n"
             ."<b>На проверке:</b> {$reviews}\n\n"
-            .'Команды: /paid ID · /user ID или @username · /cancel';
+            .'Команды: /paid ID · /user ID или @username · /promo … · /cancel';
 
         return new Screen($text, [
             [Screen::button('📊 Статистика', 'adm:stats:7'), Screen::button("🧾 На проверке ({$reviews})", 'adm:reviews')],
             [Screen::button('💲 Цены', 'adm:prices'), Screen::button('👥 Реферал '.$this->settings->referralPercent().'%', 'adm:ref')],
-            [Screen::button('📣 Рассылка', 'adm:bc'), Screen::button('🔎 Пользователь', 'adm:find')],
-            [Screen::button('‹ Меню магазина', 'menu')],
+            [Screen::button('🎟 Промокоды', 'adm:promos'), Screen::button('📣 Рассылка', 'adm:bc')],
+            [Screen::button('🔎 Пользователь', 'adm:find'), Screen::button('‹ Меню магазина', 'menu')],
         ]);
     }
 
@@ -164,6 +181,7 @@ class AdminHandler
             "✅ Оплачено: {$paidCount} · конверсия {$conversion}%",
             '💰 Выручка: <b>'.Format::rub((int) (clone $real)->sum('amount_due_rub')).'</b> + балансом '.Format::rub((int) (clone $real)->sum('balance_used_rub')),
             '📦 '.implode(' · ', $plans),
+            '🎟 По промокодам: '.(clone $real)->whereNotNull('promo_code_id')->count().' оплат · скидки '.Format::rub((int) (clone $real)->sum('discount_rub')),
             '💸 Реферальных бонусов: '.Format::rub($bonuses),
         ];
         if ($mock > 0) {
@@ -290,6 +308,7 @@ class AdminHandler
             'referral' => 'Отправьте процент реферального бонуса от 0 до 50 (сейчас '.$this->settings->referralPercent().'%).',
             'broadcast' => "Отправьте сообщение для рассылки: текст, фото, видео — как есть.\nПеред отправкой покажу предпросмотр.",
             'find' => 'Отправьте Telegram ID или @username пользователя.',
+            'promo' => self::PROMO_HELP,
             'balance' => "Отправьте сумму изменения баланса, например <code>200</code> или <code>-150</code>.\nПри начислении пользователь получит уведомление.",
             default => null,
         };
@@ -337,6 +356,11 @@ class AdminHandler
             case 'find':
                 $this->forgetState($ctx);
                 $this->showCustomer($ctx, $text);
+
+                return;
+
+            case 'promo':
+                $this->createPromo($ctx, $text);
 
                 return;
 
@@ -395,6 +419,86 @@ class AdminHandler
             "📣 Рассылка запущена: {$broadcast->total} получателей.\nКогда закончу, пришлю отчёт.",
             [[Screen::button('‹ Панель', 'adm:panel')]],
         ));
+    }
+
+    private function createPromo(Context $ctx, string $definition): void
+    {
+        $attributes = $this->promos->parse($definition);
+        if (is_string($attributes)) {
+            // Stay in (or enter) the input state so the admin can just resend.
+            Cache::put($this->stateKey($ctx), ['action' => 'promo'], now()->addMinutes(15));
+            $this->messenger->show($ctx, new Screen('❌ '.e($attributes)."\n\n".self::PROMO_HELP."\n\n/cancel — отмена"));
+
+            return;
+        }
+        $this->forgetState($ctx);
+        $promo = $this->promos->create($attributes, $ctx->userId());
+        $this->messenger->show($ctx, $this->promoScreen($promo, '✅ Промокод создан.'));
+    }
+
+    private function promoList(): Screen
+    {
+        $promos = TelegramStorePromoCode::query()->latest('id')->limit(20)->get();
+        $rows = $promos->map(function (TelegramStorePromoCode $promo) {
+            $usage = $this->promos->usage($promo);
+            $used = $usage['paid'] + $usage['mock'];
+
+            return [Screen::button(
+                ($promo->active ? '' : '⏸ ').$promo->code.' · '.$promo->label().' · '.$used.($promo->max_uses ? '/'.$promo->max_uses : '').' исп.',
+                'adm:promo:'.$promo->id,
+            )];
+        })->all();
+        $rows[] = [Screen::button('➕ Создать промокод', 'adm:promonew')];
+        $rows[] = [Screen::button('‹ Панель', 'adm:panel')];
+
+        return new Screen(
+            "<b>🎟 Промокоды</b>\n\n".($promos->isEmpty() ? 'Промокодов пока нет.' : 'Нажмите на промокод, чтобы увидеть статистику и ссылку.'),
+            $rows,
+        );
+    }
+
+    private function showPromo(Context $ctx, int $id): void
+    {
+        $promo = TelegramStorePromoCode::query()->find($id);
+        $promo ? $this->messenger->show($ctx, $this->promoScreen($promo)) : $this->messenger->answer($ctx, 'Промокод не найден.', true);
+    }
+
+    private function togglePromo(Context $ctx, int $id): void
+    {
+        $promo = TelegramStorePromoCode::query()->find($id);
+        if (! $promo) {
+            return;
+        }
+        $promo->update(['active' => ! $promo->active]);
+        $this->messenger->show($ctx, $this->promoScreen($promo, $promo->active ? '▶️ Промокод включён.' : '⏸ Промокод отключён.'));
+    }
+
+    private function promoScreen(TelegramStorePromoCode $promo, ?string $notice = null): Screen
+    {
+        $usage = $this->promos->usage($promo);
+        $plans = $promo->plan_keys
+            ? collect($promo->plan_keys)->map(fn ($key) => ($plan = $this->settings->plan($key)) ? Format::months($plan['months']) : $key)->implode(', ')
+            : 'все';
+        $link = 'https://t.me/'.$this->api->botUsername().'?start=promo_'.$promo->code;
+        $lines = array_filter([
+            $notice,
+            "<b>🎟 {$promo->code}</b> · {$promo->label()} · ".($promo->active ? '✅ активен' : '⏸ отключён'),
+            $promo->note ? 'Заметка: '.e($promo->note) : null,
+            'Тарифы: '.$plans,
+            'Лимит: '.($promo->max_uses ?? 'без лимита'),
+            'Действует до: '.($promo->expires_at ? Format::date($promo->expires_at) : 'бессрочно'),
+            '',
+            "✅ Оплачено: {$usage['paid']}".($usage['mock'] > 0 ? " (+{$usage['mock']} тестовых)" : ''),
+            "⏳ В ожидании оплаты: {$usage['holding']}",
+            '💰 Выручка: '.Format::rub($usage['revenue']).' · скидки '.Format::rub($usage['discount']),
+            '',
+            "Ссылка с промокодом (применится автоматически):\n<code>{$link}</code>",
+        ], fn ($line) => $line !== null);
+
+        return new Screen(implode("\n", $lines), [
+            [Screen::button($promo->active ? '⏸ Отключить' : '▶️ Включить', 'adm:promotog:'.$promo->id)],
+            [Screen::button('‹ Промокоды', 'adm:promos'), Screen::button('‹ Панель', 'adm:panel')],
+        ]);
     }
 
     private function showCustomer(Context $ctx, string $query): void

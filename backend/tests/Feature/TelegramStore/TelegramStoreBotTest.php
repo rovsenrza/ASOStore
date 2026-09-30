@@ -6,12 +6,14 @@ use App\Models\ActivationCode;
 use App\Models\TelegramStoreBroadcast;
 use App\Models\TelegramStoreCustomer;
 use App\Models\TelegramStoreOrder;
+use App\Models\TelegramStorePromoCode;
 use App\Services\TelegramStore\BalanceLedger;
 use App\Services\TelegramStore\Bot\AdminHandler;
 use App\Services\TelegramStore\Bot\CustomerScreens;
 use App\Services\TelegramStore\Bot\Messenger;
 use App\Services\TelegramStore\Bot\UpdateRouter;
 use App\Services\TelegramStore\OrderService;
+use App\Services\TelegramStore\PromoService;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -377,4 +379,103 @@ it('keeps every screen within the caption limit', function () {
     foreach ($all as $screen) {
         expect(Messenger::fitsCaption($screen->text))->toBeTrue(strip_tags($screen->text));
     }
+});
+
+describe('promo codes', function () {
+    beforeEach(function () {
+        $this->promo = fn (string $definition) => app(PromoService::class)->create(app(PromoService::class)->parse($definition), ADMIN_ID);
+        $this->typeCode = function (int $userId, TelegramStoreOrder $order, string $code) {
+            ($this->press)($userId, 'promo:'.$order->public_id);
+            ($this->text)($userId, $code);
+        };
+    });
+
+    it('lets an admin create a code from one line and rejects bad definitions', function () {
+        ($this->press)(ADMIN_ID, 'adm:promonew');
+        ($this->text)(ADMIN_ID, 'BLOG20 20');
+        ($this->text)(ADMIN_ID, 'blog20 20% лимит 2 тариф 12 заметка Канал Вани');
+        ($this->text)(ADMIN_ID, '/promo YEAR500 500₽ до 31.12.2099');
+        ($this->text)(ADMIN_ID, '/promo YEAR500 500₽ до 31.12.2030');
+
+        $blog = TelegramStorePromoCode::query()->where('code', 'BLOG20')->sole();
+        expect($blog->type)->toBe('percent')->and($blog->value)->toBe(20)->and($blog->max_uses)->toBe(2)
+            ->and($blog->plan_keys)->toBe(['month12'])->and($blog->note)->toBe('Канал Вани')
+            ->and(TelegramStorePromoCode::query()->where('code', 'YEAR500')->sole()->type)->toBe('fixed')
+            ->and(($this->sentTo)(ADMIN_ID)->implode("\n"))->toContain('Скидка: например')->toContain('не позже 2037')->toContain('start=promo_BLOG20');
+    });
+
+    it('discounts an order and pays the referral share on the discounted amount', function () {
+        ($this->promo)('BLOG20 20%');
+        ($this->text)(ADMIN_ID, '/start');
+        ($this->text)(TESTER_ID, '/start ref_'.customer(ADMIN_ID)->referral_code);
+        ($this->press)(TESTER_ID, 'plan:month12');
+        $order = TelegramStoreOrder::sole();
+
+        ($this->typeCode)(TESTER_ID, $order, 'blog20');
+        expect($order->refresh()->discount_rub)->toBe(472)->and($order->amount_due_rub)->toBe(1888)
+            ->and(($this->sentTo)(TESTER_ID)->last())->toContain('Промокод BLOG20: −472₽');
+
+        ($this->press)(TESTER_ID, 'mockpay:'.$order->public_id);
+        expect($order->refresh()->status)->toBe('PAID')->and($order->referral_bonus_rub)->toBe(283);
+
+        // Once per customer.
+        ($this->press)(TESTER_ID, 'plan:month1');
+        ($this->typeCode)(TESTER_ID, TelegramStoreOrder::query()->where('status', 'PENDING')->sole(), 'BLOG20');
+        expect(($this->sentTo)(TESTER_ID)->last())->toContain('уже использовали');
+    });
+
+    it('enforces the plan, the limit, expiry and the on/off switch', function () {
+        $promo = ($this->promo)('ONLY12 10% тариф 12 лимит 1');
+        ($this->press)(BUYER_ID, 'plan:month1');
+        $order = TelegramStoreOrder::sole();
+
+        ($this->typeCode)(BUYER_ID, $order, 'ONLY12');
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('только для тарифа: 12 месяцев');
+
+        ($this->press)(TESTER_ID, 'plan:month12');
+        ($this->typeCode)(TESTER_ID, TelegramStoreOrder::query()->where('telegram_user_id', TESTER_ID)->sole(), 'ONLY12');
+        ($this->press)(BUYER_ID, 'plan:month12');
+        ($this->typeCode)(BUYER_ID, TelegramStoreOrder::query()->where('telegram_user_id', BUYER_ID)->where('status', 'PENDING')->sole(), 'ONLY12');
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Лимит активаций');
+
+        ($this->press)(ADMIN_ID, 'adm:promotog:'.$promo->id);
+        ($this->typeCode)(BUYER_ID, TelegramStoreOrder::query()->where('telegram_user_id', BUYER_ID)->where('status', 'PENDING')->sole(), 'NOPE');
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Такого промокода нет')
+            ->and($promo->refresh()->active)->toBeFalse();
+    });
+
+    it('returns held balance when a code is applied and restores the price when removed', function () {
+        ($this->promo)('MINUS300 300₽');
+        ($this->text)(BUYER_ID, '/start');
+        giveBalance(BUYER_ID, 100);
+        ($this->press)(BUYER_ID, 'plan:month6');
+        $order = TelegramStoreOrder::sole();
+        ($this->press)(BUYER_ID, 'bal:'.$order->public_id);
+
+        ($this->typeCode)(BUYER_ID, $order, 'MINUS300');
+        expect($order->refresh()->amount_due_rub)->toBe(1470)->and($order->balance_used_rub)->toBe(0)
+            ->and(customer(BUYER_ID)->balance_rub)->toBe(100);
+
+        ($this->press)(BUYER_ID, 'unpromo:'.$order->public_id);
+        expect($order->refresh()->amount_due_rub)->toBe(1770)->and($order->promo_code_id)->toBeNull();
+    });
+
+    it('completes an order a full discount covers', function () {
+        ($this->promo)('FREE 100%');
+        ($this->press)(BUYER_ID, 'plan:month1');
+        $order = TelegramStoreOrder::sole();
+        ($this->typeCode)(BUYER_ID, $order, 'FREE');
+
+        expect($order->refresh()->status)->toBe('PAID')->and($order->payment_provider)->toBe('promo')
+            ->and(($this->sentTo)(BUYER_ID)->last())->toContain('Оплата получена');
+    });
+
+    it('applies a code from a start link to the next order', function () {
+        ($this->promo)('LINK15 15%');
+        ($this->text)(BUYER_ID, '/start promo_LINK15');
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Промокод <b>LINK15</b> активирован');
+
+        ($this->press)(BUYER_ID, 'plan:month1');
+        expect(TelegramStoreOrder::sole()->discount_rub)->toBe(88);
+    });
 });
