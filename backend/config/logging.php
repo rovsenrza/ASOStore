@@ -70,7 +70,7 @@ return [
         'alerts_slack' => [
             'driver' => 'slack',
             'url' => env('LOG_ALERTS_SLACK_WEBHOOK_URL'),
-            'username' => 'Ru AppStore alerts',
+            'username' => 'Ru App Store alerts',
             'level' => 'warning',
         ],
 

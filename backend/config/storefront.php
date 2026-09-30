@@ -5,7 +5,7 @@ return [
     /*
     | Visible product brand (PRODUCT.md).
     */
-    'brand' => env('APP_NAME', 'Ru AppStore'),
+    'brand' => env('APP_NAME', 'Ru App Store'),
 
     /*
     | API version reported by /api/v1/health.

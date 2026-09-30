@@ -103,7 +103,7 @@ class AppController extends Controller
         $data = $request->validate($this->rules(creating: false, appId: $model->id));
         if (array_key_exists('is_storefront', $data) && ! $data['is_storefront']
             && AppleTeam::query()->where('storefront_app_id', $model->id)->exists()) {
-            throw new ApiException(ErrorCode::Conflict, 'Вариант Ru AppStore назначен команде Apple.');
+            throw new ApiException(ErrorCode::Conflict, 'Вариант Ru App Store назначен команде Apple.');
         }
 
         $model->fill($this->attributes($data));
@@ -137,7 +137,7 @@ class AppController extends Controller
         $data = $request->validate(['reason' => ['required', 'string', 'max:500']]);
         $model = $this->find($app);
         if (AppleTeam::query()->where('storefront_app_id', $model->id)->exists()) {
-            throw new ApiException(ErrorCode::Conflict, 'Сначала отвяжите вариант Ru AppStore от команды Apple.');
+            throw new ApiException(ErrorCode::Conflict, 'Сначала отвяжите вариант Ru App Store от команды Apple.');
         }
         $model->delete();
         $this->audit->record('app.deleted', $model, reason: $data['reason']);

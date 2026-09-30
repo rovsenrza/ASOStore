@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Snapshots icons of well-known apps that are published in the Ru AppStore catalog, for the
+ * Snapshots icons of well-known apps that are published in the Ru App Store catalog, for the
  * homepage: one WebP per app (lists) and one atlas (the 3D stage). Only apps the catalog
  * really has are used; a missing app is reported and skipped.
  *

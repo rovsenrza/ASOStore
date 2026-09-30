@@ -111,7 +111,7 @@ struct ManagerView: View {
                 ContentUnavailableView {
                     Label(filter == .all ? "Здесь появятся ваши приложения" : "Ничего нет", systemImage: "arrow.down.app")
                 } description: {
-                    Text("Приложения, которые вы установите через Ru AppStore, и их обновления будут показаны на этом экране.")
+                    Text("Приложения, которые вы установите через Ru App Store, и их обновления будут показаны на этом экране.")
                 }
                 .frame(minHeight: 280)
             } else {

@@ -21,7 +21,7 @@ use App\StateMachines\StateMachine;
  * What happens when a team is out of slots (FULL_PLAN §6.2 steps 4–5, §12).
  * Only a team that is active, connected, inside a membership year, has free
  * slots for the family and is approved for the Storefront's bundle ID may be
- * selected automatically when a distinct, published Ru AppStore variant is
+ * selected automatically when a distinct, published Ru App Store variant is
  * assigned to it. Legacy teams without a variant still require admin approval.
  * Never creates Apple accounts or assigns an unconfigured variant.
  */
@@ -71,7 +71,7 @@ class TeamSelector
                 $this->states->transition($next, Status::ApplePending, actor: Actor::system('quota'));
             }
 
-            $reason = sprintf('Team %s is full; assigned %s with Ru AppStore bundle %s.',
+            $reason = sprintf('Team %s is full; assigned %s with Ru App Store bundle %s.',
                 $exhausted->team->apple_team_id, $team->apple_team_id,
                 $team->storefrontApp->publishedArtifact->bundle_identifier);
             $this->move($registration, Status::QuotaBlocked, 'AUTO_SWITCHED', $reason);
@@ -97,7 +97,7 @@ class TeamSelector
         }
 
         // Once per-team variants are configured, a legacy approval must not
-        // place a device on a team whose Ru AppStore build is missing.
+        // place a device on a team whose Ru App Store build is missing.
         $candidate = AppleTeam::query()->whereNotNull('storefront_app_id')->exists()
             ? null
             : ($this->eligibleTeams($family->value, exclude: $registration->apple_team_id)[0] ?? null);
@@ -115,7 +115,7 @@ class TeamSelector
 
         [$team, $remaining] = $candidate;
         $reason = sprintf(
-            'Team %s has no free %s slots in its membership year. Team %s is active, approved for the Ru AppStore bundle ID and has %d free slots.',
+            'Team %s has no free %s slots in its membership year. Team %s is active, approved for the Ru App Store bundle ID and has %d free slots.',
             $exhausted->team->apple_team_id, $family->value, $team->apple_team_id, $remaining,
         );
 

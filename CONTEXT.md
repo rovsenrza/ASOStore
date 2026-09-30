@@ -1,4 +1,4 @@
-# Ru AppStore domain language
+# Ru App Store domain language
 
 The product enrolls test devices, assigns them to an eligible Apple Developer team, and delivers authorized IPA builds.
 
@@ -12,8 +12,8 @@ _Avoid_: Account, user account
 The durable association of one enrolled device with an Apple team for a membership year. It does not move an existing installation between teams.
 _Avoid_: Account switch
 
-**Ru AppStore variant**:
-A separately built Ru AppStore listing and IPA for one Apple team, with a distinct Bundle ID and that team's distribution eligibility.
+**Ru App Store variant**:
+A separately built Ru App Store listing and IPA for one Apple team, with a distinct Bundle ID and that team's distribution eligibility.
 _Avoid_: A renamed copy of the same IPA
 
 **Available device slot**:

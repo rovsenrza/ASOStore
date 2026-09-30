@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Ru AppStore colours. Brand blues come from the asset catalog and adapt to
+/// Ru App Store colours. Brand blues come from the asset catalog and adapt to
 /// light and dark mode; everything else uses semantic system colours.
 enum AppPalette {
     /// Brand blue (AccentColor): deeper in light mode, brighter in dark mode for contrast.

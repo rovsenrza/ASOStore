@@ -1,4 +1,4 @@
-# Ru AppStore
+# Ru App Store
 
 Monorepo for the customer web portal, the native iOS Storefront, the operator admin panel and the PHP backend.
 
@@ -92,7 +92,7 @@ A website sign-up gets a six-digit code by email (15 minutes, 5 attempts, resend
 
 ### Telegram store bot
 
-`php artisan telegram:store-bot` runs the Ru AppStore sales bot (long polling; systemd unit in [ops/systemd/storefront-telegram-bot.service](ops/systemd/storefront-telegram-bot.service)). Code: [backend/app/Services/TelegramStore](backend/app/Services/TelegramStore).
+`php artisan telegram:store-bot` runs the Ru App Store sales bot (long polling; systemd unit in [ops/systemd/storefront-telegram-bot.service](ops/systemd/storefront-telegram-bot.service)). Code: [backend/app/Services/TelegramStore](backend/app/Services/TelegramStore).
 
 - **Funnel:** plans (1 / 6 / 12 months, 590 / 1770 / 2360 ₽ by default) with per-month price and saving → order with a 30-minute window → balance and/or payment method → activation code in the chat, always available again under Profile → My orders. Opening a new order cancels the previous unpaid one; expired orders are swept every minute, held balance is refunded and the customer gets a one-tap "order again" message.
 - **Referrals:** every customer has a `t.me/<bot>?start=ref_<code>` link. The referrer earns a share (15 % by default) of the money each invited customer pays, credited to an internal balance that pays for orders fully or partly. Every balance change has a ledger row (`telegram_store_balance_transactions`).

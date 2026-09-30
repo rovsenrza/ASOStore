@@ -14,7 +14,7 @@ class TelegramStoreBot extends Command
 {
     protected $signature = 'telegram:store-bot {--once : Process one polling batch and stop}';
 
-    protected $description = 'Run the Ru AppStore subscription bot using Telegram long polling';
+    protected $description = 'Run the Ru App Store subscription bot using Telegram long polling';
 
     private const OFFSET_KEY = 'telegram_store.update_offset';
 

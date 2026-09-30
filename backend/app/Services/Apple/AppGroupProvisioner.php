@@ -101,8 +101,8 @@ class AppGroupProvisioner
     /** Apple accepts letters, digits and spaces in a group's name. */
     public static function groupName(string $name): string
     {
-        $clean = trim((string) preg_replace('/\s+/', ' ', (string) preg_replace('/[^A-Za-z0-9 ]+/', ' ', 'Ru AppStore '.Str::ascii($name))));
+        $clean = trim((string) preg_replace('/\s+/', ' ', (string) preg_replace('/[^A-Za-z0-9 ]+/', ' ', 'Ru App Store '.Str::ascii($name))));
 
-        return mb_substr($clean ?: 'Ru AppStore', 0, 50);
+        return mb_substr($clean ?: 'Ru App Store', 0, 50);
     }
 }

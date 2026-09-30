@@ -6,7 +6,7 @@ return [
     'token' => env('TELEGRAM_STORE_BOT_TOKEN'),
     // Optional: skips the getMe lookup used to build referral links.
     'bot_username' => env('TELEGRAM_STORE_BOT_USERNAME'),
-    'brand' => env('TELEGRAM_STORE_BRAND', 'Ru AppStore'),
+    'brand' => env('TELEGRAM_STORE_BRAND', 'Ru App Store'),
 
     // Mock mode: testers simulate a payment and the order completes for real
     // (activation code, referral bonus). Everyone else is told payments open soon.
@@ -36,5 +36,5 @@ return [
     'news_url' => env('TELEGRAM_STORE_NEWS_URL'),
     'activation_url' => env('TELEGRAM_STORE_ACTIVATION_URL'),
     // Every bot message is this image with the screen as its caption; empty or missing file = text messages.
-    'welcome_banner' => env('TELEGRAM_STORE_WELCOME_BANNER', base_path('../front/public/assets/banners/ruappstore-telegram-welcome.jpg')),
+    'welcome_banner' => env('TELEGRAM_STORE_WELCOME_BANNER', base_path('../front/public/assets/banners/ru-app-store-telegram-welcome.jpg')),
 ];

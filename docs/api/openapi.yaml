@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: "Ru AppStore API"
+  title: "Ru App Store API"
   version: 1.0.0-dev
   summary: Customer, admin and worker API for the web portal, admin panel and native Storefront.
   description: |
@@ -10,7 +10,7 @@ info:
     Examples for each response live in `docs/api/examples/` and are validated against
     these schemas by the backend test suite and decoded by the iOS test suite.
   contact:
-    name: "Ru AppStore engineering"
+    name: "Ru App Store engineering"
 servers:
   - url: http://127.0.0.1:8000/api/v1
     description: Local development
@@ -2526,7 +2526,7 @@ paths:
                 name: { type: string }
                 status: { type: string, enum: [PENDING_VERIFICATION, ACTIVE, EXPIRING, SUSPENDED, REVOKED, DISCONNECTED] }
                 is_primary: { type: boolean }
-                storefront_app_id: { type: [string, "null"], description: "Public ID of this team's separately built Ru AppStore listing" }
+                storefront_app_id: { type: [string, "null"], description: "Public ID of this team's separately built Ru App Store listing" }
                 membership_expires_at: { type: [string, "null"], format: date-time }
                 reason: { type: string, maxLength: 500 }
       responses:

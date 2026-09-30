@@ -48,7 +48,7 @@ Status as of 2026-09-26. ✅ done and verified · ⏳ needs the Apple account, a
 | ✅ | Nine runbooks written | |
 | ⛔ | Each runbook walked through once in a tabletop exercise | |
 | ⏳ | Signing runner container on the server (runner/README.md): identities folder readable only by uid 10001, `--list-identities` shows the team identity, one DemoApp build installed on a real device | |
-| ⏳ | For each Apple team, publish a Ru AppStore IPA with its own Bundle ID, approve that Bundle ID for the team, bind its listing in Admin → Команды Apple, and verify a quota-overflow install on a physical iPhone | |
+| ⏳ | For each Apple team, publish a Ru App Store IPA with its own Bundle ID, approve that Bundle ID for the team, bind its listing in Admin → Команды Apple, and verify a quota-overflow install on a physical iPhone | |
 | ⏳ | Physical-device matrix: ≥ 2 iPhone models × 2 iOS versions (FULL_PLAN §15), including trust prompt and reinstall | |
 | ⏳ | Production deploy with `scripts/deploy.sh`; cron `* * * * * php artisan schedule:run`; smoke test | |
 
@@ -59,7 +59,7 @@ Status as of 2026-09-26. ✅ done and verified · ⏳ needs the Apple account, a
 | ⛔ | `terms.html` — legal text | placeholder |
 | ⛔ | `privacy.html` — factual draft is published and marked as draft; legal approval required | draft |
 | ⛔ | `pricing.html` — plans and prices | placeholder |
-| ✅ | Final brand «Ru AppStore» replaces `[BRAND]` (web, admin, iOS, API title) | done |
+| ✅ | Final brand «Ru App Store» replaces `[BRAND]` (web, admin, iOS, API title) | done |
 | ⚠️ | Accessibility: labels, skip links, focus order and `aria-live` statuses reviewed in code; a VoiceOver pass on iOS Safari and in the app is still to do | |
 
 ## 5. Sign-off

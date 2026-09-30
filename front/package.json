@@ -2,7 +2,7 @@
   "name": "ru-appstore-site",
   "private": true,
   "type": "module",
-  "description": "Public website of Ru AppStore: static pages built with Vite, no framework.",
+  "description": "Public website of Ru App Store: static pages built with Vite, no framework.",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

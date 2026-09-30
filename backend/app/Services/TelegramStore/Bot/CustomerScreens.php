@@ -419,7 +419,7 @@ class CustomerScreens
 
     private function brand(): string
     {
-        return (string) config('telegram_store.brand', 'Ru AppStore');
+        return (string) config('telegram_store.brand', 'Ru App Store');
     }
 
     private function brandHtml(): string

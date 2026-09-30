@@ -69,7 +69,7 @@ function teamCard(team) {
     el('p', {}, team.membership_year
       ? t('teams.membership', { from: formatDate(team.membership_year.starts_at), to: formatDate(team.membership_year.ends_at) })
       : t('teams.noMembership')),
-    el('p', {}, 'Ru AppStore: ', team.storefront_bundle_id
+    el('p', {}, 'Ru App Store: ', team.storefront_bundle_id
       ? el('span', { className: 'mono' }, team.storefront_bundle_id)
       : el('span', { className: 'muted' }, 'Вариант для этой команды не назначен или IPA не опубликован')),
     team.quotas.length ? el('ul', { className: 'plain-list quota-list' }, team.quotas.map(quotaBar)) : el('p', { className: 'muted' }, t('teams.noQuota')),
@@ -94,7 +94,7 @@ function teamActions(team) {
   button(t('teams.sync'), () => act(() => api.post(`/admin/apple-teams/${team.id}/sync`), ({ data }) => t('teams.synced', { mismatches: data.reconciliation.mismatches })));
   button(t('teams.addCredential'), () => credentialDialog(team));
   button(t('teams.addYear'), () => yearDialog(team));
-  button('Назначить вариант Ru AppStore', () => storefrontVariantDialog(team));
+  button('Назначить вариант Ru App Store', () => storefrontVariantDialog(team));
   if (team.status !== 'ACTIVE') {
     button(t('teams.activate'), async () => {
       const reason = await reasonFor();
@@ -156,11 +156,11 @@ async function storefrontVariantDialog(team) {
         `${app.name} · ${app.bundle_identifier ?? 'IPA не опубликован'}`)));
     const form = el('form', { className: 'stack' },
       el('p', { className: 'muted' }, 'Автоматическое переключение работает только после публикации IPA с отдельным Bundle ID и разрешения этого Bundle ID для команды.'),
-      el('label', { className: 'field' }, 'Вариант Ru AppStore', selector),
+      el('label', { className: 'field' }, 'Вариант Ru App Store', selector),
       el('label', { className: 'field' }, 'Причина изменения', el('input', { name: 'reason', required: true, maxLength: 500 })),
       el('div', { className: 'form-status', role: 'status' }),
       el('div', { className: 'button-row' }, el('button', { type: 'submit', className: 'button button--primary' }, t('apps.save'))));
-    const panel = openDialog(t, { title: `${team.name} · Ru AppStore`, body: form });
+    const panel = openDialog(t, { title: `${team.name} · Ru App Store`, body: form });
     form.addEventListener('submit', async (event) => {
       event.preventDefault();
       if (!form.reportValidity()) return;

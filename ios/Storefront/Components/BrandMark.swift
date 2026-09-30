@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The Ru AppStore logo.
+/// The Ru App Store logo.
 struct BrandMark: View {
     var size: Double = 40
 
@@ -9,8 +9,7 @@ struct BrandMark: View {
             .resizable()
             .scaledToFit()
             .frame(width: size, height: size)
-            .clipShape(Circle())
-            .accessibilityLabel("Ru AppStore")
+            .accessibilityLabel("Ru App Store")
     }
 }
 

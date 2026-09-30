@@ -80,7 +80,7 @@ function listingForm(app) {
       field(t('apps.privacyUrl'), el('input', { name: 'privacy_url', type: 'url', value: app?.privacy_url ?? '' }))),
     el('label', { className: 'check' },
       el('input', { name: 'is_storefront', type: 'checkbox', checked: app?.is_storefront ?? false }),
-      'Вариант Ru AppStore для команды Apple'),
+      'Вариант Ru App Store для команды Apple'),
     field(t('apps.description'), el('textarea', { name: 'description', rows: 5, maxLength: 4000, value: app?.description ?? '' })),
     app ? field(t('apps.reasonOptional'), el('input', { name: 'reason', maxLength: 500 })) : null,
     manage ? el('div', { className: 'button-row' }, el('button', { type: 'submit', className: 'button button--primary' }, t('apps.save'))) : null);

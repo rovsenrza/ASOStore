@@ -1,5 +1,5 @@
-/* Ru AppStore design tokens. Colours are sampled from the logo: its royal-blue field,
-   the sky highlight at the top of the circle, the deep rim, and the ribbon red. */
+/* Ru App Store design tokens. The blues match the logo's blue field and its sky highlight;
+   red is kept only as the warm accent for savings. */
 :root {
   /* Brand field */
   --blue: #0b45e6;

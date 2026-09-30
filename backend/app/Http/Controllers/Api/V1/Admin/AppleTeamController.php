@@ -80,12 +80,12 @@ class AppleTeamController extends Controller
         if (array_key_exists('storefront_app_id', $data)) {
             $app = $data['storefront_app_id'] === null ? null : CatalogApp::query()->where('public_id', strtolower($data['storefront_app_id']))->firstOrFail();
             if ($app !== null && AppleTeam::query()->where('storefront_app_id', $app->id)->whereKeyNot($team->id)->exists()) {
-                throw new ApiException(ErrorCode::Conflict, 'Этот вариант Ru AppStore уже назначен другой команде.');
+                throw new ApiException(ErrorCode::Conflict, 'Этот вариант Ru App Store уже назначен другой команде.');
             }
             $bundle = $app?->publishedArtifact?->bundle_identifier;
             if ($bundle !== null && AppleTeam::query()->whereKeyNot($team->id)
                 ->whereHas('storefrontApp.publishedArtifact', fn ($query) => $query->where('bundle_identifier', $bundle))->exists()) {
-                throw new ApiException(ErrorCode::Conflict, 'У каждой команды должен быть отдельный Bundle ID Ru AppStore.');
+                throw new ApiException(ErrorCode::Conflict, 'У каждой команды должен быть отдельный Bundle ID Ru App Store.');
             }
             $data['storefront_app_id'] = $app?->id;
         }

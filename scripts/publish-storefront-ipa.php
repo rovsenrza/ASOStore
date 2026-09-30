@@ -1,6 +1,6 @@
 <?php
 
-// Publishes a new build of the Ru AppStore app itself (OWN_BUILD) to its hidden listing:
+// Publishes a new build of the Ru App Store app itself (OWN_BUILD) to its hidden listing:
 // stores the IPA, inspects it, approves and publishes it, like an operator in the admin.
 // Run on the server as the app user:
 //
@@ -73,7 +73,7 @@ if ($artifact->status !== ArtifactStatus::ProvenanceReview) {
 }
 
 $review = app(ArtifactReviewService::class);
-$review->approve($artifact, $operator, 'Own build of the Ru AppStore app.', [
+$review->approve($artifact, $operator, 'Own build of the Ru App Store app.', [
     'source_verified' => true,
     'distribution_rights_confirmed' => true,
     'inspection_report_reviewed' => true,

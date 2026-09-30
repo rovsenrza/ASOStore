@@ -1,4 +1,4 @@
-# Ru AppStore website design
+# Ru App Store website design
 
 ## Direction
 

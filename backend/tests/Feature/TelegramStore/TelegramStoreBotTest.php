@@ -84,7 +84,7 @@ it('registers a customer on /start and shows the menu', function () {
     ($this->text)(BUYER_ID, '/start');
 
     expect(customer(BUYER_ID)->referral_code)->toMatch('/^[a-z0-9]{8}$/')
-        ->and(($this->sentTo)(BUYER_ID)->last())->toContain('Ru AppStore')->toContain('197₽ в месяц')
+        ->and(($this->sentTo)(BUYER_ID)->last())->toContain('Ru App Store')->toContain('197₽ в месяц')
         ->and(($this->buttons)(BUYER_ID))->toContain('buy', 'profile', 'invite');
 });
 
@@ -352,7 +352,7 @@ it('puts the banner on every message, uploading it once and editing captions on 
     $methods = $calls->map(fn (Request $request) => basename($request->url()))->all();
     expect($methods)->toBe(['sendPhoto', 'editMessageCaption', 'sendPhoto'])
         ->and($calls[0]->isMultipart())->toBeTrue()
-        ->and($calls[1]['caption'])->toContain('Подписка Ru AppStore')
+        ->and($calls[1]['caption'])->toContain('Подписка Ru App Store')
         ->and($calls[2]['photo'])->toBe('BIG')
         ->and($calls[2]['caption'])->toContain('Мой профиль');
     unlink($banner);

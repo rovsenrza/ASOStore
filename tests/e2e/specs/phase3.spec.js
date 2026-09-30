@@ -46,7 +46,7 @@ test.describe('on an iPhone in Safari', () => {
 
     await page.goto(answer.headers().location);
     await expect(page.locator('#stage-state')).toContainText('Устройство получено');
-    await expect(page.locator('#stage-state')).toContainText('Ru AppStore готов к установке');
+    await expect(page.locator('#stage-state')).toContainText('Ru App Store готов к установке');
     await expect(page.locator('#stage-state')).toContainText('••••-6F70');
     await expect(page.locator('#step-title')).toHaveText('Установка');
 
@@ -68,7 +68,7 @@ test.describe('on an iPhone in Safari', () => {
     await expect(page).toHaveURL(/\/account\.html$/);
 
     await page.goto('/install.html');
-    const open = page.getByRole('button', { name: 'Уже установили Ru AppStore? Открыть приложение' });
+    const open = page.getByRole('button', { name: 'Уже установили Ru App Store? Открыть приложение' });
     await expect(open).toBeVisible();
 
     const claim = page.waitForResponse((response) => response.url().endsWith('/api/v1/storefront/claims'));

@@ -7,7 +7,7 @@ struct ManagerImportCards: View {
                 symbols: ["iphone", "folder.fill", "square.and.arrow.up"],
                 highlightedSymbol: 1,
                 title: "Импортировать IPA с устройства",
-                description: "Выберите IPA в Файлах или отправьте его в Ru AppStore из другого приложения."
+                description: "Выберите IPA в Файлах или отправьте его в Ru App Store из другого приложения."
             )
 
             ManagerImportCard(

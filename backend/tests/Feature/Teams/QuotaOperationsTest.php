@@ -49,7 +49,7 @@ function secondTeam(string $teamId = 'TEAM000002'): AppleTeam
     return $team;
 }
 
-it('automatically places device 101 on the next team with its own published Ru AppStore bundle', function () {
+it('automatically places device 101 on the next team with its own published Ru App Store bundle', function () {
     $firstApp = CatalogApp::factory()->create(['is_storefront' => true]);
     AppArtifact::factory()->for($firstApp, 'app')->create([
         'status' => ArtifactStatus::Published,
@@ -97,7 +97,7 @@ it('automatically places device 101 on the next team with its own published Ru A
         ->assertJsonPath('data.app_id', $secondApp->public_id);
 });
 
-it('binds separate Ru AppStore variants to teams and rejects a duplicate bundle', function () {
+it('binds separate Ru App Store variants to teams and rejects a duplicate bundle', function () {
     $firstApp = CatalogApp::factory()->create(['is_storefront' => true]);
     AppArtifact::factory()->for($firstApp, 'app')->create([
         'status' => ArtifactStatus::Published, 'bundle_identifier' => 'com.bundle.app',

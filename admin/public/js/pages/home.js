@@ -1,7 +1,7 @@
 import { boot, el, errorNotice, prepareImage } from '../app.js';
 import { toast } from '../components/toast.js';
 
-// What the Ru AppStore app shows on its Home tab: the editor's banner and its order
+// What the Ru App Store app shows on its Home tab: the editor's banner and its order
 // (featured_rank). The lists below the banner are built from real data by the feed.
 const { api, t, can } = await boot();
 const manage = can('catalog.manage');

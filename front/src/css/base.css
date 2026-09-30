@@ -140,8 +140,8 @@ p { text-wrap: pretty; }
   text-decoration: none;
   white-space: nowrap;
 }
-.brand img { border-radius: 50%; flex: none; }
-.brand b { font-weight: 700; color: var(--red); }
+.brand img { flex: none; }
+.brand b { font-weight: 700; color: var(--blue); }
 
 .site-nav { display: flex; align-items: center; gap: var(--s1); margin-left: auto; }
 .site-nav a {

@@ -55,7 +55,7 @@ struct AccountSheet: View {
                             Label("Поддержка", systemImage: "questionmark.circle")
                         }
                         Link(destination: portalURL.appending(path: "install.html")) {
-                            Label("Восстановление Ru AppStore", systemImage: "arrow.clockwise")
+                            Label("Восстановление Ru App Store", systemImage: "arrow.clockwise")
                         }
                         Link(destination: portalURL.appending(path: "privacy.html")) {
                             Label("Конфиденциальность", systemImage: "hand.raised")
@@ -66,7 +66,7 @@ struct AccountSheet: View {
                 Section {
                     VStack(spacing: 6) {
                         BrandMark(size: 36)
-                        Text("Ru AppStore \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
+                        Text("Ru App Store \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
