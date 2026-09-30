@@ -79,6 +79,37 @@ class TelegramApi
     }
 
     /**
+     * Sends a photo by Telegram file_id.
+     *
+     * @param  array<string, mixed>|null  $keyboard
+     * @return array<string, mixed> the sent message
+     */
+    public function sendPhotoById(int $chatId, string $fileId, string $caption, ?array $keyboard = null): array
+    {
+        return $this->call('sendPhoto', array_filter([
+            'chat_id' => $chatId,
+            'photo' => $fileId,
+            'caption' => $caption,
+            'parse_mode' => 'HTML',
+            'reply_markup' => $keyboard,
+        ], fn ($value) => $value !== null));
+    }
+
+    /** @param  array<string, mixed>|null  $keyboard */
+    public function editCaption(int $chatId, int $messageId, string $caption, ?array $keyboard = null): void
+    {
+        $this->call('editMessageCaption', array_filter([
+            'chat_id' => $chatId,
+            'message_id' => $messageId,
+            'caption' => $caption,
+            'parse_mode' => 'HTML',
+            'reply_markup' => $keyboard,
+        ], fn ($value) => $value !== null));
+    }
+
+    /**
+     * Uploads a local photo.
+     *
      * @param  array<string, mixed>|null  $keyboard
      * @return array<string, mixed> the sent message
      */

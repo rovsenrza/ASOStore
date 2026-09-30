@@ -75,7 +75,7 @@ class UpdateRouter
             $customer,
             (int) $chat['id'],
             isset($message['message_id']) ? (int) $message['message_id'] : null,
-            isset($message['text']),
+            isset($message['photo']),
             (string) $callback['id'],
         );
         $data = (string) ($callback['data'] ?? '');

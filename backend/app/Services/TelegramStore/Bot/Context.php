@@ -13,7 +13,7 @@ final class Context
         public readonly TelegramStoreCustomer $customer,
         public readonly int $chatId,
         public readonly ?int $messageId = null,
-        public readonly bool $messageHasText = false,
+        public readonly bool $messageHasPhoto = false,
         public readonly ?string $callbackId = null,
     ) {}
 

@@ -7,15 +7,20 @@ use App\Models\TelegramStoreOrder;
 use App\Services\TelegramStore\CompletedOrder;
 use App\Services\TelegramStore\TelegramApi;
 use App\Services\TelegramStore\TelegramApiException;
+use Illuminate\Support\Facades\Cache;
 use Throwable;
 
 /**
- * Puts screens on the user's screen: navigation edits the message the button
+ * Puts screens on the user's screen. Every message carries the store banner
+ * with the screen as its caption. Navigation edits the message the button
  * belongs to, while news (payment, bonus, expiry) arrives as a new message so
  * Telegram notifies the user.
  */
 class Messenger
 {
+    /** Telegram's caption limit, in UTF-16 code units of the visible text. */
+    private const CAPTION_LIMIT = 1024;
+
     public function __construct(
         private readonly TelegramApi $api,
         private readonly CustomerScreens $screens,
@@ -27,9 +32,13 @@ class Messenger
      */
     public function show(Context $ctx, Screen $screen): ?int
     {
-        if ($ctx->messageId !== null && $ctx->messageHasText) {
+        $asPhoto = $this->usesBanner($screen);
+        // A text message cannot become a photo (or back), so those get a fresh message.
+        if ($ctx->messageId !== null && $ctx->messageHasPhoto === $asPhoto) {
             try {
-                $this->api->editMessage($ctx->chatId, $ctx->messageId, $screen->text, $screen->keyboard());
+                $asPhoto
+                    ? $this->api->editCaption($ctx->chatId, $ctx->messageId, $screen->text, $screen->keyboard())
+                    : $this->api->editMessage($ctx->chatId, $ctx->messageId, $screen->text, $screen->keyboard());
 
                 return $ctx->messageId;
             } catch (TelegramApiException $exception) {
@@ -43,7 +52,24 @@ class Messenger
             }
         }
 
-        return $this->api->sendMessage($ctx->chatId, $screen->text, $screen->keyboard())['message_id'] ?? null;
+        return $this->send($ctx->chatId, $screen);
+    }
+
+    /** Sends a screen as a new message; returns its id. */
+    public function send(int $chatId, Screen $screen): ?int
+    {
+        if ($this->usesBanner($screen)) {
+            try {
+                return $this->sendBanner($chatId, $screen);
+            } catch (TelegramApiException $exception) {
+                if ($exception->isUnreachable()) {
+                    throw $exception;
+                }
+                report($exception);
+            }
+        }
+
+        return $this->api->sendMessage($chatId, $screen->text, $screen->keyboard())['message_id'] ?? null;
     }
 
     /**
@@ -53,7 +79,7 @@ class Messenger
     public function notify(int $chatId, Screen $screen): bool
     {
         try {
-            $this->api->sendMessage($chatId, $screen->text, $screen->keyboard());
+            $this->send($chatId, $screen);
 
             return true;
         } catch (TelegramApiException $exception) {
@@ -71,20 +97,7 @@ class Messenger
 
     public function welcome(int $chatId): void
     {
-        $banner = (string) config('telegram_store.welcome_banner');
-        if ($banner !== '' && is_file($banner)) {
-            try {
-                $this->api->sendPhoto($chatId, $banner, $this->screens->welcomeText(), ['inline_keyboard' => $this->screens->menuRows()]);
-
-                return;
-            } catch (TelegramApiException $exception) {
-                if ($exception->isUnreachable()) {
-                    throw $exception;
-                }
-                report($exception);
-            }
-        }
-        $this->api->sendMessage($chatId, $this->screens->welcomeText(), ['inline_keyboard' => $this->screens->menuRows()]);
+        $this->send($chatId, $this->screens->menu());
     }
 
     /** Tells the buyer (code) and the referrer (bonus) about a completed order. */
@@ -112,7 +125,7 @@ class Messenger
     {
         if ($ctx->callbackId === null) {
             if ($text !== null) {
-                $this->api->sendMessage($ctx->chatId, e($text));
+                $this->send($ctx->chatId, new Screen(e($text)));
             }
 
             return;
@@ -122,5 +135,53 @@ class Messenger
         } catch (TelegramApiException) {
             // Callback answers expire after a while; nothing to do.
         }
+    }
+
+    public static function fitsCaption(string $html): bool
+    {
+        $visible = html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+
+        return strlen(mb_convert_encoding($visible, 'UTF-16LE', 'UTF-8')) / 2 <= self::CAPTION_LIMIT;
+    }
+
+    private function usesBanner(Screen $screen): bool
+    {
+        return $this->bannerPath() !== null && self::fitsCaption($screen->text);
+    }
+
+    /**
+     * Uploads the banner once, then reuses Telegram's file_id. A new banner
+     * file (other size or mtime) gets uploaded again.
+     */
+    private function sendBanner(int $chatId, Screen $screen): ?int
+    {
+        $path = (string) $this->bannerPath();
+        $key = 'telegram_store.banner_file_id.'.md5($path.'|'.filesize($path).'|'.filemtime($path));
+
+        if ($fileId = Cache::get($key)) {
+            try {
+                return $this->api->sendPhotoById($chatId, $fileId, $screen->text, $screen->keyboard())['message_id'] ?? null;
+            } catch (TelegramApiException $exception) {
+                if ($exception->isUnreachable()) {
+                    throw $exception;
+                }
+                Cache::forget($key);
+            }
+        }
+
+        $message = $this->api->sendPhoto($chatId, $path, $screen->text, $screen->keyboard());
+        $sizes = $message['photo'] ?? [];
+        if ($sizes !== [] && isset($sizes[array_key_last($sizes)]['file_id'])) {
+            Cache::forever($key, $sizes[array_key_last($sizes)]['file_id']);
+        }
+
+        return $message['message_id'] ?? null;
+    }
+
+    private function bannerPath(): ?string
+    {
+        $path = (string) config('telegram_store.welcome_banner');
+
+        return $path !== '' && is_file($path) ? $path : null;
     }
 }

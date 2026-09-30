@@ -35,5 +35,6 @@ return [
     'support_url' => env('TELEGRAM_STORE_SUPPORT_URL'),
     'news_url' => env('TELEGRAM_STORE_NEWS_URL'),
     'activation_url' => env('TELEGRAM_STORE_ACTIVATION_URL'),
+    // Every bot message is this image with the screen as its caption; empty or missing file = text messages.
     'welcome_banner' => env('TELEGRAM_STORE_WELCOME_BANNER', base_path('../front/public/assets/banners/ruappstore-telegram-welcome.jpg')),
 ];

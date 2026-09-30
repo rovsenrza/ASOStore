@@ -7,6 +7,9 @@ use App\Models\TelegramStoreBroadcast;
 use App\Models\TelegramStoreCustomer;
 use App\Models\TelegramStoreOrder;
 use App\Services\TelegramStore\BalanceLedger;
+use App\Services\TelegramStore\Bot\AdminHandler;
+use App\Services\TelegramStore\Bot\CustomerScreens;
+use App\Services\TelegramStore\Bot\Messenger;
 use App\Services\TelegramStore\Bot\UpdateRouter;
 use App\Services\TelegramStore\OrderService;
 use Illuminate\Http\Client\Request;
@@ -37,18 +40,19 @@ beforeEach(function () {
             return Http::response(['ok' => false, 'error_code' => 403, 'description' => 'Forbidden: bot was blocked by the user'], 403);
         }
 
-        return Http::response(['ok' => true, 'result' => ['message_id' => 77]]);
+        return Http::response(['ok' => true, 'result' => ['message_id' => 77, 'photo' => [['file_id' => 'small'], ['file_id' => 'BIG']]]]);
     });
 
     $this->text = fn (int $userId, string $text) => app(UpdateRouter::class)->handle([
         'update_id' => 1,
         'message' => ['message_id' => 10, 'from' => ['id' => $userId, 'first_name' => 'U'.$userId], 'chat' => ['id' => $userId, 'type' => 'private'], 'text' => $text],
     ]);
-    $this->press = fn (int $userId, string $data) => app(UpdateRouter::class)->handle([
+    $this->press = fn (int $userId, string $data, bool $onPhoto = false) => app(UpdateRouter::class)->handle([
         'update_id' => 2,
         'callback_query' => [
             'id' => 'cb', 'data' => $data, 'from' => ['id' => $userId, 'first_name' => 'U'.$userId],
-            'message' => ['message_id' => 50, 'chat' => ['id' => $userId, 'type' => 'private'], 'text' => 'screen'],
+            'message' => ['message_id' => 50, 'chat' => ['id' => $userId, 'type' => 'private']]
+                + ($onPhoto ? ['photo' => [['file_id' => 'BIG']], 'caption' => 'screen'] : ['text' => 'screen']),
         ],
     ]);
     // Texts the bot sent or edited into a chat, in order.
@@ -330,4 +334,47 @@ it('queues a broadcast after a preview and delivers it, marking blocked users', 
         ->and($broadcast->failed)->toBe(1)
         ->and(customer(TESTER_ID)->blocked_at)->not->toBeNull()
         ->and(($this->sentTo)(ADMIN_ID)->last())->toContain('Доставлено: 2');
+});
+
+it('puts the banner on every message, uploading it once and editing captions on navigation', function () {
+    $banner = tempnam(sys_get_temp_dir(), 'banner');
+    file_put_contents($banner, 'jpeg-bytes');
+    config(['telegram_store.welcome_banner' => $banner]);
+
+    ($this->text)(BUYER_ID, '/start');
+    ($this->press)(BUYER_ID, 'buy', onPhoto: true);
+    ($this->text)(BUYER_ID, '/profile');
+
+    $calls = collect(Http::recorded())->map(fn ($pair) => $pair[0])
+        ->reject(fn (Request $request) => str_ends_with($request->url(), 'answerCallbackQuery'))->values();
+    $methods = $calls->map(fn (Request $request) => basename($request->url()))->all();
+    expect($methods)->toBe(['sendPhoto', 'editMessageCaption', 'sendPhoto'])
+        ->and($calls[0]->isMultipart())->toBeTrue()
+        ->and($calls[1]['caption'])->toContain('Подписка Ru AppStore')
+        ->and($calls[2]['photo'])->toBe('BIG')
+        ->and($calls[2]['caption'])->toContain('Мой профиль');
+    unlink($banner);
+});
+
+it('keeps every screen within the caption limit', function () {
+    ($this->text)(ADMIN_ID, '/start');
+    ($this->text)(TESTER_ID, '/start ref_'.customer(ADMIN_ID)->referral_code);
+    $customer = customer(TESTER_ID);
+    $orders = app(OrderService::class);
+    foreach (range(1, 12) as $i) {
+        $orders->complete($orders->create($customer, 'month12'), 'mock');
+    }
+    $order = TelegramStoreOrder::query()->latest('id')->first();
+    $screens = app(CustomerScreens::class);
+    $admin = app(AdminHandler::class);
+
+    $all = [
+        $screens->menu(), $screens->plans($customer), $screens->order($orders->create($customer->refresh(), 'month6'), $customer),
+        $screens->paid($order, 'AAAA-BBBB-CCCC-DDDD'), $screens->expired($order), $screens->rejected($order),
+        $screens->profile($customer), $screens->orders($customer), $screens->code($order), $screens->invite($customer),
+        $screens->help(), $screens->referralBonus(354, 99999), $admin->panel('Уведомление'), $admin->stats('all'),
+    ];
+    foreach ($all as $screen) {
+        expect(Messenger::fitsCaption($screen->text))->toBeTrue(strip_tags($screen->text));
+    }
 });
