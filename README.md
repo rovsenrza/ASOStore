@@ -82,6 +82,10 @@ iOS only posts the device answer to an HTTPS address it can reach. Expose the lo
 
 Cron on the server: `* * * * * cd backend && php artisan schedule:run` — runs the queue worker (D6), lease recovery, link expiry, quota reconciliation, metrics, alerts and retention.
 
+### Email confirmation
+
+A website sign-up gets a six-digit code by email (15 minutes, 5 attempts, resend once a minute) and confirms it on `/verify-email.html`. Until then, website sessions receive `EMAIL_NOT_VERIFIED` from activation, device and install endpoints, and `/storefront/status` reports `email_verification_required`. Token sessions (the iOS app) are not affected. Accounts invited by staff or completing a password reset count as confirmed. Mail goes out over SMTP (Brevo in production, see `backend/.env.example`).
+
 ### Telegram store bot
 
 `php artisan telegram:store-bot` runs the Ru AppStore sales bot (long polling; systemd unit in [ops/systemd/storefront-telegram-bot.service](ops/systemd/storefront-telegram-bot.service)). Code: [backend/app/Services/TelegramStore](backend/app/Services/TelegramStore).

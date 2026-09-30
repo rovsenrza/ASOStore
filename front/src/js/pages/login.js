@@ -5,5 +5,8 @@ const { api, t } = boot();
 
 bindForm(document.querySelector('#login-form'), t, {
   submit: (data) => api.post('/auth/login', { email: data.get('email'), password: data.get('password') }),
-  onSuccess: () => location.assign(safeNext('/account.html')),
+  onSuccess: ({ data: user }) => {
+    const next = safeNext('/account.html');
+    location.assign(user.email_verified === false ? `/verify-email.html?next=${encodeURIComponent(next)}` : next);
+  },
 });

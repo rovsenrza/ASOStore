@@ -3,6 +3,7 @@
 use App\Exceptions\ApiExceptionRenderer;
 use App\Http\Middleware\AssignRequestId;
 use App\Http\Middleware\EnsureAccountActive;
+use App\Http\Middleware\EnsureWebEmailVerified;
 use App\Http\Middleware\Idempotent;
 use App\Http\Middleware\RecordRequestMetrics;
 use App\Http\Middleware\RequireStaffSession;
@@ -41,6 +42,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'active' => EnsureAccountActive::class,
             'staff' => RequireStaffSession::class,
             'idempotent' => Idempotent::class,
+            'verified.web' => EnsureWebEmailVerified::class,
         ]);
         // Check the account and staff session before resolving route models, so
         // unauthorised callers get 403 rather than learning which IDs exist.

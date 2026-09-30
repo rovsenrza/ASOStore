@@ -9,5 +9,5 @@ bindForm(document.querySelector('#register-form'), t, {
     email: data.get('email'),
     password: data.get('password'),
   }),
-  onSuccess: () => location.assign('/activate.html'),
+  onSuccess: () => location.assign('/verify-email.html'),
 });

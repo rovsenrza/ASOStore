@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Подтверждение почты — Ru AppStore</title>
+  <meta name="description" content="Подтверждение эл. почты аккаунта Ru AppStore.">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#0b45e6">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/ru-appstore-logo-32.png">
+  <link rel="apple-touch-icon" href="/assets/brand/ru-appstore-logo-180.png">
+  <link rel="stylesheet" href="/css/site.css">
+  <script type="module" src="/js/pages/verify-email.js"></script>
+</head>
+<body>
+  <!--#header-->
+
+  <main id="main">
+    <section class="page-hero" aria-labelledby="page-title">
+      <h1 id="page-title">Подтвердите почту</h1>
+      <p id="verify-lead">Мы отправили 6-значный код на вашу эл. почту.</p>
+    </section>
+
+    <div class="page-body">
+      <form class="form" id="verify-form" novalidate>
+        <div class="form-status"></div>
+        <div class="field">
+          <label for="verify-code">Код из письма</label>
+          <input id="verify-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" aria-describedby="verify-code-hint" required>
+          <p class="field-hint" id="verify-code-hint">Код действует 15 минут. Не пришло письмо — проверьте папку «Спам».</p>
+        </div>
+        <button class="primary-button" type="submit">Подтвердить <span aria-hidden="true">→</span></button>
+        <p class="form-footer">
+          <button class="text-link" type="button" id="verify-resend">Отправить код ещё раз</button>
+          <span id="verify-resend-status" role="status"></span>
+        </p>
+      </form>
+    </div>
+  </main>
+
+  <!--#footer-->
+</body>
+</html>

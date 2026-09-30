@@ -12,6 +12,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
+use App\Services\Auth\EmailVerificationService;
 use App\Services\Auth\TokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,6 +23,7 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password as PasswordRule;
 use Laravel\Sanctum\PersonalAccessToken;
+use Throwable;
 
 /**
  * Browser sign-in for the portal (Sanctum session cookies, IMPLEMENTATION_PLAN D2).
@@ -32,6 +34,7 @@ class AuthController extends Controller
     public function __construct(
         private readonly AuditService $audit,
         private readonly TokenService $tokens,
+        private readonly EmailVerificationService $verification,
     ) {}
 
     public function register(Request $request): JsonResponse
@@ -55,6 +58,13 @@ class AuthController extends Controller
 
         Auth::guard('web')->login($user);
         $request->session()->regenerate();
+
+        try {
+            $this->verification->send($user);
+        } catch (Throwable $exception) {
+            // The account exists; the customer can ask for the code again.
+            report($exception);
+        }
 
         return ApiResponse::ok((new MeResource($user->fresh()))->resolve($request), 201);
     }
@@ -138,6 +148,8 @@ class AuthController extends Controller
 
         $status = Password::broker()->reset($data, function (User $user, string $password) {
             $user->forceFill(['password' => $password, 'remember_token' => Str::random(60)])->save();
+            // The reset link reached this address, so it is confirmed.
+            $this->verification->markVerified($user);
             $this->tokens->revokeAllForUser($user);
             $this->audit->record('auth.password_reset', $user, actor: Actor::user($user));
         });

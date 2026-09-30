@@ -15,6 +15,7 @@ enum ErrorCode: string
     case SessionExpired = 'SESSION_EXPIRED';
     case InvalidCredentials = 'INVALID_CREDENTIALS';
     case AccountSuspended = 'ACCOUNT_SUSPENDED';
+    case EmailNotVerified = 'EMAIL_NOT_VERIFIED';
     case TotpRequired = 'TOTP_REQUIRED';
     case TotpInvalid = 'TOTP_INVALID';
     case Forbidden = 'FORBIDDEN';
@@ -55,7 +56,7 @@ enum ErrorCode: string
             self::ValidationFailed, self::ActivationInvalid, self::EnrollmentChallengeExpired,
             self::InvalidCredentials, self::TotpInvalid, self::EnrollmentPayloadInvalid, self::ClaimInvalid => 422,
             self::Unauthenticated, self::SessionExpired, self::TotpRequired => 401,
-            self::Forbidden, self::AccountSuspended, self::DeviceNotEligible, self::IncompatibleDevice => 403,
+            self::Forbidden, self::AccountSuspended, self::EmailNotVerified, self::DeviceNotEligible, self::IncompatibleDevice => 403,
             self::NotFound => 404,
             self::MethodNotAllowed => 405,
             self::InstallTokenExpired => 410,
@@ -79,6 +80,7 @@ enum ErrorCode: string
             self::SessionExpired => 'Сеанс истёк. Войдите снова.',
             self::InvalidCredentials => 'Неверная эл. почта или пароль.',
             self::AccountSuspended => 'Аккаунт заблокирован. Обратитесь в поддержку.',
+            self::EmailNotVerified => 'Подтвердите эл. почту кодом из письма, чтобы продолжить.',
             self::TotpRequired => 'Подтвердите вход кодом из приложения-аутентификатора.',
             self::TotpInvalid => 'Код неверный или устарел.',
             self::Forbidden => 'Недостаточно прав для этого действия.',

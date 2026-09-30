@@ -16,13 +16,17 @@ class StorefrontStatusResolver
     /**
      * @return array{stage: string, next_action: string, blocking_reason: string|null, device: array<string, mixed>|null}
      */
-    public function resolve(?User $user): array
+    public function resolve(?User $user, bool $awaitingEmail = false): array
     {
         if ($user === null) {
             return $this->stage('signed_out', 'sign_in');
         }
         if (! $user->isActive()) {
             return $this->stage('blocked', 'blocked', ErrorCode::AccountSuspended);
+        }
+        // Website sign-ups confirm their email first; the native app never sees this stage.
+        if ($awaitingEmail) {
+            return $this->stage('email_verification_required', 'verify_email');
         }
         if ($user->activeSubscription === null) {
             return $this->stage('activation_required', 'redeem_activation');

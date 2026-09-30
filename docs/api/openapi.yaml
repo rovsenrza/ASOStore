@@ -304,6 +304,71 @@ paths:
         "401":
           $ref: "#/components/responses/Error"
 
+  /auth/email/verify:
+    post:
+      tags: [Auth]
+      operationId: verifyEmail
+      summary: 'Confirm the email address'
+      description: 'Checks the six-digit code emailed after website registration (valid 15 minutes, 5 attempts). A wrong or expired code returns VALIDATION_FAILED on the code field. Until confirmed, website sessions get EMAIL_NOT_VERIFIED from activation, device and install endpoints; token (app) sessions are not affected.'
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, maxLength: 20, example: '482913' }
+      responses:
+        "200":
+          description: Confirmed
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MeResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /auth/email/resend:
+    post:
+      tags: [Auth]
+      operationId: resendEmailCode
+      summary: 'Send a new email code'
+      description: 'Replaces the previous code. Allowed once a minute; earlier calls return RATE_LIMITED with details.retry_after.'
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      responses:
+        "202":
+          description: Sent
+          headers:
+            X-Request-Id: { $ref: "#/components/headers/RequestId" }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta, error]
+                properties:
+                  data:
+                    type: object
+                    required: [resend_after]
+                    properties:
+                      resend_after: { type: integer, description: 'Seconds until another code may be requested.' }
+                  meta: { $ref: "#/components/schemas/Meta" }
+                  error: { type: "null" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
   /auth/me:
     get:
       tags: [Auth]
@@ -3014,6 +3079,7 @@ components:
         - SESSION_EXPIRED
         - INVALID_CREDENTIALS
         - ACCOUNT_SUSPENDED
+        - EMAIL_NOT_VERIFIED
         - TOTP_REQUIRED
         - TOTP_INVALID
         - FORBIDDEN
@@ -3256,10 +3322,10 @@ components:
       properties:
         stage:
           type: string
-          enum: [signed_out, activation_required, device_required, device_pending, storefront_ready, storefront_installed, blocked]
+          enum: [signed_out, email_verification_required, activation_required, device_required, device_pending, storefront_ready, storefront_installed, blocked]
         next_action:
           type: string
-          enum: [sign_in, redeem_activation, enroll_device, wait_apple, install_storefront, open_storefront, blocked]
+          enum: [sign_in, verify_email, redeem_activation, enroll_device, wait_apple, install_storefront, open_storefront, blocked]
         blocking_reason:
           oneOf:
             - $ref: "#/components/schemas/ErrorCode"
@@ -3340,11 +3406,14 @@ components:
 
     Me:
       type: object
-      required: [id, name, email, roles, subscription, created_at]
+      required: [id, name, email, email_verified, roles, subscription, created_at]
       properties:
         id: { $ref: "#/components/schemas/PublicId" }
         name: { type: string }
         email: { type: string, format: email }
+        email_verified:
+          type: boolean
+          description: 'False for a website sign-up that has not entered its email code yet.'
         roles:
           type: array
           items: { $ref: "#/components/schemas/Role" }

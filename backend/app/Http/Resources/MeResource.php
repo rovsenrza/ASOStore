@@ -24,6 +24,7 @@ class MeResource extends JsonResource
             'id' => $this->public_id,
             'name' => $this->name,
             'email' => $this->email,
+            'email_verified' => $this->email_verified_at !== null,
             'roles' => $this->roleSlugs(),
             'subscription' => $subscription ? (new SubscriptionResource($subscription))->resolve($request) : null,
             'created_at' => $this->created_at?->toIso8601ZuluString(),

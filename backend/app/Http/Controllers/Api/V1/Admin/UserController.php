@@ -96,6 +96,8 @@ class UserController extends Controller
                 'email' => $data['email'],
                 'password' => Str::password(40),
             ]);
+            // Invited by staff: the password link sent below confirms the address.
+            $user->forceFill(['email_verified_at' => now()])->save();
             $user->roles()->attach(Role::query()->whereIn('slug', $data['roles'])->pluck('id'), ['granted_by' => auth()->id()]);
             $this->audit->record('user.created', $user, after: ['email' => $user->email, 'roles' => array_values($data['roles'])]);
 

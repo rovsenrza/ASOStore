@@ -113,6 +113,9 @@
 .field-hint { margin: 0; font-size: var(--text-xs); color: var(--ink-2); }
 .field-error { margin: 0; font-size: var(--text-sm); font-weight: 600; color: #b0182b; }
 .form-footer { margin: 0; font-size: var(--text-sm); color: var(--ink-2); }
+button.text-link { padding: 0; border: 0; background: none; cursor: pointer; }
+button.text-link:disabled { color: var(--ink-2); cursor: default; }
+.form-footer [role="status"]:not(:empty) { margin-left: var(--s2); }
 .form-status:empty { display: none; }
 .activation-form { margin-top: var(--s5); }
 .activation-form input { text-transform: uppercase; letter-spacing: .14em; font-variant-numeric: tabular-nums; }

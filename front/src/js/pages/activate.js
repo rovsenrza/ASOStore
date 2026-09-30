@@ -4,6 +4,7 @@ import { bindForm } from '../forms.js';
 const { api, t } = boot();
 const STAGE_TO_STEP = {
   signed_out: 0,
+  email_verification_required: 0,
   activation_required: 0,
   device_required: 1,
   device_pending: 2,

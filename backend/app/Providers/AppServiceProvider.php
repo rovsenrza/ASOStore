@@ -68,6 +68,8 @@ class AppServiceProvider extends ServiceProvider
             Limit::perMinute(30)->by('login-ip:'.$request->ip()),
         ]);
         RateLimiter::for('auth-register', fn (Request $request) => Limit::perHour(10)->by('register:'.$request->ip()));
+        RateLimiter::for('email-verify', fn (Request $request) => Limit::perMinute(10)->by('email-verify:'.($request->user()->id ?? $request->ip())));
+        RateLimiter::for('email-resend', fn (Request $request) => Limit::perHour(10)->by('email-resend:'.($request->user()->id ?? $request->ip())));
         RateLimiter::for('auth-refresh', fn (Request $request) => Limit::perMinute(30)->by('refresh:'.$request->ip()));
         RateLimiter::for('password-forgot', fn (Request $request) => [
             Limit::perMinute(3)->by('forgot:'.$email($request)),

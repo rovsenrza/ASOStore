@@ -3,6 +3,7 @@
     "id": "01m3d8a4g8ybxfwhx0w7xna66c",
     "name": "Анна Смирнова",
     "email": "anna@example.com",
+    "email_verified": true,
     "roles": [
       "customer"
     ],

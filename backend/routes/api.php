@@ -23,6 +23,7 @@ use App\Http\Controllers\Api\V1\Customer\AppController;
 use App\Http\Controllers\Api\V1\Customer\AuthController;
 use App\Http\Controllers\Api\V1\Customer\ClaimController;
 use App\Http\Controllers\Api\V1\Customer\DeviceController;
+use App\Http\Controllers\Api\V1\Customer\EmailVerificationController;
 use App\Http\Controllers\Api\V1\Customer\EnrollmentController;
 use App\Http\Controllers\Api\V1\Customer\FeedController;
 use App\Http\Controllers\Api\V1\Customer\InstallationController;
@@ -54,10 +55,12 @@ Route::prefix('auth')->name('api.auth.')->group(function () {
     Route::middleware(['auth:sanctum', 'active'])->group(function () {
         Route::get('/me', [AuthController::class, 'me'])->name('me');
         Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+        Route::post('/email/verify', [EmailVerificationController::class, 'verify'])->middleware('throttle:email-verify')->name('email.verify');
+        Route::post('/email/resend', [EmailVerificationController::class, 'resend'])->middleware('throttle:email-resend')->name('email.resend');
     });
 });
 
-Route::middleware(['auth:sanctum', 'active'])->group(function () {
+Route::middleware(['auth:sanctum', 'active', 'verified.web'])->group(function () {
     Route::post('/activation/redeem', [ActivationController::class, 'redeem'])
         ->middleware(['throttle:activation', 'idempotent'])
         ->name('api.activation.redeem');
@@ -74,8 +77,10 @@ Route::middleware(['auth:sanctum', 'active'])->group(function () {
     Route::get('/installations/{installation}', [InstallationController::class, 'show'])->name('api.installations.show');
     Route::post('/installations/{installation}/authorize', [InstallationController::class, 'authorize'])->middleware(['throttle:installs', 'idempotent'])->name('api.installations.authorize');
     Route::get('/library', [InstallationController::class, 'library'])->name('api.library');
+});
 
-    // The customer's own data (IMPLEMENTATION_PLAN P8-SEC-02)
+Route::middleware(['auth:sanctum', 'active'])->group(function () {
+    // The customer's own data (IMPLEMENTATION_PLAN P8-SEC-02), also before the email is confirmed.
     Route::get('/account/export', [SupportController::class, 'export'])->middleware('throttle:account-data')->name('api.account.export');
     Route::post('/account/deletion-request', [SupportController::class, 'requestDeletion'])->middleware('throttle:account-data')->name('api.account.deletion-request');
 });
