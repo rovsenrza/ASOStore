@@ -9,6 +9,8 @@ struct SignInSection: View {
     @State private var isSubmitting = false
     @State private var error: APIError?
     @State private var portalURL: URL?
+    @Environment(AppRouter.self) private var router
+    @State private var handoff = PortalHandoff()
 
     var body: some View {
         Section {
@@ -43,6 +45,15 @@ struct SignInSection: View {
                 }
             }
             .disabled(email.isEmpty || password.isEmpty || isSubmitting)
+
+            if let portalURL {
+                Button("Войти через сайт") {
+                    Task {
+                        guard let url = await handoff.claimLink(portalURL: portalURL) else { return }
+                        await router.handle(url, session: session)
+                    }
+                }
+            }
         } header: {
             Text("Вход")
         } footer: {
@@ -85,5 +96,6 @@ struct SignInSection: View {
     let api = APIClient.configured(environment: APIEnvironment(baseURL: URL(string: "http://127.0.0.1:8000/api/v1")!, mode: .mock))
     List { SignInSection() }
         .environment(SessionStore(api: api))
+        .environment(AppRouter())
         .environment(\.apiClient, api)
 }

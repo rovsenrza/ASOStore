@@ -6,6 +6,7 @@ struct StorefrontApp: App {
     @State private var session: SessionStore
     @State private var router = AppRouter()
     @State private var installations: InstallationCoordinator
+    private let handoff = PortalHandoff()
 
     init() {
         #if DEBUG
@@ -36,11 +37,22 @@ struct StorefrontApp: App {
                 // then pick up installations that were in flight when the app was killed.
                 .task {
                     await session.restore()
+                    await signInFromPortalOnce()
                     await installations.resume()
                 }
                 .onOpenURL { url in
                     Task { await router.handle(url, session: session) }
                 }
         }
+    }
+
+    /// First launch after installing from the portal: the customer is signed in already in Safari,
+    /// so ask the portal for a claim link instead of showing a sign-in form.
+    private func signInFromPortalOnce() async {
+        let environment = await apiClient.environment
+        guard environment.mode == .live, session.state == .signedOut, !PortalHandoff.attemptedAutomatically else { return }
+        PortalHandoff.attemptedAutomatically = true
+        guard let url = await handoff.claimLink(portalURL: environment.portalURL) else { return }
+        await router.handle(url, session: session)
     }
 }
