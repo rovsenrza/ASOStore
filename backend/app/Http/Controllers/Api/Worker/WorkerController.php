@@ -91,6 +91,8 @@ class WorkerController extends Controller
 
     public function source(Request $request, string $job): StreamedResponse
     {
+        // IPAs run to hundreds of MB; hashing and copying them outlasts PHP's 30 s default.
+        set_time_limit(0);
         $model = $this->job($job);
         $build = $this->signing->assertOwner($model, $this->runner($request));
         $artifact = $build->artifact;
@@ -103,6 +105,7 @@ class WorkerController extends Controller
 
     public function upload(Request $request, string $job): JsonResponse
     {
+        set_time_limit(0);
         $model = $this->job($job);
         $body = $request->getContent(true);
         $stored = $this->signing->storeSignedFile($model, $this->runner($request), $body);
