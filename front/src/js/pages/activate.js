@@ -1,10 +1,9 @@
-import { boot, renderDevice, renderError, renderLoading, renderStage } from '../app.js';
+import { boot, redirectUnverified, renderDevice, renderError, renderLoading, renderStage } from '../app.js';
 import { bindForm } from '../forms.js';
 
 const { api, t } = boot();
 const STAGE_TO_STEP = {
   signed_out: 0,
-  email_verification_required: 0,
   activation_required: 0,
   device_required: 1,
   device_pending: 2,
@@ -138,6 +137,7 @@ async function load({ quiet = false } = {}) {
   if (!quiet) renderLoading(stageState, t);
   try {
     const { data } = await api.get('/storefront/status');
+    if (redirectUnverified({ stage: data.stage })) return;
     renderProgress(STAGE_TO_STEP[data.stage] ?? 0);
     renderStage(stageState, t, data.stage, {
       tone: data.stage === 'blocked' ? 'notice notice--error' : 'notice',

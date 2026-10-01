@@ -1,4 +1,4 @@
-import { boot, renderError, renderLoading, renderStage } from '../app.js';
+import { boot, redirectUnverified, renderError, renderLoading, renderStage } from '../app.js';
 
 // Storefront installation (IMPLEMENTATION_PLAN P6-WEB-01): prepare → poll → authorize → itms-services.
 const { api, t } = boot();
@@ -47,6 +47,7 @@ async function load() {
   renderLoading(state, t);
   try {
     const { data } = await api.get('/storefront/status');
+    if (redirectUnverified({ stage: data.stage })) return;
     renderStage(state, t, data.stage, { reason: data.blocking_reason, next: location.pathname });
 
     const ready = data.stage === 'storefront_ready' || data.stage === 'storefront_installed';

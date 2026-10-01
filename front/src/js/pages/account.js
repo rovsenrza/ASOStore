@@ -1,4 +1,4 @@
-import { boot, renderDevice, renderError, renderLoading, renderStage } from '../app.js';
+import { boot, redirectUnverified, renderDevice, renderError, renderLoading, renderStage } from '../app.js';
 
 const { api, t } = boot();
 const profile = document.querySelector('#profile');
@@ -50,6 +50,7 @@ async function load() {
   renderLoading(state, t);
   try {
     const [{ data: user }, { data: status }] = await Promise.all([api.get('/auth/me'), api.get('/storefront/status')]);
+    if (redirectUnverified({ user, stage: status.stage })) return;
     renderProfile(user);
     document.querySelector('#data-panel').hidden = false;
     renderStage(state, t, status.stage, { reason: status.blocking_reason });

@@ -57,6 +57,17 @@ function setupHeader() {
 }
 
 /**
+ * Signed-in pages are closed until a website sign-up confirms its email: send the
+ * visitor to the code page, returning here afterwards. Returns true when it redirected.
+ */
+export function redirectUnverified({ user = null, stage = null } = {}) {
+  if (user?.email_verified !== false && stage !== 'email_verification_required') return false;
+  const next = `${location.pathname}${location.search}${location.hash}`;
+  location.replace(`/verify-email.html?next=${encodeURIComponent(next)}`);
+  return true;
+}
+
+/**
  * Renders an error notice with a retry button and the request ID for support.
  */
 export function renderError(container, t, error, onRetry) {
