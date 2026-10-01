@@ -22,6 +22,9 @@ class SyncDeviceRegistrationsJob implements ShouldBeUnique, ShouldQueue
 {
     use Queueable;
 
+    // A worker killed mid-run would otherwise keep the unique lock forever and stop the sync.
+    public int $uniqueFor = 300;
+
     public function handle(DeviceRegistrationService $registrations): void
     {
         DeviceRegistration::query()
