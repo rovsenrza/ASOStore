@@ -5,17 +5,15 @@ import SwiftUI
 struct AppIconView: View {
     let app: StoreApp
     let size: Double
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         Group {
             if let url = app.iconURL {
-                AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.25))) { phase in
-                    if let image = phase.image {
-                        image.resizable().scaledToFill()
-                            .transition(.opacity)
-                    } else {
-                        placeholder
-                    }
+                CachedImage(url: url, maxPixel: ImagePixels.icon(size, scale: displayScale)) { image in
+                    image.resizable().scaledToFill()
+                } placeholder: {
+                    placeholder
                 }
             } else {
                 placeholder

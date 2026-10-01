@@ -118,12 +118,10 @@ struct HeroCard: View {
     @ViewBuilder
     private var banner: some View {
         if let url = app.featureImageURL {
-            AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.3))) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFill().transition(.opacity)
-                } else {
-                    placeholder
-                }
+            CachedImage(url: url, maxPixel: ImagePixels.banner) { image in
+                image.resizable().scaledToFill()
+            } placeholder: {
+                placeholder
             }
         } else {
             placeholder

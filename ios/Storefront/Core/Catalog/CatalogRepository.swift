@@ -44,7 +44,10 @@ nonisolated struct CatalogRepository: Sendable {
     /// Curated sections for one tab: everything (Home), or only games or apps.
     func feed(_ kind: CatalogKind = .all) async throws -> Fetched<FeedDTO> {
         let query = kind.queryValue.map { [URLQueryItem(name: "kind", value: $0)] } ?? []
-        return try await cached("feed-\(kind.rawValue)") { try await api.get("/storefront/feed", query: query, as: FeedDTO.self).data }
+        let feed = try await cached("feed-\(kind.rawValue)") { try await api.get("/storefront/feed", query: query, as: FeedDTO.self).data }
+        await Self.prefetchPictures(of: feed.value)
+
+        return feed
     }
 
     /// One sorted page of apps plus the total count (Search: «Обновлено» / «Новое»).
@@ -95,6 +98,14 @@ nonisolated struct CatalogRepository: Sendable {
         return try await cached("apps-\(category ?? "all")") {
             try await api.get("/apps", query: query, as: [AppSummaryDTO].self).data
         }
+    }
+
+    /// Starts loading the banners and icons Home is about to show, so they are ready as it appears.
+    private static func prefetchPictures(of feed: FeedDTO) async {
+        let apps = feed.sections.flatMap { $0.apps ?? [] }
+        await ImagePipeline.shared.prefetch(apps.compactMap(\.featureImageUrl), maxPixel: ImagePixels.banner)
+        // Icons are decoded at the sizes the lists use (about 60 to 76 pt at 3x).
+        await ImagePipeline.shared.prefetch(apps.compactMap(\.iconUrl), maxPixel: 256)
     }
 
     private func cached<Value: Codable & Sendable>(_ key: String, load: () async throws -> Value) async throws -> Fetched<Value> {

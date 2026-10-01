@@ -141,10 +141,11 @@ struct ManagerView: View {
 
 private struct ManagerRow: View {
     let installation: InstallationDTO
+    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
         HStack(spacing: 14) {
-            AsyncImage(url: installation.app.iconUrl) { image in
+            CachedImage(url: installation.app.iconUrl, maxPixel: ImagePixels.icon(62, scale: displayScale)) { image in
                 image.resizable().scaledToFill()
             } placeholder: {
                 Image(systemName: "app.fill")

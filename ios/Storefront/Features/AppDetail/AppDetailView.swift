@@ -366,12 +366,10 @@ private struct ScreenshotImage: View {
     let url: URL?
 
     var body: some View {
-        AsyncImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.3))) { phase in
-            if let image = phase.image {
-                image.resizable().scaledToFill().transition(.opacity)
-            } else {
-                AppPalette.elevated.shimmering()
-            }
+        CachedImage(url: url, maxPixel: ImagePixels.screenshot) { image in
+            image.resizable().scaledToFill()
+        } placeholder: {
+            AppPalette.elevated.shimmering()
         }
     }
 }
@@ -418,12 +416,10 @@ private struct ScreenshotViewer: View {
             Color.black.ignoresSafeArea()
             TabView(selection: $selection) {
                 ForEach(Array(urls.enumerated()), id: \.offset) { index, url in
-                    AsyncImage(url: url) { phase in
-                        if let image = phase.image {
-                            image.resizable().scaledToFit()
-                        } else {
-                            ProgressView().tint(.white)
-                        }
+                    CachedImage(url: url, maxPixel: ImagePixels.screenshot) { image in
+                        image.resizable().scaledToFit()
+                    } placeholder: {
+                        ProgressView().tint(.white)
                     }
                     .padding(.horizontal, 12)
                     .tag(index)
