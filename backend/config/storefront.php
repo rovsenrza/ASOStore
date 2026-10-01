@@ -86,8 +86,12 @@ return [
     ],
 
     'catalog' => [
-        // Stored media sizes (px). Icons are normalised to a square PNG; screenshots to JPEG.
-        'icon_size' => 512,
+        // Stored media sizes (px). Icons and banners are small WebP files; screenshots are JPEG.
+        // An icon shows at up to about 110 pt (330 px at 3x), a banner at one phone width.
+        'icon_size' => 384,
+        'icon_quality' => 88,
+        'banner_max_width' => 1280,
+        'banner_quality' => 80,
         'screenshot_max_width' => 1290,
         'screenshot_max_count' => 10,
         'per_page_default' => 20,

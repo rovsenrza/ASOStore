@@ -90,7 +90,7 @@ it('normalises the icon to a square PNG and rejects non-square images', function
 
     $path = CatalogApp::where('public_id', $id)->value('icon_path');
     Storage::disk('public')->assertExists($path);
-    expect(getimagesizefromstring(Storage::disk('public')->get($path)))->toMatchArray([0 => 512, 1 => 512, 'mime' => 'image/png'])
+    expect(getimagesizefromstring(Storage::disk('public')->get($path)))->toMatchArray([0 => 384, 1 => 384, 'mime' => 'image/webp'])
         ->and($url)->toContain($path);
 });
 
@@ -133,7 +133,7 @@ it('shows the banner set in the admin on hero cards, never a screenshot', functi
         ->json('data.banner_url');
 
     $path = CatalogApp::where('public_id', $id)->value('banner_path');
-    expect(getimagesizefromstring(Storage::disk('public')->get($path)))->toMatchArray([0 => 1600, 1 => 1000, 'mime' => 'image/jpeg']);
+    expect(getimagesizefromstring(Storage::disk('public')->get($path)))->toMatchArray([0 => 1280, 1 => 800, 'mime' => 'image/webp']);
     $this->getJson('/api/v1/admin/apps?visibility=PUBLISHED')->assertJsonPath('data.0.banner_url', $url);
     forgetGuards();
     $this->getJson("/api/v1/apps/{$id}")->assertJsonPath('data.feature_image_url', $url);

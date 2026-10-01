@@ -10,9 +10,10 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
- * Normalises catalog media with GD: icons become square PNGs, screenshots
- * JPEGs no wider than the configured maximum. Re-encoding also drops any
- * metadata (EXIF, location) the original file carried.
+ * Normalises catalog media with GD. Icons and banners are stored as small WebP files sized for
+ * the screens that show them (an icon is at most about 110 pt, a banner about one phone width),
+ * because the app loads dozens of them on Home; screenshots stay JPEGs no wider than the
+ * configured maximum. Re-encoding also drops any metadata (EXIF, location) the original carried.
  */
 class CatalogImageService
 {
@@ -28,10 +29,7 @@ class CatalogImageService
             throw $this->invalid('icon', 'Иконка должна быть квадратной, не меньше 512×512 пикселей.');
         }
 
-        $size = (int) config('storefront.catalog.icon_size');
-        $resized = $this->resize($image, $size, $size, keepAlpha: true);
-
-        return $this->write($resized, "catalog/{$appPublicId}/icon-".Str::lower(Str::random(8)).'.png', 'png');
+        return $this->iconFrom($image, $appPublicId);
     }
 
     /**
@@ -55,7 +53,7 @@ class CatalogImageService
     }
 
     /**
-     * The Home banner picture: landscape, stored as a JPEG no wider than 1600 px. The app crops
+     * The Home banner picture: landscape, stored as a WebP no wider than banner_max_width. The app crops
      * it to its card (about 16:10 on Home, 2:1 on the app page), so keep the subject centred.
      *
      * @return array{path: string, width: int, height: int}
@@ -69,10 +67,71 @@ class CatalogImageService
             throw $this->invalid('banner', 'Баннер должен быть горизонтальным (шире высоты хотя бы в 1,3 раза) и не уже 1000 пикселей. Рекомендуем 1600×1000.');
         }
 
-        $targetWidth = min($width, 1600);
+        return $this->bannerFrom($image, $appPublicId);
+    }
+
+    /**
+     * Re-encodes an icon already on the public disk (the old 512 px PNGs) as the small WebP.
+     * Returns null when the file is missing or unreadable.
+     *
+     * @return array{path: string, width: int, height: int, bytes_before: int, bytes_after: int}|null
+     */
+    public function optimizeStoredIcon(string $path, string $appPublicId): ?array
+    {
+        return $this->optimizeStored($path, fn (GdImage $image) => $this->iconFrom($image, $appPublicId));
+    }
+
+    /**
+     * @return array{path: string, width: int, height: int, bytes_before: int, bytes_after: int}|null
+     */
+    public function optimizeStoredBanner(string $path, string $appPublicId): ?array
+    {
+        return $this->optimizeStored($path, fn (GdImage $image) => $this->bannerFrom($image, $appPublicId));
+    }
+
+    /**
+     * @param  callable(GdImage): array{path: string, width: int, height: int}  $store
+     * @return array{path: string, width: int, height: int, bytes_before: int, bytes_after: int}|null
+     */
+    private function optimizeStored(string $path, callable $store): ?array
+    {
+        $disk = Storage::disk('public');
+        if (! $disk->exists($path)) {
+            return null;
+        }
+        $bytes = (string) $disk->get($path);
+        $image = @imagecreatefromstring($bytes);
+        if (! $image instanceof GdImage) {
+            return null;
+        }
+
+        $stored = $store($image);
+
+        return $stored + ['bytes_before' => strlen($bytes), 'bytes_after' => $disk->size($stored['path'])];
+    }
+
+    /**
+     * @return array{path: string, width: int, height: int}
+     */
+    private function iconFrom(GdImage $image, string $appPublicId): array
+    {
+        // Never scale an icon up: a small source stays as it is.
+        $size = min((int) config('storefront.catalog.icon_size'), imagesx($image), imagesy($image));
+        $resized = $this->resize($image, $size, $size, keepAlpha: true);
+
+        return $this->write($resized, "catalog/{$appPublicId}/icon-".Str::lower(Str::random(8)).'.webp', 'webp', (int) config('storefront.catalog.icon_quality'));
+    }
+
+    /**
+     * @return array{path: string, width: int, height: int}
+     */
+    private function bannerFrom(GdImage $image, string $appPublicId): array
+    {
+        [$width, $height] = [imagesx($image), imagesy($image)];
+        $targetWidth = min($width, (int) config('storefront.catalog.banner_max_width'));
         $resized = $this->resize($image, $targetWidth, (int) round($height * $targetWidth / $width), keepAlpha: false);
 
-        return $this->write($resized, "catalog/{$appPublicId}/banner-".Str::lower(Str::random(8)).'.jpg', 'jpeg');
+        return $this->write($resized, "catalog/{$appPublicId}/banner-".Str::lower(Str::random(8)).'.webp', 'webp', (int) config('storefront.catalog.banner_quality'));
     }
 
     public function delete(?string $path): void
@@ -110,10 +169,14 @@ class CatalogImageService
     /**
      * @return array{path: string, width: int, height: int}
      */
-    private function write(GdImage $image, string $path, string $format): array
+    private function write(GdImage $image, string $path, string $format, int $quality = 85): array
     {
         ob_start();
-        $format === 'png' ? imagepng($image, null, 6) : imagejpeg($image, null, 85);
+        match ($format) {
+            'webp' => imagewebp($image, null, $quality),
+            'png' => imagepng($image, null, 6),
+            default => imagejpeg($image, null, $quality),
+        };
         Storage::disk('public')->put($path, (string) ob_get_clean());
 
         return ['path' => $path, 'width' => imagesx($image), 'height' => imagesy($image)];
