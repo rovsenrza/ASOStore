@@ -138,6 +138,8 @@ return [
     | and the local disk do not fill up as devices × apps grow.
     */
     'build_storage' => [
+        // Kill switch for the scheduled run; `artisan storage:janitor --dry-run` works either way.
+        'janitor_enabled' => (bool) env('STOREFRONT_STORAGE_JANITOR_ENABLED', true),
         // Hard ceiling for all signed builds together; the least recently used go first.
         'budget_bytes' => (int) ((float) env('STOREFRONT_SIGNED_BUILD_BUDGET_GB', 30) * 1024 ** 3),
         // Idle time before removal: prepared ahead and never asked for / installed / waiting for the tap.

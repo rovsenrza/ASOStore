@@ -52,8 +52,10 @@ Schedule::call(fn () => app(RetentionService::class)->run())
     ->name('retention:apply')->dailyAt('04:00')->withoutOverlapping();
 
 // Idle signed builds, leftover objects and temporary copies, so storage does not pile up.
-Schedule::call(fn () => app(StorageJanitor::class)->run())
-    ->name('storage:janitor')->everyTenMinutes()->withoutOverlapping(30);
+if (config('storefront.build_storage.janitor_enabled')) {
+    Schedule::call(fn () => app(StorageJanitor::class)->run())
+        ->name('storage:janitor')->everyTenMinutes()->withoutOverlapping(30);
+}
 
 // Shared-hosting queue mode (IMPLEMENTATION_PLAN D6): cron runs a short-lived worker every
 // minute. Set STOREFRONT_SCHEDULED_QUEUE_WORKER=false when a supervised worker runs instead.
