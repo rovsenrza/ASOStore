@@ -13,6 +13,8 @@ python3 -m unittest discover -s tools/ipa-cleaner/tests
 
 Exit status 0 is success, 2 a refusal (the JSON on stdout explains it), 1 an unexpected error.
 
+`scripts/process-ipa-catalog.sh DIR` takes a whole folder through cleaning, the upload inspection (`artisan ipa:inspect`) and the repairs that check calls for, into a separate results folder; see its `--help`.
+
 ## What the analysis reports
 
 | Category | Meaning | `--recommended` |
