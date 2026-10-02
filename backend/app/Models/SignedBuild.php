@@ -66,17 +66,23 @@ class SignedBuild extends Model
     }
 
     /**
-     * Deliverable, not expired, and its certificate is still valid: a build
-     * signed with a revoked certificate would not launch (IMPLEMENTATION_PLAN R2).
+     * Reuse requires the embedded profile and signing certificate to remain valid.
      */
     public function isDeliverable(): bool
     {
         if ($this->status !== SignedBuildStatus::Deliverable || ($this->expires_at !== null && $this->expires_at->isPast())) {
             return false;
         }
+        $profile = $this->profile;
+        if ($this->signing_profile_id !== null && ($profile === null || $profile->status !== 'ACTIVE'
+            || ($profile->expires_at !== null && ! $profile->expires_at->isFuture()))) {
+            return false;
+        }
         $certificate = $this->certificate;
 
-        return $certificate === null || ($certificate->status === 'ACTIVE' && ($certificate->expires_at === null || $certificate->expires_at->isFuture()));
+        return $certificate === null
+            ? $this->certificate_id === null
+            : $certificate->status === 'ACTIVE' && ($certificate->expires_at === null || $certificate->expires_at->isFuture());
     }
 
     /**

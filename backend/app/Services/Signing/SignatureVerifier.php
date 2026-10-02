@@ -4,6 +4,7 @@ namespace App\Services\Signing;
 
 use App\Enums\SignedBuildStatus;
 use App\Models\SignedBuild;
+use App\Services\Artifacts\ArtifactFileCache;
 use App\Services\Artifacts\LocalArtifactFile;
 use App\Services\Audit\Actor;
 use App\Services\Devices\UdidHasher;
@@ -63,7 +64,11 @@ class SignatureVerifier
             return 'SIGNED_FILE_MISSING';
         }
 
-        // Object storage is copied to a temporary file for the whole check.
+        $cached = app(ArtifactFileCache::class)->get($disk, $build->storage_path, (string) $build->sha256, (int) $build->size_bytes);
+        if ($cached !== null) {
+            return $this->checkFile($build, $cached);
+        }
+
         $file = LocalArtifactFile::open($disk, $build->storage_path);
         try {
             return $this->checkFile($build, $file->path);

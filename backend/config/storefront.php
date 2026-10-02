@@ -100,6 +100,10 @@ return [
     ],
 
     'artifacts' => [
+        'file_cache_enabled' => (bool) env('STOREFRONT_ARTIFACT_CACHE_ENABLED', true),
+        'file_cache_path' => storage_path('app/private/artifact-cache'),
+        'file_cache_max_bytes' => (int) env('STOREFRONT_ARTIFACT_CACHE_MAX_BYTES', 8 * 1024 ** 3),
+        'file_cache_ttl_seconds' => (int) env('STOREFRONT_ARTIFACT_CACHE_TTL_SECONDS', 86400),
         // Source types that may be published (FULL_PLAN §5.1). Narrow this to match the
         // P0-01 distribution-channel determination, e.g. "OWN_BUILD" for the pilot.
         'publishable_source_types' => array_values(array_filter(explode(',', (string) env(
@@ -120,6 +124,12 @@ return [
         'review_checklist' => ['source_verified', 'distribution_rights_confirmed', 'inspection_report_reviewed'],
         'document_max_kilobytes' => 20 * 1024,
         'document_mimes' => ['pdf', 'png', 'jpg', 'jpeg', 'txt'],
+    ],
+
+    'signing' => [
+        'warmup_enabled' => (bool) env('STOREFRONT_SIGNING_WARMUP_ENABLED', true),
+        // Popularity is measured from actual install requests over the last 30 days.
+        'warmup_popular_limit' => (int) env('STOREFRONT_SIGNING_WARMUP_POPULAR_LIMIT', 3),
     ],
 
     // Defaults until the retention decision (IMPLEMENTATION_PLAN §10 Q8).

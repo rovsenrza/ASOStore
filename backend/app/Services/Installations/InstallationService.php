@@ -50,13 +50,7 @@ class InstallationService
         if ($device->user_id !== $user->id) {
             throw new ApiException(ErrorCode::DeviceNotEligible);
         }
-        $this->assertDeviceEligible($device);
-
-        $artifact = $app->publishedArtifact()->first();
-        if ($artifact === null || $artifact->status !== ArtifactStatus::Published) {
-            throw new ApiException(ErrorCode::ArtifactNotInstallable);
-        }
-        $this->assertCompatible($artifact, $device);
+        $artifact = $this->eligibleArtifact($device, $app);
 
         return DB::transaction(function () use ($user, $device, $app, $artifact) {
             $active = Installation::query()
@@ -95,6 +89,24 @@ class InstallationService
 
             return $installation;
         });
+    }
+
+    /** Prepare a reusable build without an installation, authorization or download event. */
+    public function prewarm(Device $device, CatalogApp $app): SignedBuild
+    {
+        return $this->signing->requestBuild($this->eligibleArtifact($device, $app), $device, priority: 10);
+    }
+
+    private function eligibleArtifact(Device $device, CatalogApp $app): AppArtifact
+    {
+        $this->assertDeviceEligible($device);
+        $artifact = $app->publishedArtifact()->first();
+        if ($artifact === null || $artifact->status !== ArtifactStatus::Published) {
+            throw new ApiException(ErrorCode::ArtifactNotInstallable);
+        }
+        $this->assertCompatible($artifact, $device);
+
+        return $artifact;
     }
 
     /**

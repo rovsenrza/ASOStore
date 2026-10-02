@@ -8,13 +8,12 @@ use App\Http\Resources\AppDetailResource;
 use App\Http\Resources\AppSummaryResource;
 use App\Http\Resources\VersionResource;
 use App\Http\Responses\ApiResponse;
-use App\Jobs\WarmProfilesJob;
 use App\Models\CatalogApp;
 use App\Services\Devices\CurrentDevice;
+use App\Services\Signing\BuildWarmup;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 
 class AppController extends Controller
 {
@@ -66,16 +65,15 @@ class AppController extends Controller
     public function show(Request $request, string $app): JsonResponse
     {
         $model = $this->findVisible($app)->load([...AppSummaryResource::RELATIONS, 'screenshots']);
-        $this->warmProfiles($model, $request);
+        $this->warmBuild($model, $request);
 
         return ApiResponse::ok((new AppDetailResource($model))->resolve($request));
     }
 
     /**
-     * The customer is reading the app page: make this iPhone's profiles now, so a tap on
-     * «Установить» does not wait for Apple. At most once per ten minutes per (app, device).
+     * Prepare the complete build while the customer reads the app page.
      */
-    private function warmProfiles(CatalogApp $app, Request $request): void
+    private function warmBuild(CatalogApp $app, Request $request): void
     {
         $artifact = $app->publishedArtifact;
         $device = $artifact === null ? null : app(CurrentDevice::class)->resolve($request);
@@ -83,9 +81,7 @@ class AppController extends Controller
             return;
         }
 
-        if (Cache::add("warm-profiles:{$artifact->id}:{$device->id}", true, now()->addMinutes(10))) {
-            WarmProfilesJob::dispatch($artifact->id, $device->id);
-        }
+        app(BuildWarmup::class)->forApp($device, $app);
     }
 
     public function versions(Request $request, string $app): JsonResponse

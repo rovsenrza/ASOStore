@@ -20,12 +20,14 @@ public struct SigningJob: Codable, Sendable {
         public var sha256: String
         public var sizeBytes: Int
         public var path: String
-        enum CodingKeys: String, CodingKey { case sha256, sizeBytes = "size_bytes", path }
+        public var downloadURL: URL?
+        enum CodingKeys: String, CodingKey { case sha256, sizeBytes = "size_bytes", path, downloadURL = "download_url" }
 
-        public init(sha256: String, sizeBytes: Int, path: String) {
+        public init(sha256: String, sizeBytes: Int, path: String, downloadURL: URL? = nil) {
             self.sha256 = sha256
             self.sizeBytes = sizeBytes
             self.path = path
+            self.downloadURL = downloadURL
         }
     }
 
@@ -121,7 +123,32 @@ public final class WorkerClient: Sendable {
     }
 
     public func downloadSource(_ job: SigningJob, to destination: URL) async throws {
-        let (temporary, response) = try await session.download(for: request("GET", job.source.path, bodyHash: RequestSigner.sha256(Data())))
+        if job.source.downloadURL != nil {
+            do {
+                try await download(sourceRequest(job.source), to: destination)
+                return
+            } catch {
+                // A stale presigned link or object-store outage can use the authenticated relay.
+                Log.info("direct source download unavailable; using worker relay")
+            }
+        }
+        try await download(request("GET", job.source.path, bodyHash: RequestSigner.sha256(Data())), to: destination)
+    }
+
+    /// Presigned object requests never carry runner authentication headers.
+    func sourceRequest(_ source: SigningJob.Source) throws -> URLRequest {
+        guard let url = source.downloadURL, url.scheme == "https", url.host != nil,
+              url.user == nil, url.password == nil else {
+            throw RunnerError.configuration("Source download URL must use HTTPS")
+        }
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 600
+        return request
+    }
+
+    private func download(_ request: URLRequest, to destination: URL) async throws {
+        let (temporary, response) = try await session.download(for: request)
+        defer { try? FileManager.default.removeItem(at: temporary) }
         try check(response, body: Data())
         try? FileManager.default.removeItem(at: destination)
         try FileManager.default.moveItem(at: temporary, to: destination)

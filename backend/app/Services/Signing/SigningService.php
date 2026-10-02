@@ -14,10 +14,12 @@ use App\Models\Device;
 use App\Models\PipelineJob;
 use App\Models\Runner;
 use App\Models\SignedBuild;
+use App\Services\Artifacts\ArtifactFileCache;
 use App\Services\Audit\Actor;
 use App\Services\Installations\InstallationService;
 use App\Services\Pipeline\PipelineJobService;
 use App\StateMachines\StateMachine;
+use Illuminate\Filesystem\AwsS3V3Adapter;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
@@ -49,28 +51,49 @@ class SigningService
     /**
      * Reuses a live build for (artifact, device), or starts a new one.
      */
-    public function requestBuild(AppArtifact $artifact, Device $device): SignedBuild
+    public function requestBuild(AppArtifact $artifact, Device $device, int $priority = 0): SignedBuild
     {
-        $existing = SignedBuild::query()
-            ->where(['artifact_id' => $artifact->id, 'device_id' => $device->id])
-            ->whereIn('status', array_map(fn (SignedBuildStatus $status) => $status->value, self::LIVE))
-            ->latest('id')
-            ->lockForUpdate()
-            ->get()
-            ->first(fn (SignedBuild $build) => $build->status !== SignedBuildStatus::Deliverable || $build->isDeliverable());
-        if ($existing !== null) {
-            return $existing;
+        return DB::transaction(function () use ($artifact, $device, $priority) {
+            // Also locks the first build: locking an empty build query cannot prevent duplicate inserts.
+            Device::query()->whereKey($device->id)->lockForUpdate()->firstOrFail();
+            $existing = SignedBuild::query()
+                ->where(['artifact_id' => $artifact->id, 'device_id' => $device->id])
+                ->whereIn('status', array_map(fn (SignedBuildStatus $status) => $status->value, self::LIVE))
+                ->latest('id')
+                ->lockForUpdate()
+                ->get()
+                ->first(fn (SignedBuild $build) => $build->status !== SignedBuildStatus::Deliverable || $build->isDeliverable());
+            if ($existing !== null) {
+                if ($priority === 0) {
+                    $this->promote($existing);
+                }
+
+                return $existing;
+            }
+
+            $build = SignedBuild::create(['artifact_id' => $artifact->id, 'device_id' => $device->id]);
+            $job = $this->jobs->create(PrepareSigningJob::TYPE, 'prepare-signing:'.$build->public_id, $build, [
+                'signed_build_id' => $build->public_id,
+                'artifact_id' => $artifact->public_id,
+                'device_id' => $device->public_id,
+                'priority' => $priority,
+            ], Actor::system('signing'));
+            PrepareSigningJob::dispatch($job->id)->onQueue($priority > 0 ? 'background' : PrepareSigningJob::QUEUE)->afterCommit();
+
+            return $build;
+        });
+    }
+
+    private function promote(SignedBuild $build): void
+    {
+        $jobs = PipelineJob::query()->where('subject_type', $build->getMorphClass())->where('subject_id', $build->id)
+            ->whereIn('type', [PrepareSigningJob::TYPE, self::RUNNER_JOB_TYPE])
+            ->whereIn('status', [PipelineJobStatus::Queued->value, PipelineJobStatus::Running->value])->get();
+        foreach ($jobs as $job) {
+            if (($job->payload['priority'] ?? 0) > 0) {
+                $job->forceFill(['payload' => array_replace($job->payload, ['priority' => 0])])->save();
+            }
         }
-
-        $build = SignedBuild::create(['artifact_id' => $artifact->id, 'device_id' => $device->id]);
-        $job = $this->jobs->create(PrepareSigningJob::TYPE, 'prepare-signing:'.$build->public_id, $build, [
-            'signed_build_id' => $build->public_id,
-            'artifact_id' => $artifact->public_id,
-            'device_id' => $device->public_id,
-        ], Actor::system('signing'));
-        PrepareSigningJob::dispatch($job->id)->afterCommit();
-
-        return $build;
     }
 
     /**
@@ -90,14 +113,19 @@ class SigningService
             return $unavailable->reason;
         }
 
-        $build->forceFill(['signing_profile_id' => $profile->id, 'certificate_id' => $profile->certificate_id])->save();
-        $this->jobs->create(
-            self::RUNNER_JOB_TYPE,
-            'sign:'.$build->public_id,
-            $build,
-            ['signed_build_id' => $build->public_id],
-            Actor::system('signing'),
-        );
+        DB::transaction(function () use ($build, $profile) {
+            Device::query()->whereKey($build->device_id)->lockForUpdate()->firstOrFail();
+            $priority = PipelineJob::query()->where('subject_type', $build->getMorphClass())->where('subject_id', $build->id)
+                ->where('type', PrepareSigningJob::TYPE)->value('payload')['priority'] ?? 0;
+            $build->forceFill(['signing_profile_id' => $profile->id, 'certificate_id' => $profile->certificate_id])->save();
+            $this->jobs->create(
+                self::RUNNER_JOB_TYPE,
+                'sign:'.$build->public_id,
+                $build,
+                ['signed_build_id' => $build->public_id, 'priority' => $priority],
+                Actor::system('signing'),
+            );
+        });
 
         return 'QUEUED_FOR_RUNNER';
     }
@@ -113,16 +141,29 @@ class SigningService
         $identities = array_map('strtoupper', array_column($runner->identities ?? [], 'sha1'));
 
         return DB::transaction(function () use ($runner, $identities) {
+            // The runner's parallel lease loops share this row. Allow one speculative
+            // signing job per runner, leaving capacity for an actual install request.
+            Runner::query()->whereKey($runner->id)->lockForUpdate()->firstOrFail();
             $candidates = PipelineJob::query()
                 ->where('type', self::RUNNER_JOB_TYPE)
                 ->where('status', PipelineJobStatus::Queued->value)
                 ->where('available_at', '<=', now())
+                ->orderByRaw("COALESCE(JSON_EXTRACT(payload, '$.priority'), 0)")
                 ->orderBy('id')
                 ->limit(10)
-                ->lock('for update skip locked')
-                ->get();
+                ->pluck('id');
 
-            foreach ($candidates as $job) {
+            foreach ($candidates as $id) {
+                // Lock only the job being considered, so another worker can lease the next one.
+                $job = PipelineJob::query()
+                    ->with(['subject.certificate', 'subject.artifact.app', 'subject.profile.team'])
+                    ->whereKey($id)
+                    ->where('status', PipelineJobStatus::Queued->value)
+                    ->lock('for update skip locked')
+                    ->first();
+                if ($job === null) {
+                    continue;
+                }
                 $build = $job->subject;
                 if (! $build instanceof SignedBuild || $build->status !== SignedBuildStatus::SigningPending) {
                     $this->states->transition($job, PipelineJobStatus::Cancelled, 'Build is no longer waiting for signing.', Actor::worker($runner->key_id));
@@ -133,6 +174,13 @@ class SigningService
                 $certificate = $build->certificate;
                 if ($certificate === null || ! in_array(strtoupper($certificate->sha1_fingerprint), $identities, true)) {
                     continue; // Another runner holds this certificate.
+                }
+
+                if (($job->payload['priority'] ?? 0) > 0 && PipelineJob::query()
+                    ->where('type', self::RUNNER_JOB_TYPE)->where('lease_owner', $runner->key_id)
+                    ->where('status', PipelineJobStatus::Running->value)->where('lease_expires_at', '>', now())
+                    ->whereRaw("COALESCE(JSON_EXTRACT(payload, '$.priority'), 0) > 0")->exists()) {
+                    continue;
                 }
 
                 $this->jobs->lease($job, $runner->key_id, self::LEASE_SECONDS);
@@ -152,6 +200,15 @@ class SigningService
     {
         $artifact = $build->artifact;
         $profile = $build->profile ?? throw new RuntimeException('Leased build has no profile.');
+        $source = [
+            'sha256' => $artifact->sha256,
+            'size_bytes' => $artifact->size_bytes,
+            'path' => "/api/worker/v1/jobs/{$job->public_id}/source",
+        ];
+        $disk = Storage::disk($artifact->storage_disk);
+        if ($disk instanceof AwsS3V3Adapter) {
+            $source['download_url'] = $disk->temporaryUrl($artifact->storage_path, now()->addMinutes(10));
+        }
 
         return [
             'job_id' => $job->public_id,
@@ -167,11 +224,7 @@ class SigningService
                 'bundle_identifier' => $extension['bundle_identifier'],
                 'profile' => ['uuid' => $extension['profile']->uuid, 'content' => $extension['profile']->content_encrypted],
             ], $this->profiles->extensionProfiles($artifact, $profile)),
-            'source' => [
-                'sha256' => $artifact->sha256,
-                'size_bytes' => $artifact->size_bytes,
-                'path' => "/api/worker/v1/jobs/{$job->public_id}/source",
-            ],
+            'source' => $source,
             'upload_path' => "/api/worker/v1/jobs/{$job->public_id}/artifact",
             'result_path' => "/api/worker/v1/jobs/{$job->public_id}/result",
         ];
@@ -212,10 +265,14 @@ class SigningService
             fwrite($temporary, $chunk);
         }
         rewind($temporary);
-        Storage::disk('artifacts')->put($path, $temporary);
-        fclose($temporary);
-
         $sha256 = hash_final($context);
+        try {
+            $disk = Storage::disk('artifacts');
+            $disk->put($path, $temporary);
+            app(ArtifactFileCache::class)->store($disk, $path, $sha256, $size, $temporary);
+        } finally {
+            fclose($temporary);
+        }
         $build->forceFill(['storage_path' => $path, 'sha256' => $sha256, 'size_bytes' => $size])->save();
         $this->jobs->extendLease($job, self::LEASE_SECONDS);
 

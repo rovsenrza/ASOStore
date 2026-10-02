@@ -13,6 +13,7 @@ use App\Services\Apple\AppleIntegration;
 use App\Services\Apple\AppleRetryableException;
 use App\Services\Audit\Actor;
 use App\Services\Quotas\QuotaService;
+use App\Services\Signing\BuildWarmup;
 use App\StateMachines\StateMachine;
 
 /**
@@ -131,6 +132,7 @@ class DeviceRegistrationService
 
     private function apply(DeviceRegistration $registration, AppleDevice $appleDevice): void
     {
+        $becameEligible = $appleDevice->status === AppleDeviceStatus::Enabled && $registration->status !== Status::Eligible;
         $registration->forceFill([
             'apple_device_id' => $appleDevice->id,
             'registered_at' => $registration->registered_at ?? now(),
@@ -144,6 +146,10 @@ class DeviceRegistrationService
             AppleDeviceStatus::Processing => $registration->forceFill(['status_reason' => 'APPLE_PROCESSING'])->save(),
             AppleDeviceStatus::Disabled => $this->fail($registration, 'APPLE_DEVICE_DISABLED', 'Apple lists this device as disabled.'),
         };
+
+        if ($becameEligible) {
+            app(BuildWarmup::class)->forDevice($registration->device->fresh());
+        }
     }
 
     /**

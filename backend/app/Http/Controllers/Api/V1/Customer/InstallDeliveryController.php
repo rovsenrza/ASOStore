@@ -6,6 +6,7 @@ use App\Enums\ErrorCode;
 use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Models\Installation;
+use App\Services\Artifacts\ArtifactFileCache;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use App\Services\Installations\InstallationService;
@@ -64,6 +65,14 @@ class InstallDeliveryController extends Controller
         $range = (string) $request->header('Range');
         [$start, $end] = self::range($range, $size);
 
+        if ($size === 0 || $start > $end || $start >= $size) {
+            return new SymfonyResponse('', 416, [
+                'Content-Range' => "bytes */{$size}",
+                'Accept-Ranges' => 'bytes',
+                'Cache-Control' => 'private, no-store',
+            ]);
+        }
+
         if ($start === 0) {
             $this->installations->downloadStarted($model, $request);
         }
@@ -77,11 +86,12 @@ class InstallDeliveryController extends Controller
         }
 
         $filename = $model->app->slug.'.ipa';
-        if (! $disk->getAdapter() instanceof LocalFilesystemAdapter) {
+        $cached = app(ArtifactFileCache::class)->get($disk, $relative, (string) $model->signedBuild->sha256, $size);
+        if ($cached === null && ! $disk->getAdapter() instanceof LocalFilesystemAdapter) {
             return $this->streamRemote($request, $disk, $relative, $size, $start, $end, $filename);
         }
 
-        $response = new BinaryFileResponse($disk->path($relative), 200, [
+        $response = new BinaryFileResponse($cached ?? $disk->path($relative), 200, [
             'Content-Type' => 'application/octet-stream',
             'Cache-Control' => 'private, no-store',
         ], false);

@@ -1,6 +1,6 @@
 # Storefront signing runner
 
-A small Swift program that re-signs uploaded IPAs for one registered device at a time
+A small Swift program that re-signs uploaded IPAs for registered devices, with two concurrent jobs by default
 (IMPLEMENTATION_PLAN §5.6, P6-RUN-01/02, D16). It runs on **Linux in Docker** and signs with
 [zsign](https://github.com/zhlynn/zsign); no Mac is needed. It **pulls** work from the backend's
 worker API over HTTPS; the backend never connects to the runner, and the runner never sees App Store
@@ -11,11 +11,14 @@ Connect credentials. Signing-certificate private keys exist only in the runner's
 1. Every minute the runner sends a heartbeat with the signing identities in its identities folder
    (SHA-1, serial, team ID from the certificate's OU, expiry — never the key).
    The backend records them as `certificates` and uses them to pick a certificate for profiles.
-2. It leases the oldest `SignArtifactJob` whose certificate it holds (10-minute lease, renewed every 2 minutes).
-3. It downloads the original IPA and **refuses the job if the SHA-256 differs from the lease**.
-4. It unpacks the IPA, derives entitlements from the device's ad hoc profile (application identifier
+2. It leases a `SignArtifactJob` whose certificate it holds, prioritizing customer requests over
+   speculative builds (10-minute lease, renewed every 2 minutes). At most one speculative job
+   runs per runner identity, leaving capacity for customer requests with the default concurrency of two.
+3. It downloads the original IPA directly through a ten-minute object-store URL when available,
+   falling back to the authenticated worker relay, and **refuses the job if the SHA-256 differs from the lease**.
+4. It reuses a locked, hash-checked unpacked signing tree when available, derives entitlements from the device's ad hoc profile (application identifier
    fixed to the leased bundle and team), and runs zsign, which embeds the profile, signs `Frameworks/`
-   and the app, and repacks.
+   and the app, and repacks with fast ZIP compression (level 1).
 5. It unpacks the result and checks it (this replaces `codesign --verify`): every code page hash, the
    Info.plist, CodeResources and entitlements hashes, the CMS signature over the CodeDirectory, that the
    signer is the leased certificate and the team is the leased team, for the app and every framework
@@ -87,11 +90,49 @@ certificate means every installed app must be reinstalled.
 | `STOREFRONT_RUNNER_IDENTITIES_DIR` | Identities folder (image default `/run/secrets/signing`) |
 | `STOREFRONT_RUNNER_WORK_DIR` | Private scratch folder (image default `/var/lib/storefront-runner/work`) |
 | `STOREFRONT_RUNNER_ZSIGN` | zsign executable (default `zsign` from PATH) |
+| `STOREFRONT_RUNNER_ZIP_LEVEL` | ZIP compression 0–9, default 1 |
+| `STOREFRONT_RUNNER_CONCURRENCY` | Concurrent jobs 1–4, default 2 |
 | `STOREFRONT_RUNNER_POLL_SECONDS` | Lease polling interval, default 10 |
+| `STOREFRONT_RUNNER_CACHE_ENABLED` | Set to `0` to disable source and signing caches; enabled by default |
+| `STOREFRONT_RUNNER_CACHE_DIR` | Persistent private cache, default `$STOREFRONT_RUNNER_WORK_DIR/.cache` |
+| `STOREFRONT_RUNNER_CACHE_MAX_BYTES` | Combined source/signing cache budget, default 8 GiB |
+| `STOREFRONT_RUNNER_CACHE_TTL_SECONDS` | Cache lifetime since last use, default 86400; maximum 604800 |
 | `STOREFRONT_RUNNER_ALLOW_HTTP=1` | Local development only |
 
 The Dockerfile pins zsign by version and SHA-256; to upgrade, change `ZSIGN_VERSION` and both checksums,
 then run the test stage and install one build on a real device before deploying.
+
+The backend keeps uploaded signed IPAs in a private file cache for 24 hours, bounded to 8 GiB.
+Verification and authorized customer downloads reuse this copy after checking its SHA-256 and the
+object-store ETag. A missing, changed, corrupt or expired copy falls back to object storage. Configure
+`STOREFRONT_ARTIFACT_CACHE_ENABLED`, `STOREFRONT_ARTIFACT_CACHE_MAX_BYTES` and
+`STOREFRONT_ARTIFACT_CACHE_TTL_SECONDS` on the backend to adjust these defaults. Authorization and
+HTTP Range support are unchanged. Runner reports include signing, source download and upload times.
+
+The runner also caches original IPAs and unpacked signing workspaces in its persistent work volume.
+Downloads for the same SHA-256 are coalesced and validated; each job pins its source with a hard link
+(or a copy). A signing workspace is keyed by the source hash, team, certificate, bundle mappings and
+zsign executable hash. Its complete last verified contents, including `.zsign_cache`, are checked
+before reuse. Changed, expired or incomplete trees are rebuilt from the source. An exclusive file lock
+protects the stable app path while zsign re-signs it with the current job's profiles. Failed signing or
+verification discards the workspace. zsign always runs with `-f`: its 1.1.2 hash cache incorrectly
+includes the main executable in the resource seal on repeated signing. Source downloads and unpacked
+trees still reuse their caches. Final verification checks resource entry hashes and excludes the main
+executable from CodeResources, in addition to the code/CMS/profile checks. Apple evaluates trust and
+platform requirements on the device. Reports identify `signature_policy=fresh-resource-seal-v1`
+and `resource_seal=verified`; `zsign_cache` must be `miss` even when `workspace_cache` is `hit`.
+TTL/LRU eviction after jobs respects active locks and the combined disk budget; job output folders
+remain temporary. Reports expose `source_cache`, `workspace_cache`, `zsign_cache`, `zsign_seconds`
+and `verification_seconds`, so cold and warm runs can be compared.
+
+On the backend, opening an app page starts its full build for an eligible current device; completing
+Apple registration starts up to three popular non-storefront apps, ranked by actual installation
+requests in the last 30 days. Warm builds do not create installation records or authorize downloads.
+Set `STOREFRONT_SIGNING_WARMUP_ENABLED=false` to disable, or
+`STOREFRONT_SIGNING_WARMUP_POPULAR_LIMIT=0` to keep only page-triggered preparation. App/device
+requests are throttled for ten minutes and reuse pending or deliverable builds; normal expiry and
+revocation checks remain in the install flow. Run `ops/systemd/storefront-queue-background.service`
+alongside the Apple/files workers, or include `background` last in a shared worker's queue list.
 
 ## Development
 

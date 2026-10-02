@@ -13,6 +13,7 @@ ENV_FILE="$ROOT/backend/.env"
 [[ $EUID -eq 0 ]] || { echo "run as root"; exit 1; }
 
 install -m 0644 "$ROOT"/ops/systemd/storefront-queue-{apple,files}@.service /etc/systemd/system/
+install -m 0644 "$ROOT/ops/systemd/storefront-queue-background.service" /etc/systemd/system/
 systemctl daemon-reload
 
 # The scheduler must stop starting its own worker once these run.
@@ -34,5 +35,7 @@ for kind in apple files; do
         if (( i > count )); then systemctl disable --now "$unit"; fi
     done
 done
+
+systemctl enable --now storefront-queue-background.service
 
 systemctl --no-pager --plain list-units 'storefront-queue-*'

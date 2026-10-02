@@ -13,8 +13,13 @@ public struct Signer: Sendable {
     /// zsign executable, a path or a name looked up in PATH.
     public let zsign: String
 
-    public init(zsign: String = "zsign") {
+    public let zipLevel: Int
+    public let cache: RunnerCache.Settings?
+
+    public init(zsign: String = "zsign", zipLevel: Int = 1, cache: RunnerCache.Settings? = nil) {
         self.zsign = zsign
+        self.zipLevel = zipLevel
+        self.cache = cache
     }
 
     public struct Output: Sendable {
@@ -24,6 +29,7 @@ public struct Signer: Sendable {
     }
 
     public func sign(job: SigningJob, identity: IdentityFiles, source: URL, workDirectory: URL) throws -> Output {
+        guard (0...9).contains(zipLevel) else { throw RunnerError.configuration("ZIP level must be between 0 and 9") }
         let started = Date()
 
         // P6-RUN-02: never sign something other than what the lease describes.
@@ -35,8 +41,19 @@ public struct Signer: Sendable {
             throw RunnerError.job(code: "CERTIFICATE_NOT_HELD", message: "Lease wants \(job.certificateSHA1)", retryable: true)
         }
 
+        let workspace: RunnerCache.Workspace?
+        if let cache {
+            do {
+                workspace = try RunnerCache.workspace(source: source, job: job, zsign: zsign, settings: cache)
+            } catch {
+                Log.info("signing cache unavailable; using an isolated job folder")
+                workspace = nil
+            }
+        } else {
+            workspace = nil
+        }
         let unpacked = workDirectory.appendingPathComponent("unpacked", isDirectory: true)
-        let app = try Self.unpack(source, into: unpacked, code: "UNPACK_FAILED")
+        let app = try workspace?.app ?? Self.unpack(source, into: unpacked, code: "UNPACK_FAILED")
 
         // Every extension is signed with its own profile, so each one must be in the lease.
         try Self.checkNested(app: app, leased: job.nested)
@@ -51,8 +68,9 @@ public struct Signer: Sendable {
         let profileFile = workDirectory.appendingPathComponent("profile.mobileprovision")
         try profileData.write(to: profileFile)
 
-        // -f: no signing cache, so every job signs every file.
-        var arguments = ["-f", "-k", identity.privateKey.path, "-c", identity.certificate.path, "-m", profileFile.path]
+        // zsign 1.1.2's warm hash cache seals the already signed main executable
+        // as a resource. Reuse downloads and unpacked trees, but rebuild seals.
+        var arguments = ["-f", "-z", String(zipLevel), "-k", identity.privateKey.path, "-c", identity.certificate.path, "-m", profileFile.path]
         if job.nested.isEmpty {
             let entitlements = try Self.entitlements(fromProfile: profileData, bundleIdentifier: job.bundleIdentifier, teamIdentifier: job.teamIdentifier)
             let entitlementsFile = workDirectory.appendingPathComponent("entitlements.plist")
@@ -73,25 +91,40 @@ public struct Signer: Sendable {
         }
 
         let output = workDirectory.appendingPathComponent("signed.ipa")
-        let zsigned = try Shell.run(zsign, arguments + ["-o", output.path, app.path])
+        let signingStarted = Date()
+        let zsigned = try Shell.run(zsign, arguments + ["-o", output.path, app.path], in: workspace?.directory ?? workDirectory)
+        let signingSeconds = Date().timeIntervalSince(signingStarted)
         guard zsigned.status == 0, FileManager.default.fileExists(atPath: output.path) else {
             throw RunnerError.job(code: "CODESIGN_FAILED", message: Self.zsignError(zsigned.output + zsigned.error), retryable: false)
         }
 
         // Check what will be uploaded, not the folder zsign worked in.
+        let verificationStarted = Date()
         let checked = try Self.unpack(output, into: workDirectory.appendingPathComponent("check", isDirectory: true), code: "REPACK_FAILED")
         let signature = try Self.verify(app: checked, job: job, profile: profileData, workDirectory: workDirectory)
+        let verificationSeconds = Date().timeIntervalSince(verificationStarted)
+        let sha256 = try RequestSigner.sha256(fileAt: output)
+        try workspace?.commit()
+        let cleanLog = zsigned.output.replacingOccurrences(of: #"\x1B\[[0-9;]*[A-Za-z]"#, with: "", options: .regularExpression)
 
-        return Output(ipa: output, sha256: try RequestSigner.sha256(fileAt: output), report: [
+        return Output(ipa: output, sha256: sha256, report: [
             "signer": "zsign",
+            "zip_level": String(zipLevel),
             "codesign": signature,
             "duration_seconds": String(format: "%.1f", Date().timeIntervalSince(started)),
             "profile_uuid": job.profile.uuid,
+            "workspace_cache": workspace?.hit == true ? "hit" : "miss",
+            "zsign_cache": cleanLog.range(of: #"ReadCache:\s*YES"#, options: .regularExpression) != nil ? "hit" : "miss",
+            "resource_seal": "verified",
+            "signature_policy": "fresh-resource-seal-v1",
+            "zsign_seconds": String(format: "%.1f", signingSeconds),
+            "verification_seconds": String(format: "%.1f", verificationSeconds),
         ])
     }
 
-    /// Checks a signed app the way `codesign --verify --strict` did on macOS, plus
-    /// what the lease requires: the profile is the leased one, and the app and
+    /// Checks code/CMS hashes, sealed resources and the lease requirements.
+    /// Apple evaluates certificate trust and platform requirements on the device.
+    /// The profile is the leased one, and the app and
     /// every framework/dylib are signed by the leased certificate for the leased
     /// team, with the leased application identifier.
     static func verify(app: URL, job: SigningJob, profile: Data, workDirectory: URL) throws -> String {
@@ -106,6 +139,7 @@ public struct Signer: Sendable {
         let certificate = job.certificateSHA1.uppercased()
         func check(_ binary: URL, bundle: URL?) throws -> CodeSignature {
             let slices = try CodeSignature.read(fileAt: binary)
+            if let bundle { try ResourceSeal.verify(bundle: bundle) }
             for slice in slices {
                 try slice.verifyHashes(bundle: bundle)
                 guard slice.teamIdentifier == job.teamIdentifier else {

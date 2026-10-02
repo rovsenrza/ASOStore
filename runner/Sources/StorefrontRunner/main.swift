@@ -50,7 +50,8 @@ do {
             source: .init(sha256: try RequestSigner.sha256(fileAt: source), sizeBytes: 0, path: ""),
             uploadPath: "", resultPath: ""
         )
-        let output = try Signer(zsign: ProcessInfo.processInfo.environment["STOREFRONT_RUNNER_ZSIGN"] ?? "zsign").sign(job: job, identity: identity, source: source, workDirectory: work)
+        let cache = ProcessInfo.processInfo.environment["STOREFRONT_RUNNER_CACHE_ENABLED"] == "0" ? nil : ProcessInfo.processInfo.environment["STOREFRONT_RUNNER_CACHE_DIR"].map { RunnerCache.Settings(directory: URL(fileURLWithPath: $0, isDirectory: true)) }
+        let output = try Signer(zsign: ProcessInfo.processInfo.environment["STOREFRONT_RUNNER_ZSIGN"] ?? "zsign", cache: cache).sign(job: job, identity: identity, source: source, workDirectory: work)
         try? FileManager.default.removeItem(at: destination)
         try FileManager.default.copyItem(at: output.ipa, to: destination)
         print(output.report.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }.joined(separator: "\n"))
@@ -62,7 +63,12 @@ do {
     // Fail at start-up, not on the first job, when a tool is missing.
     for tool in [config.zsign, "openssl", "unzip"] { _ = try Shell.locate(tool) }
     try FileManager.default.createDirectory(at: config.workDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-    await Runner(config: config).run()
+    let cache = config.cacheSettings.map { RunnerCache(settings: $0) }
+    await withTaskGroup(of: Void.self) { group in
+        for _ in 0..<config.concurrency {
+            group.addTask { await Runner(config: config, cache: cache).run() }
+        }
+    }
 } catch {
     FileHandle.standardError.write(Data("storefront-runner: \(error)\n".utf8))
     exit(1)

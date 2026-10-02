@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\ArtifactStatus;
+use App\Enums\DeviceFamily;
 use App\Enums\InstallationStatus;
 use App\Enums\PipelineJobStatus;
 use App\Enums\RoleSlug;
@@ -9,7 +10,7 @@ use App\Http\Middleware\VerifyWorkerSignature;
 use App\Jobs\InspectArtifactJob;
 use App\Jobs\PrepareSigningJob;
 use App\Jobs\VerifySignatureJob;
-use App\Jobs\WarmProfilesJob;
+use App\Jobs\WarmBuildJob;
 use App\Models\AppArtifact;
 use App\Models\AppleTeam;
 use App\Models\AuditLog;
@@ -24,7 +25,11 @@ use App\Models\SignedBuild;
 use App\Models\SigningProfile;
 use App\Services\Apple\AppGroupProvisioner;
 use App\Services\Apple\AppGroupUnavailable;
+use App\Services\Artifacts\ArtifactFileCache;
+use App\Services\Devices\DeviceRegistrationService;
+use App\Services\Installations\InstallationService;
 use App\Services\Pipeline\PipelineJobService;
+use App\Services\Signing\BuildWarmup;
 use App\Services\Signing\SigningService;
 use Aws\CommandInterface;
 use Aws\MockHandler;
@@ -209,7 +214,7 @@ it('installs a published app on a registered iPhone through the whole flow', fun
         ->and(Installation::count())->toBe(2);
 });
 
-it('relays the IPA from object storage with range support', function () {
+it('delivers object storage IPAs with range support, with and without a cached upload', function (bool $cached) {
     runnerHeartbeat();
     Sanctum::actingAs($this->customer);
     $installation = $this->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")->assertStatus(202)->json('data');
@@ -229,14 +234,14 @@ it('relays the IPA from object storage with range support', function () {
             throw new RuntimeException('Unexpected key '.$command['Key']);
         }
         if ($command->getName() === 'HeadObject') {
-            return new Result(['ContentLength' => strlen($bytes)]);
+            return new Result(['ContentLength' => strlen($bytes), 'ETag' => '"object-version-1"']);
         }
         preg_match('/^bytes=(\d+)-(\d+)$/', (string) $command['Range'], $range);
 
         return new Result(['Body' => Utils::streamFor(substr($bytes, (int) $range[1], (int) $range[2] - (int) $range[1] + 1))]);
     };
     $mock = new MockHandler;
-    foreach (range(1, 6) as $ignored) {
+    foreach (range(1, 12) as $ignored) {
         $mock->append($bucket);
     }
     Storage::set('artifacts', Storage::build([
@@ -244,20 +249,76 @@ it('relays the IPA from object storage with range support', function () {
         'endpoint' => 'https://storage.test', 'use_path_style_endpoint' => true, 'throw' => true, 'handler' => $mock,
     ]));
 
+    if ($cached) {
+        $this->artifactCacheRoot = sys_get_temp_dir().'/delivery-cache-'.bin2hex(random_bytes(8));
+        config(['storefront.artifacts.file_cache_path' => $this->artifactCacheRoot]);
+        $source = fopen('php://temp', 'w+b');
+        fwrite($source, $bytes);
+        app(ArtifactFileCache::class)->store(Storage::disk('artifacts'), $path, hash('sha256', $bytes), strlen($bytes), $source);
+        fclose($source);
+    }
+    $content = function ($response) use ($cached) {
+        if (! $cached) {
+            return $response->streamedContent();
+        }
+        ob_start();
+        $response->baseResponse->sendContent();
+
+        return ob_get_clean();
+    };
     $full = $this->get($downloadUrl)->assertOk()->assertHeader('Accept-Ranges', 'bytes')->assertHeader('Content-Length', (string) strlen($bytes));
-    expect($full->streamedContent())->toBe($bytes);
+    expect($content($full))->toBe($bytes);
     app()->terminate();
     expect(Installation::sole()->status)->toBe(InstallationStatus::Delivered);
 
     $part = $this->withHeader('Range', 'bytes=10-19')->get($downloadUrl)
         ->assertStatus(206)
         ->assertHeader('Content-Range', 'bytes 10-19/'.strlen($bytes));
-    expect($part->streamedContent())->toBe(substr($bytes, 10, 10))
-        ->and($requests)->toContain(['GetObject', $path, 'bytes=10-19']);
+    expect($content($part))->toBe(substr($bytes, 10, 10));
+    if ($cached) {
+        expect(array_column($requests, 0))->not->toContain('GetObject');
+    } else {
+        expect($requests)->toContain(['GetObject', $path, 'bytes=10-19']);
+    }
 
     $this->withHeader('Range', 'bytes='.(strlen($bytes) + 5).'-')->get($downloadUrl)
         ->assertStatus(416)
         ->assertHeader('Content-Range', 'bytes */'.strlen($bytes));
+})->with([false, true]);
+
+afterEach(function () {
+    if (isset($this->artifactCacheRoot)) {
+        app('files')->deleteDirectory($this->artifactCacheRoot);
+    }
+});
+
+it('leases a ten minute source URL for object storage without exposing runner credentials', function () {
+    runnerHeartbeat();
+    Sanctum::actingAs($this->customer);
+    $this->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")->assertStatus(202);
+    Storage::set('artifacts', Storage::build([
+        'driver' => 's3', 'key' => 'object-key', 'secret' => 'object-secret', 'region' => 'default',
+        'bucket' => 'artifacts', 'endpoint' => 'https://storage.test', 'use_path_style_endpoint' => true,
+    ]));
+    $source = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data.source');
+    parse_str(parse_url($source['download_url'], PHP_URL_QUERY), $query);
+    expect(parse_url($source['download_url'], PHP_URL_SCHEME))->toBe('https')
+        ->and($query['X-Amz-Expires'])->toBe('600')
+        ->and($source['download_url'])->not->toContain(RUNNER_SECRET)
+        ->and($source['sha256'])->toBe($this->artifact->sha256);
+});
+
+it('leases separate jobs to concurrent workers sharing one runner identity', function () {
+    runnerHeartbeat();
+    foreach (range(1, 2) as $ignored) {
+        $build = SignedBuild::create(['artifact_id' => $this->artifact->id, 'device_id' => $this->device->id]);
+        app(SigningService::class)->prepare($build);
+    }
+    $first = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+    $second = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+    expect($first['job_id'])->not->toBe($second['job_id'])
+        ->and($first['signed_build_id'])->not->toBe($second['signed_build_id']);
+    worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->assertJsonPath('data', null);
 });
 
 it('removes a deleted website listing from the customer catalog and library', function () {
@@ -594,7 +655,7 @@ it('runs a preparation again after its queue worker was killed mid-attempt', fun
         ->and($job->attempts()->orderBy('id')->pluck('result_code')->all())->toBe(['ERROR', 'SUBJECT_MISSING']);
 });
 
-it('makes the profiles while the customer reads the app page, once per ten minutes', function () {
+it('prepares a complete build from the app page and reuses it when the customer installs', function () {
     runnerHeartbeat()->assertOk();
     $token = $this->customer->createToken('ios')->plainTextToken;
     RefreshToken::create([
@@ -604,23 +665,129 @@ it('makes the profiles while the customer reads the app page, once per ten minut
     ]);
 
     $this->withToken($token)->getJson("/api/v1/apps/{$this->catalogApp->public_id}")->assertOk();
-    // Profiles only: nothing is signed until the customer asks.
+    // A complete background build, without a customer installation or authorization.
     expect(SigningProfile::sole()->bundle_identifier)->toBe('com.example.demo')
-        ->and(SignedBuild::count())->toBe(0);
+        ->and(SignedBuild::count())->toBe(1)
+        ->and(Installation::count())->toBe(0)
+        ->and(PipelineJob::where('type', SigningService::RUNNER_JOB_TYPE)->sole()->payload['priority'])->toBe(10);
+
+    runnerSigns($this);
+    $build = SignedBuild::sole();
+    expect($build->status)->toBe(SignedBuildStatus::Deliverable);
 
     Queue::fake();
     $this->withToken($token)->getJson("/api/v1/apps/{$this->catalogApp->public_id}")->assertOk();
-    Queue::assertNotPushed(WarmProfilesJob::class);
+    Queue::assertNotPushed(WarmBuildJob::class);
 
     // The install finds the profile made: no second one.
     Queue::fake([]);
     $uuid = SigningProfile::sole()->uuid;
-    $this->withToken($token)->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")->assertStatus(202);
-    expect(SigningProfile::sole()->uuid)->toBe($uuid);
+    $this->withToken($token)->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")
+        ->assertOk()->assertJsonPath('data.status', 'READY_TO_INSTALL');
+    expect(SigningProfile::sole()->uuid)->toBe($uuid)
+        ->and(SignedBuild::count())->toBe(1)
+        ->and(Installation::sole()->signed_build_id)->toBe($build->id);
 });
 
 it('does not warm anything for visitors or devices Apple has not registered yet', function () {
     Queue::fake();
     $this->getJson("/api/v1/apps/{$this->catalogApp->public_id}")->assertOk();
-    Queue::assertNotPushed(WarmProfilesJob::class);
+    Queue::assertNotPushed(WarmBuildJob::class);
+});
+
+it('rebuilds a warmed app when its embedded profile is no longer valid', function (string $invalidity) {
+    runnerHeartbeat()->assertOk();
+    app(InstallationService::class)->prewarm($this->device, $this->catalogApp);
+    runnerSigns($this);
+    $build = SignedBuild::sole();
+    $build->profile->forceFill($invalidity === 'revoked'
+        ? ['status' => 'REVOKED']
+        : ['expires_at' => now()->subMinute()])->save();
+
+    expect($build->fresh()->isDeliverable())->toBeFalse();
+    $installation = app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+    expect(SignedBuild::count())->toBe(2)
+        ->and($installation->signed_build_id)->not->toBe($build->id);
+})->with(['revoked', 'expired']);
+
+it('promotes an unfinished background build when the customer asks to install it', function () {
+    runnerHeartbeat()->assertOk();
+    app(InstallationService::class)->prewarm($this->device, $this->catalogApp);
+    $build = SignedBuild::sole();
+    expect(PipelineJob::where('type', SigningService::RUNNER_JOB_TYPE)->sole()->payload['priority'])->toBe(10);
+
+    app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+    expect(SignedBuild::count())->toBe(1)
+        ->and(Installation::sole()->signed_build_id)->toBe($build->id)
+        ->and(PipelineJob::where('type', SigningService::RUNNER_JOB_TYPE)->sole()->payload['priority'])->toBe(0);
+});
+
+it('warms only a bounded selection and skips incompatible or withdrawn apps', function () {
+    runnerHeartbeat()->assertOk();
+    config(['storefront.signing.warmup_popular_limit' => 1]);
+    foreach (range(1, 2) as $n) {
+        $other = CatalogApp::factory()->create(['visibility' => 'PUBLISHED']);
+        $artifact = $this->artifact->replicate(['public_id']);
+        $artifact->app_id = $other->id;
+        $artifact->save();
+    }
+    Queue::fake();
+    app(BuildWarmup::class)->forDevice($this->device);
+    Queue::assertPushed(WarmBuildJob::class, 1);
+    Queue::assertPushed(WarmBuildJob::class, fn ($job) => $job->queue === 'background');
+
+    // A changed publication cannot be warmed by a stale queued job.
+    $job = new WarmBuildJob($this->catalogApp->id, $this->artifact->id, $this->device->id);
+    $this->artifact->forceFill(['status' => ArtifactStatus::Revoked])->save();
+    $job->handle(app(InstallationService::class));
+    expect(SignedBuild::count())->toBe(0);
+});
+
+it('starts popular builds when Apple registration completes, only once', function () {
+    runnerHeartbeat()->assertOk();
+    Queue::fake([WarmBuildJob::class]);
+    $device = Device::factory()->make(['user_id' => $this->customer->id, 'device_family' => DeviceFamily::Iphone]);
+    $device->setUdid('00008140-000000000000002D');
+    $device->save();
+    $service = app(DeviceRegistrationService::class);
+    $registration = $service->request($device);
+    $service->register($registration);
+    $service->register($registration);
+    Queue::assertPushed(WarmBuildJob::class, 1);
+    Queue::assertPushed(WarmBuildJob::class, fn ($job) => $job->deviceId === $device->id && $job->artifactId === $this->artifact->id);
+});
+
+it('prioritizes customer signing and limits simultaneous speculative jobs per runner', function () {
+    runnerHeartbeat()->assertOk();
+    config(['storefront.signing.warmup_popular_limit' => 0]);
+    $installations = app(InstallationService::class);
+    $background = $installations->prewarm($this->device, $this->catalogApp);
+    $builds = [];
+    foreach (['00008140-000000000000002D', '00008140-000000000000003E'] as $udid) {
+        $device = Device::factory()->make(['user_id' => $this->customer->id, 'device_family' => DeviceFamily::Iphone]);
+        $device->setUdid($udid);
+        $device->save();
+        $service = app(DeviceRegistrationService::class);
+        $service->register($service->request($device));
+        $builds[] = $installations->prewarm($device->fresh(), $this->catalogApp);
+    }
+    $signing = app(SigningService::class);
+    $signing->requestBuild($this->artifact, $builds[0]->device);
+    $runner = $this->runner->fresh();
+    expect($signing->lease($runner)['signed_build_id'])->toBe($builds[0]->public_id)
+        ->and($signing->lease($runner)['signed_build_id'])->toBe($background->public_id)
+        ->and($signing->lease($runner))->toBeNull();
+});
+
+it('does not prewarm an incompatible app or a device that lost eligibility', function () {
+    runnerHeartbeat()->assertOk();
+    $this->device->forceFill(['os_version' => '1.0'])->save();
+    (new WarmBuildJob($this->catalogApp->id, $this->artifact->id, $this->device->id))
+        ->handle(app(InstallationService::class));
+    expect(SignedBuild::count())->toBe(0);
+
+    $this->device->latestRegistration->forceFill(['status' => 'APPLE_PENDING'])->save();
+    Queue::fake();
+    app(BuildWarmup::class)->forDevice($this->device->fresh());
+    Queue::assertNotPushed(WarmBuildJob::class);
 });

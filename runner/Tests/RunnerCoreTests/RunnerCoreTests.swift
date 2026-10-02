@@ -109,11 +109,140 @@ import Testing
     }
 }
 
+@Suite struct TransferConfigTests {
+    @Test func rejectsUnboundedWorkAndCompressionSettings() throws {
+        let env = ["STOREFRONT_RUNNER_BASE_URL": "https://backend.test", "STOREFRONT_RUNNER_KEY_ID": "rk", "STOREFRONT_RUNNER_SECRET": "secret", "STOREFRONT_RUNNER_IDENTITIES_DIR": "/keys"]
+        for (key, value) in [("STOREFRONT_RUNNER_CONCURRENCY", "0"), ("STOREFRONT_RUNNER_CONCURRENCY", "5"), ("STOREFRONT_RUNNER_ZIP_LEVEL", "10"), ("STOREFRONT_RUNNER_ZIP_LEVEL", "bad")] {
+            #expect(throws: RunnerError.self) { try RunnerConfig.fromEnvironment(env.merging([key: value]) { $1 }) }
+        }
+        let config = try RunnerConfig.fromEnvironment(env)
+        #expect(config.concurrency == 2)
+        #expect(config.zipLevel == 1)
+        let client = WorkerClient(config: config)
+        let source = SigningJob.Source(sha256: "hash", sizeBytes: 10, path: "/source", downloadURL: URL(string: "https://objects.test/file?signature=short-lived"))
+        let request = try client.sourceRequest(source)
+        #expect(request.url == source.downloadURL)
+        #expect(request.allHTTPHeaderFields?.isEmpty != false)
+        var unsafe = source
+        unsafe.downloadURL = URL(string: "http://objects.test/file")
+        #expect(throws: RunnerError.self) { try client.sourceRequest(unsafe) }
+        let old = try JSONDecoder().decode(SigningJob.Source.self, from: Data(#"{"sha256":"hash","size_bytes":10,"path":"/source"}"#.utf8))
+        #expect(old.downloadURL == nil)
+    }
+}
+
 /// End to end on Linux (and on a Mac with zsign installed): sign the unsigned
 /// DemoApp fixture with a throwaway identity, then check the result the way the
 /// runner does before uploading.
 @Suite(.enabled(if: Tools.available("zsign") && Tools.available("openssl") && Tools.available("unzip")))
 struct SigningTests {
+    @Test func rebuildsACorruptedSigningTreeFromTheOriginalSource() throws {
+        let setup = try SigningSetup()
+        defer { setup.remove() }
+        let settings = RunnerCache.Settings(directory: setup.folder.root.appendingPathComponent("cache"))
+        let signer = Signer(cache: settings)
+        _ = try signer.sign(job: setup.job, identity: setup.identity, source: setup.source, workDirectory: setup.work)
+        let entries = try FileManager.default.contentsOfDirectory(at: settings.directory.appendingPathComponent("entries"), includingPropertiesForKeys: nil)
+        let entry = try #require(entries.first { $0.lastPathComponent.hasPrefix("sign-") })
+        // An extra resource is not present in the leased source and cannot be incorporated.
+        let payload = entry.appendingPathComponent("unpacked/Payload")
+        let app = try #require(FileManager.default.contentsOfDirectory(at: payload, includingPropertiesForKeys: nil).first)
+        try Data("untrusted resource".utf8).write(to: app.appendingPathComponent("unexpected.txt"))
+        let work = setup.folder.root.appendingPathComponent("rebuilt-job")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let output = try signer.sign(job: setup.job, identity: setup.identity, source: setup.source, workDirectory: work)
+        #expect(output.report["workspace_cache"] == "miss")
+        let checked = try Signer.unpack(output.ipa, into: work.appendingPathComponent("inspect"), code: "TEST_SETUP")
+        #expect(!FileManager.default.fileExists(atPath: checked.appendingPathComponent("unexpected.txt").path))
+    }
+
+    @Test func reusesASigningTreeWithoutReusingZsignHashesWithANewDeviceProfile() throws {
+        let setup = try SigningSetup()
+        defer { setup.remove() }
+        let settings = RunnerCache.Settings(directory: setup.folder.root.appendingPathComponent("cache"))
+        let signer = Signer(cache: settings)
+        let first = try signer.sign(job: setup.job, identity: setup.identity, source: setup.source, workDirectory: setup.work)
+        #expect(first.report["workspace_cache"] == "miss")
+
+        var job = setup.job
+        let uuid = "44444444-2222-3333-4444-555555555555"
+        let profile = try SigningSetup.makeProfile(folder: setup.folder, identity: setup.identity, bundleIdentifier: job.bundleIdentifier, uuid: uuid)
+        job.profile = .init(uuid: uuid, content: profile.base64EncodedString())
+        let secondWork = setup.folder.root.appendingPathComponent("job-second")
+        try FileManager.default.createDirectory(at: secondWork, withIntermediateDirectories: true)
+        let second = try signer.sign(job: job, identity: setup.identity, source: setup.source, workDirectory: secondWork)
+        #expect(second.report["workspace_cache"] == "hit")
+        #expect(second.report["zsign_cache"] == "miss")
+        #expect(second.report["profile_uuid"] == uuid)
+        #expect(second.sha256 != first.sha256)
+        let app = try Signer.unpack(second.ipa, into: secondWork.appendingPathComponent("inspect"), code: "TEST_SETUP")
+        let seal = try #require(try PropertyListSerialization.propertyList(from: Data(contentsOf: app.appendingPathComponent("_CodeSignature/CodeResources")), format: nil) as? [String: Any])
+        #expect((seal["files2"] as? [String: Any])?["DemoApp"] == nil)
+        #if os(macOS)
+        try Shell.require("TEST_SETUP", "codesign", ["--verify", "--deep", "--strict", app.path])
+        #endif
+    }
+
+    @Test func cachedExtensionsEmbedEachNewProfile() throws {
+        let setup = try SigningSetup()
+        defer { setup.remove() }
+        let (source, original, _) = try setup.withExtension()
+        let signer = Signer(cache: .init(directory: setup.folder.root.appendingPathComponent("cache")))
+        _ = try signer.sign(job: original, identity: setup.identity, source: source, workDirectory: setup.work)
+        var job = original
+        let uuid = "44444444-2222-3333-4444-555555555555"
+        let appProfile = try SigningSetup.makeProfile(folder: setup.folder, identity: setup.identity, bundleIdentifier: job.bundleIdentifier, uuid: uuid)
+        let nestedProfile = try SigningSetup.makeProfile(folder: setup.folder, identity: setup.identity, bundleIdentifier: job.nested[0].bundleIdentifier, uuid: "55555555-2222-3333-4444-555555555555")
+        job.profile = .init(uuid: uuid, content: appProfile.base64EncodedString())
+        job.nested[0].profile = .init(uuid: "55555555-2222-3333-4444-555555555555", content: nestedProfile.base64EncodedString())
+        let work = setup.folder.root.appendingPathComponent("second-job")
+        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
+        let output = try signer.sign(job: job, identity: setup.identity, source: source, workDirectory: work)
+        #expect(output.report["workspace_cache"] == "hit")
+        #expect(output.report["zsign_cache"] == "miss")
+        #expect(output.report["codesign"]?.contains("Extensions=1") == true)
+    }
+
+    @Test(.enabled(if: Tools.available("zip")))
+    func rejectsAModifiedSealedResource() throws {
+        let setup = try SigningSetup()
+        defer { setup.remove() }
+        let unpacked = setup.folder.root.appendingPathComponent("resources")
+        let app = try Signer.unpack(setup.source, into: unpacked, code: "TEST_SETUP")
+        try Data("original resource".utf8).write(to: app.appendingPathComponent("resource.txt"))
+        let source = setup.folder.root.appendingPathComponent("resources.ipa")
+        try Shell.require("TEST_SETUP", "zip", ["-qry", source.path, "Payload"], in: unpacked)
+        var job = setup.job
+        job.source.sha256 = try RequestSigner.sha256(fileAt: source)
+        let output = try Signer().sign(job: job, identity: setup.identity, source: source, workDirectory: setup.work)
+        let checked = try Signer.unpack(output.ipa, into: setup.work.appendingPathComponent("tampered"), code: "TEST_SETUP")
+        try Data("modified resource".utf8).write(to: checked.appendingPathComponent("resource.txt"))
+        #expect {
+            try Signer.verify(app: checked, job: job, profile: setup.profile, workDirectory: setup.work)
+        } throws: { error in
+            guard case let RunnerError.job(code, message, _) = error else { return false }
+            return code == "CODESIGN_VERIFY_FAILED" && message.contains("resource.txt")
+        }
+    }
+
+    @Test(.enabled(if: Tools.available("zip")))
+    func compressesResourcesAndKeepsValidSignatures() throws {
+        let setup = try SigningSetup()
+        defer { setup.remove() }
+        let unpacked = setup.folder.root.appendingPathComponent("compressible")
+        let app = try Signer.unpack(setup.source, into: unpacked, code: "TEST_SETUP")
+        try Data(repeating: 65, count: 1024 * 1024).write(to: app.appendingPathComponent("resource.txt"))
+        let source = setup.folder.root.appendingPathComponent("compressible.ipa")
+        try Shell.require("TEST_SETUP", "sh", ["-c", "cd '\(unpacked.path)' && zip -qry '\(source.path)' Payload"])
+        var job = setup.job
+        job.source.sha256 = try RequestSigner.sha256(fileAt: source)
+        let output = try Signer().sign(job: job, identity: setup.identity, source: source, workDirectory: setup.work)
+        let size = try #require(FileManager.default.attributesOfItem(atPath: output.ipa.path)[.size] as? NSNumber)
+        #expect(size.intValue < 200_000)
+        #expect(output.report["zip_level"] == "1")
+        #expect(output.report["codesign"]?.contains("TeamIdentifier=TESTTEAM01") == true)
+    }
+
     @Test func signsTheFixtureAndTheResultVerifies() throws {
         let setup = try SigningSetup()
         defer { setup.remove() }

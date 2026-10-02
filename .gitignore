@@ -55,6 +55,6 @@ fixtures/DemoApp/build/
 
 # zsign signing cache written by the runner tests
 runner/.zsign_cache/
-
+/ipas-local
 # Website build
 front/node_modules/

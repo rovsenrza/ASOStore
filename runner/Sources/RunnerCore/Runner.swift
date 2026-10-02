@@ -1,17 +1,19 @@
 import Foundation
 
 /// The lease loop (IMPLEMENTATION_PLAN D9): heartbeat, lease, sign, upload, report.
-/// One job at a time; each job folder is wiped when the job ends.
+/// Each actor handles one job at a time; each job folder is wiped when the job ends.
 public actor Runner {
     private let config: RunnerConfig
     private let client: WorkerClient
     private let signer: Signer
+    private let cache: RunnerCache?
     private var lastHeartbeat = Date.distantPast
 
-    public init(config: RunnerConfig) {
+    public init(config: RunnerConfig, cache: RunnerCache? = nil) {
         self.config = config
         self.client = WorkerClient(config: config)
-        self.signer = Signer(zsign: config.zsign)
+        self.signer = Signer(zsign: config.zsign, zipLevel: config.zipLevel, cache: config.cacheSettings)
+        self.cache = cache
     }
 
     public func run() async {
@@ -60,10 +62,35 @@ public actor Runner {
                 throw RunnerError.job(code: "CERTIFICATE_NOT_HELD", message: "No key for certificate \(job.certificateSHA1)", retryable: true)
             }
             let source = folder.appendingPathComponent("source.ipa")
-            try await client.downloadSource(job, to: source)
+            let downloadStarted = Date()
+            var sourceCache = "disabled"
+            if let cache {
+                do {
+                    let client = self.client
+                    let hit = try await cache.source(job: job, to: source) { try await client.downloadSource(job, to: $0) }
+                    sourceCache = hit ? "hit" : "miss"
+                } catch let error as RunnerError {
+                    if case .job = error { throw error }
+                    try? FileManager.default.removeItem(at: source)
+                    try await client.downloadSource(job, to: source)
+                    sourceCache = "unavailable"
+                } catch {
+                    try? FileManager.default.removeItem(at: source)
+                    try await client.downloadSource(job, to: source)
+                    sourceCache = "unavailable"
+                }
+            } else {
+                try await client.downloadSource(job, to: source)
+            }
+            let downloadSeconds = Date().timeIntervalSince(downloadStarted)
             let output = try signer.sign(job: job, identity: identity, source: source, workDirectory: folder)
+            let uploadStarted = Date()
             try await client.upload(job, file: output.ipa, sha256: output.sha256)
-            try await client.reportSuccess(job, sha256: output.sha256, report: output.report)
+            var report = output.report
+            report["download_seconds"] = String(format: "%.1f", downloadSeconds)
+            report["source_cache"] = sourceCache
+            report["upload_seconds"] = String(format: "%.1f", Date().timeIntervalSince(uploadStarted))
+            try await client.reportSuccess(job, sha256: output.sha256, report: report)
             Log.info("job \(job.jobID) signed \(output.sha256)")
         } catch let RunnerError.job(code, message, _) {
             Log.error("job \(job.jobID) failed: \(code): \(message)")
@@ -72,5 +99,6 @@ public actor Runner {
             Log.error("job \(job.jobID) error: \(error)")
             try? await client.reportFailure(job, code: "RUNNER_ERROR", message: String(describing: error))
         }
+        await cache?.prune()
     }
 }

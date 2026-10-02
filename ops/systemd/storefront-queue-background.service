@@ -1,0 +1,18 @@
+# Speculative build requests and their profile preparation use a separate worker.
+[Unit]
+Description=Storefront background build worker
+After=network.target mysql.service
+
+[Service]
+User=storefront
+Group=storefront
+WorkingDirectory=/var/www/storefront/app/backend
+ExecStart=/usr/bin/php8.3 artisan queue:work database --queue=background --sleep=2 --timeout=300 --max-time=3600 --memory=256
+Restart=always
+RestartSec=2
+Nice=10
+CPUWeight=25
+TimeoutStopSec=330
+
+[Install]
+WantedBy=multi-user.target
