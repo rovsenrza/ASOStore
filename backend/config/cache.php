@@ -18,6 +18,14 @@ return [
     'default' => env('CACHE_STORE', 'database'),
 
     /*
+    | Store for rate limiting (null = the default store). Every API request, and the
+    | runner's lease polling, increments a counter; on the database store concurrent
+    | increments deadlocked now and then, answering 500. The file store never deadlocks;
+    | under heavy concurrency its counts may run slightly low, which limiting tolerates.
+    */
+    'limiter' => env('CACHE_LIMITER'),
+
+    /*
     |--------------------------------------------------------------------------
     | Cache Stores
     |--------------------------------------------------------------------------
