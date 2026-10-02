@@ -17,9 +17,9 @@ export function setupDock() {
   update();
 
   document.addEventListener('plan-change', (event) => {
-    const { value, term, total } = event.detail;
+    const { term, total, buyUrl } = event.detail;
     dock.querySelector('[data-dock-term]').textContent = term;
     dock.querySelector('[data-dock-price]').textContent = `${total.toLocaleString('ru-RU')} ₽`;
-    dock.querySelector('[data-dock-cta]').href = `/activate.html?plan=${value}`;
+    dock.querySelector('[data-dock-cta]').href = buyUrl;
   });
 }

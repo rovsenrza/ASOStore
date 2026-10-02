@@ -32,6 +32,7 @@ use App\Http\Controllers\Api\V1\Customer\StorefrontStatusController;
 use App\Http\Controllers\Api\V1\Customer\SupportController;
 use App\Http\Controllers\Api\V1\Customer\TokenController;
 use App\Http\Controllers\Api\V1\HealthController;
+use App\Http\Controllers\Api\V1\StoreOfferController;
 use App\Http\Middleware\RejectStaleBearerToken;
 use Illuminate\Support\Facades\Route;
 
@@ -42,6 +43,9 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::get('/health', HealthController::class)->name('api.health');
+
+// Plans and Telegram links for the website's purchase page; payment happens in the bot.
+Route::get('/store/offer', StoreOfferController::class)->name('api.store.offer');
 
 // Customer authentication
 Route::prefix('auth')->name('api.auth.')->group(function () {

@@ -6,15 +6,22 @@ import { mountStage } from '../home/stage/index.js';
 import { setupSteps } from '../home/steps.js';
 import { setupWall } from '../home/wall.js';
 import { setupPackages } from '../packages.js';
+import { applyTelegramLinks, loadOffer } from '../store-offer.js';
 
 const { api, t } = boot();
 
 // Works without the motion layer: packages, steps, filters, dock, live catalog size.
-setupPackages();
+// setupDock listens for the plan the packages block announces, so it comes first.
+setupDock();
+const packages = setupPackages();
 setupSteps();
 setupRail();
-setupDock();
 showCatalogCount(api);
+// Prices and Telegram links as the bot has them now; the HTML defaults stay if this fails.
+loadOffer(api).then((offer) => {
+  packages?.applyOffer(offer);
+  applyTelegramLinks(offer);
+});
 const stage = mountStage();
 
 // The motion layer (GSAP) loads after the first paint, and not at all with reduced motion.

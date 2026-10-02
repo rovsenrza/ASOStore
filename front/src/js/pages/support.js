@@ -1,9 +1,11 @@
 import { boot } from '../app.js';
 import { bindForm } from '../forms.js';
+import { applyTelegramLinks, loadOffer } from '../store-offer.js';
 
 // Support requests (IMPLEMENTATION_PLAN P8-WEB-01). Works signed out: a customer
 // whose app stopped working must still be able to reach us.
 const { api, t } = boot();
+loadOffer(api).then((offer) => applyTelegramLinks(offer));
 const form = document.querySelector('#support-form');
 const emailField = document.querySelector('#support-email-field');
 

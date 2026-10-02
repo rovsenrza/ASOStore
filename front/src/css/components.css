@@ -231,9 +231,15 @@ button.text-link:disabled { color: var(--ink-2); cursor: default; }
 .offer__features { margin: 0; padding: var(--s5) 0 0; list-style: none; display: grid; gap: var(--s3); border-top: 1px solid var(--line); }
 .offer__features li { display: flex; gap: var(--s3); align-items: flex-start; }
 .offer__features svg { width: 22px; height: 22px; flex: none; color: var(--blue); }
-.offer__cta { width: 100%; }
+
+/* «Купить 6 месяцев в Telegram» wraps on a phone instead of widening the card. */
+.offer__cta { width: 100%; min-height: 56px; padding-block: 10px; white-space: normal; text-align: center; line-height: 1.25; }
 .offer__pay { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin: 0; font-size: var(--text-sm); color: var(--ink-2); }
 .offer__pay span { padding: 4px 12px; border-radius: var(--r-pill); background: var(--mist); color: var(--ink); font-weight: 600; }
+
+/* The payment note is a sentence with links, not a row of chips. */
+.offer__pay:has(a) { display: block; line-height: 1.6; }
+.offer__pay a { color: var(--blue); font-weight: 600; text-underline-offset: 3px; }
 
 .plan-list { margin: var(--s5) 0 0; padding: 0; border: 0; display: grid; gap: var(--s3); }
 .plan-option {
@@ -264,5 +270,69 @@ button.text-link:disabled { color: var(--ink-2); cursor: default; }
 .plan-option__tag { padding: 2px 10px; border-radius: var(--r-pill); background: #fff; color: var(--deep); font: 700 var(--text-xs)/1.6 var(--font-text); letter-spacing: 0; vertical-align: 2px; }
 
 @media (width <= 900px) {
-  .packages { grid-template-columns: 1fr; }
+  .packages { grid-template-columns: minmax(0, 1fr); }
+}
+
+/* Telegram: the bot, the news channel and support (homepage, purchase and support pages) */
+.tg-glyph { width: 20px; height: 20px; flex: none; }
+.telegram { padding-block: var(--section); background: var(--mist); }
+
+/* A page body right above the band does not add a second section's worth of space. */
+.page-body:has(+ .telegram) { padding-bottom: clamp(48px, 6vw, 80px); }
+.telegram__inner { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(32px, 5vw, 80px); align-items: center; }
+.telegram__eyebrow { margin: 0 0 var(--s4); display: inline-flex; align-items: center; gap: var(--s2); color: var(--blue); font-weight: 600; }
+.telegram__lead h2 { margin-bottom: var(--s4); font-size: var(--display-md); }
+.telegram__lead p:last-child { max-width: 46ch; margin: 0; color: var(--ink-2); font-size: var(--text-lg); line-height: 1.55; }
+.telegram__links { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--s3); }
+.tg-card {
+  min-height: 88px;
+  padding: var(--s4) var(--s5);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s4);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--paper);
+  color: var(--ink);
+  text-decoration: none;
+  box-shadow: var(--shadow-1);
+  transition: transform var(--t) var(--ease-out), box-shadow var(--t) var(--ease-out), border-color var(--t-fast);
+}
+.tg-card:hover { transform: translateY(-2px); border-color: var(--line-strong); box-shadow: var(--shadow-2); }
+.tg-card:focus-visible { outline: 3px solid var(--sky); outline-offset: 3px; }
+.tg-card__icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 50%; background: var(--mist-2); color: var(--blue); }
+.tg-card__icon svg { width: 24px; height: 24px; }
+.tg-card__text { display: grid; gap: var(--s1); }
+.tg-card__text b { font: 600 var(--text-lg)/1.25 var(--font-text); }
+.tg-card__text > span { color: var(--ink-2); font-size: var(--text-sm); line-height: 1.5; }
+.tg-card__arrow { width: 20px; height: 20px; color: var(--ink-2); transition: transform var(--t) var(--ease-out); }
+.tg-card:hover .tg-card__arrow { transform: translate(2px, -2px); }
+.tg-card--bot { border-color: var(--blue); background: var(--blue); color: #fff; box-shadow: var(--shadow-blue); }
+.tg-card--bot:hover { border-color: var(--blue-hover); background: var(--blue-hover); }
+.tg-card--bot .tg-card__icon { background: rgb(255 255 255 / 16%); color: #fff; }
+.tg-card--bot .tg-card__text > span, .tg-card--bot .tg-card__arrow { color: var(--on-blue-2); }
+
+@media (width <= 900px) {
+  .telegram__inner { grid-template-columns: 1fr; }
+}
+
+/* Purchase page */
+.buy-steps__list { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--s4); }
+.buy-steps__list li { padding: var(--s5); border: 1px solid var(--line); border-radius: var(--r-md); background: var(--paper); }
+.buy-steps__n { width: 36px; height: 36px; margin-bottom: var(--s4); display: grid; place-items: center; border-radius: 50%; background: var(--blue); color: #fff; font: 700 var(--text-sm)/1 var(--font-display); font-variant-numeric: tabular-nums; }
+.buy-steps__list h3 { margin-bottom: var(--s2); font: 600 var(--text-lg)/1.3 var(--font-text); letter-spacing: 0; }
+.buy-steps__list p { margin: 0; color: var(--ink-2); font-size: var(--text-sm); line-height: 1.6; }
+.code-entry { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s5); }
+.code-entry h2 { margin-bottom: var(--s2); }
+.code-entry p { max-width: 56ch; margin: 0; color: var(--ink-2); }
+.code-entry__actions { display: flex; flex-wrap: wrap; gap: var(--s3); }
+
+@media (width <= 1000px) {
+  .buy-steps__list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (width <= 560px) {
+  .buy-steps__list { grid-template-columns: 1fr; }
+  .code-entry__actions, .code-entry__actions .btn { width: 100%; }
 }

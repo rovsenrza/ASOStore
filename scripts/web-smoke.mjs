@@ -14,7 +14,7 @@ import { execFileSync } from 'node:child_process';
 const BASE = process.env.BASE_URL ?? 'http://127.0.0.1:8000';
 const PAGES = [
   '/', '/activate.html', '/install.html', '/account.html', '/login.html', '/register.html',
-  '/support.html', '/pricing.html', '/terms.html', '/privacy.html', '/forgot-password.html', '/reset-password.html',
+  '/support.html', '/buy.html', '/pricing.html', '/terms.html', '/privacy.html', '/forgot-password.html', '/reset-password.html',
   '/admin/', '/admin/login.html', '/admin/users.html', '/admin/devices.html', '/admin/home.html', '/admin/apps.html',
   '/admin/artifacts.html', '/admin/teams.html', '/admin/jobs.html', '/admin/audit.html',
 ];
@@ -68,6 +68,8 @@ if (process.env.CHROME_BIN) {
     ['/account.html', 'Вы не вошли в аккаунт'],
     ['/admin/', 'Продолжить'],
     ['/admin/users.html', 'Продолжить'],
+    // Prices from the bot's settings and the deep link into its order.
+    ['/buy.html', 'Купить 6 месяцев в Telegram'],
   ];
   for (const [path, text] of expectations) {
     if (!renderedText(path).includes(text)) failures.push(`${path} did not render "${text}"`);

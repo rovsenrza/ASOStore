@@ -80,6 +80,30 @@ function giveBalance(int $userId, int $amount): void
     app(BalanceLedger::class)->change(customer($userId)->id, $amount, BalanceLedger::ADMIN_ADJUSTMENT);
 }
 
+it('opens the order for a plan chosen on the website', function () {
+    ($this->text)(BUYER_ID, '/start buy_month6');
+    $order = TelegramStoreOrder::sole();
+    expect($order->plan_key)->toBe('month6')
+        ->and($order->status)->toBe('PENDING')
+        ->and($order->customer_id)->toBe(customer(BUYER_ID)->id)
+        ->and(($this->sentTo)(BUYER_ID)->last())->toContain('Заказ #'.$order->shortReference())
+        ->and(($this->buttons)(BUYER_ID))->toContain('cancel:'.$order->public_id);
+
+    // A retired plan or a bare link shows the plans instead of guessing.
+    ($this->text)(BUYER_ID, '/start buy_month99');
+    expect(($this->buttons)(BUYER_ID))->toContain('plan:month12');
+    ($this->text)(BUYER_ID, '/start buy');
+    expect(($this->buttons)(BUYER_ID))->toContain('plan:month1')
+        ->and(TelegramStoreOrder::count())->toBe(1);
+
+    // A tester can pay it like any other order.
+    ($this->text)(TESTER_ID, '/start buy_month1');
+    $tester = TelegramStoreOrder::query()->where('telegram_user_id', TESTER_ID)->sole();
+    ($this->press)(TESTER_ID, 'pay:card:'.$tester->public_id);
+    ($this->press)(TESTER_ID, 'mockpay:'.$tester->public_id);
+    expect($tester->refresh()->status)->toBe('PAID');
+});
+
 it('registers a customer on /start and shows the menu', function () {
     ($this->text)(BUYER_ID, '/start');
 

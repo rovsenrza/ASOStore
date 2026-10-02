@@ -25,7 +25,8 @@ The static hero poster is a transparent capture of that same Three.js scene. It 
 - `front/public/assets/icons/` contains a dated local snapshot of icon images from the production catalog, prepared by `front/scripts/snapshot-icons.mjs`. The WebGL atlas uses those same icons.
 - `front/public/assets/stage/hero-stage-*.webp` are captures of the site's own Three.js scene, resized for responsive loading. They contain no independent stock art.
 - Brand files originate from `branding/`. The website's Open Graph image is in `front/public/assets/og/`.
-- Package prices are displayed as product copy. The repository does not implement checkout; selecting a package takes the user to device activation.
+- Package prices in the HTML are the defaults; the live prices come from the bot's settings. «Купить» opens the Telegram bot with the order for the selected term; `/pricing.html` redirects to the purchase page `/buy.html`.
+- The Telegram band (`partials/telegram.html`) sits on the pale `--mist` field with the bot card as the one blue element; Telegram's own blue is not introduced — the site's `--blue` and `--sky` carry it.
 
 ## Release checks
 

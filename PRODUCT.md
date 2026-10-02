@@ -33,7 +33,7 @@ The product turns a normally opaque device-registration and signing workflow int
 - Apple-side device eligibility may remain pending and must be presented honestly.
 - Ru App Store is prepared, signed, validated, and delivered only after the device is eligible.
 - The web frontend remains the recovery and support channel if Ru App Store cannot open.
-- Package selection is displayed on the website. The selected term is carried to the activation URL; payment and checkout are not implemented by this repository.
+- Purchase happens in the Telegram store bot (@RuAppStor_bot). The website's purchase page (`/buy.html`) and the packages block show the bot's current prices (`GET /api/v1/store/offer`) and hand off with a deep link (`t.me/<bot>?start=buy_<plan>`) that opens the order for the chosen term. The bot issues the activation code; the website redeems it during device registration.
 
 ## Capabilities and Constraints
 
@@ -74,8 +74,9 @@ The product turns a normally opaque device-registration and signing workflow int
 ## Website Offer and Copy
 
 - Primary message: familiar apps removed from the Russian App Store can be discovered in Ru App Store and prepared for an eligible iPhone.
-- Primary action: choose a term and start device registration in Safari. The website must keep preparation and Apple waiting states visible.
-- Term options displayed on the site: 1 month for 590 ₽, 6 months for 1,770 ₽, and 12 months for 2,360 ₽. The 6 month option is the initial selection. All options list the same access features.
+- Primary action: choose a term and buy it in the Telegram bot, then register the device in Safari. The website must keep preparation and Apple waiting states visible.
+- Term options displayed on the site: 1 month for 590 ₽, 6 months for 1,770 ₽, and 12 months for 2,360 ₽ by default; admins change prices in the bot and the site follows. The 6 month option is the initial selection. All options list the same access features.
 - Catalog proof uses actual app names and icon images from the catalog. The total count is fetched from the API; no number is rendered when the request fails.
-- No checkout or payment provider is connected in this repository. Copy must not imply that choosing a term charges the visitor.
+- The website itself takes no payment. Which payment methods exist is decided by the bot's configuration (no online provider is connected yet), so site copy must not promise instant online payment or an instant code: the code arrives "after the payment is confirmed". The referral share is shown only from the live offer, never as a hard-coded number.
+- The Telegram section (bot, news channel, support chat) appears on the homepage, the purchase page and the support page; its links come from the bot's configuration.
 - No testimonials, install guarantees, instant Apple registration promises, or fabricated rankings are approved.

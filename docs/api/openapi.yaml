@@ -46,6 +46,23 @@ paths:
         "503":
           $ref: "#/components/responses/Error"
 
+  /store/offer:
+    get:
+      tags: [Storefront]
+      operationId: getStoreOffer
+      summary: Plans for the website's purchase page
+      description: >-
+        The Telegram store's plans at their current prices (admins change them in the bot).
+        Payment happens in the bot: buy_url opens the order for that plan there
+        (t.me/<bot>?start=buy_<id>); the activation code from the bot is redeemed with
+        POST /activation/redeem. URLs are null when no bot is configured. Cacheable for five minutes.
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StoreOfferResponse" }
+
   /storefront/feed:
     get:
       tags: [Storefront]
@@ -3172,6 +3189,40 @@ components:
         - properties:
             data: { $ref: "#/components/schemas/Health" }
 
+    StoreOfferResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/StoreOffer" }
+
+    StoreOffer:
+      type: object
+      required: [currency, plans, referral_percent, telegram]
+      properties:
+        currency: { type: string, enum: [RUB] }
+        plans:
+          type: array
+          items:
+            type: object
+            required: [id, months, days, price, monthly_price, saving_percent, buy_url]
+            properties:
+              id: { type: string, examples: [month6] }
+              months: { type: integer, minimum: 1 }
+              days: { type: integer, minimum: 1 }
+              price: { type: integer, minimum: 1, description: Total in roubles }
+              monthly_price: { type: integer, minimum: 1 }
+              saving_percent: { type: integer, minimum: 0, maximum: 100, description: Against paying the shortest plan's monthly price }
+              buy_url: { type: [string, "null"], format: uri }
+        referral_percent: { type: integer, minimum: 0, maximum: 100 }
+        telegram:
+          type: object
+          required: [bot_username, bot_url, news_url, support_url]
+          properties:
+            bot_username: { type: [string, "null"] }
+            bot_url: { type: [string, "null"], format: uri }
+            news_url: { type: [string, "null"], format: uri }
+            support_url: { type: [string, "null"], format: uri }
+
     SuccessEnvelope:
       type: object
       required: [data, meta, error]
@@ -3188,7 +3239,8 @@ components:
           - not_eligible: an artifact exists but this user/device cannot install it yet (see reason)
           - get / preparing / ready_to_install / update_available / failed
           - get also follows a delivered install of the current build: iOS does not report whether the
-            app is still installed, so it can always be installed again (the signed build is reused)
+            app is still installed, so it can always be installed again (the signed build is reused
+            while it is kept; idle builds are removed and signed again on the next request)
           - delivered: no longer reported; kept for older clients
       required: [status, reason, progress, installation_id]
       properties:

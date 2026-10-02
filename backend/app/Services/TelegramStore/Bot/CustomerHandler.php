@@ -43,6 +43,13 @@ class CustomerHandler
             return;
         }
 
+        // «Оплатить в Telegram» on the website's purchase page: straight to the order for that plan.
+        if ($command === '/start' && preg_match('/^\/start\s+buy(?:_(\w{1,32}))?$/', $text, $match)) {
+            isset($match[1]) ? $this->startOrder($ctx, $match[1]) : $this->messenger->show($ctx, $this->screens->plans($ctx->customer, $this->promos->remembered($ctx->userId())));
+
+            return;
+        }
+
         match (true) {
             in_array($command, ['/start', '/menu'], true), $lower === 'меню' => $this->messenger->welcome($ctx->chatId),
             $command === '/buy', str_contains($lower, 'купить') => $this->messenger->show($ctx, $this->screens->plans($ctx->customer)),
@@ -79,13 +86,7 @@ class CustomerHandler
                 return;
             }
             $this->messenger->answer($ctx);
-            $order = $this->orders->create($customer, $match[1]);
-            if ($completed = $this->promos->applyRemembered($order)) {
-                $this->finish($ctx, $completed);
-
-                return;
-            }
-            $this->messenger->show($ctx, $this->screens->order($order, $customer->refresh()));
+            $this->startOrder($ctx, $match[1]);
 
             return;
         }
@@ -115,6 +116,23 @@ class CustomerHandler
             'unpromo' => $this->removePromo($ctx, $order),
             default => $this->messenger->answer($ctx),
         };
+    }
+
+    /** Opens an order for the plan (a remembered promo code applies) and shows how to pay it. */
+    private function startOrder(Context $ctx, string $planKey): void
+    {
+        if ($this->planMissing($planKey)) {
+            $this->messenger->show($ctx, $this->screens->plans($ctx->customer, $this->promos->remembered($ctx->userId())));
+
+            return;
+        }
+        $order = $this->orders->create($ctx->customer, $planKey);
+        if ($completed = $this->promos->applyRemembered($order)) {
+            $this->finish($ctx, $completed);
+
+            return;
+        }
+        $this->messenger->show($ctx, $this->screens->order($order, $ctx->customer->refresh()));
     }
 
     private function askPromo(Context $ctx, TelegramStoreOrder $order): void

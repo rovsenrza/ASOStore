@@ -12,8 +12,8 @@ const pages = Object.fromEntries(readdirSync(src)
   .filter((file) => file.endsWith('.html'))
   .map((file) => [file.replace(/\.html$/, ''), resolve(src, file)]));
 
-// <!--#header--> / <!--#header on-blue--> / <!--#footer--> / <!--#packages--> become the shared partials, so every page
-// keeps one header and footer without any runtime templating.
+// <!--#header--> / <!--#header on-blue--> / <!--#footer--> / <!--#packages--> / <!--#telegram--> become the shared
+// partials, so every page keeps one header and footer without any runtime templating.
 function partials() {
   const read = (name) => readFileSync(resolve(src, 'partials', `${name}.html`), 'utf8');
   return {
@@ -23,7 +23,8 @@ function partials() {
       handler: (html) => html
         .replace(/<!--#header(?: ([\w-]+))?-->/, (_, modifier) => read('header').replace('{{modifier}}', modifier ? ` site-header--${modifier}` : ''))
         .replace('<!--#footer-->', read('footer'))
-        .replace('<!--#packages-->', read('packages')),
+        .replace('<!--#packages-->', read('packages'))
+        .replace('<!--#telegram-->', read('telegram')),
     },
   };
 }
