@@ -43,10 +43,20 @@ do {
         let work = FileManager.default.temporaryDirectory.appendingPathComponent("sign-file-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         defer { try? FileManager.default.removeItem(at: work) }
+        // --inject PATH (repeatable): inject a dylib (e.g. the RuStoreCompat shim) like a lease would.
+        var inject: [SigningJob.InjectDylib] = []
+        var index = 0
+        while let i = arguments[index...].firstIndex(of: "--inject"), i + 1 < arguments.count {
+            let url = URL(fileURLWithPath: arguments[i + 1])
+            inject.append(.init(name: url.lastPathComponent, content: try Data(contentsOf: url).base64EncodedString()))
+            index = i + 2
+        }
+
         let job = SigningJob(
             jobID: "local", signedBuildID: "local", bundleIdentifier: try value("--bundle-id"), teamIdentifier: team,
             certificateSHA1: identity.identity.sha1,
             profile: .init(uuid: plist?["UUID"] as? String ?? "", content: profile.base64EncodedString()),
+            injectDylibs: inject,
             source: .init(sha256: try RequestSigner.sha256(fileAt: source), sizeBytes: 0, path: ""),
             uploadPath: "", resultPath: ""
         )

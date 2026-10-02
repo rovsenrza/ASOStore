@@ -31,6 +31,24 @@ public struct SigningJob: Codable, Sendable {
         }
     }
 
+    /// A dylib the backend asks us to inject into the main app before signing, so a
+    /// re-signed app can reach the App Group / keychain it was actually granted
+    /// (RuStoreCompat; see ios/compat-shim). zsign copies it into the bundle, adds the
+    /// load command and signs it with the leased certificate like any other binary.
+    public struct InjectDylib: Codable, Sendable {
+        /// Basename inside the app, e.g. "RuStoreCompat.dylib".
+        public var name: String
+        /// Base64 of the dylib.
+        public var content: String
+        public var weak: Bool?
+
+        public init(name: String, content: String, weak: Bool? = nil) {
+            self.name = name
+            self.content = content
+            self.weak = weak
+        }
+    }
+
     /// An app extension signed with its own profile (one per bundle ID).
     public struct Nested: Codable, Sendable {
         /// Path inside the .app, e.g. "PlugIns/Tunnel.appex".
@@ -55,11 +73,12 @@ public struct SigningJob: Codable, Sendable {
     public var certificateSHA1: String
     public var profile: Profile
     public var nested: [Nested]
+    public var injectDylibs: [InjectDylib]
     public var source: Source
     public var uploadPath: String
     public var resultPath: String
 
-    public init(jobID: String, signedBuildID: String, bundleIdentifier: String, teamIdentifier: String, certificateSHA1: String, profile: Profile, nested: [Nested] = [], source: Source, uploadPath: String, resultPath: String) {
+    public init(jobID: String, signedBuildID: String, bundleIdentifier: String, teamIdentifier: String, certificateSHA1: String, profile: Profile, nested: [Nested] = [], injectDylibs: [InjectDylib] = [], source: Source, uploadPath: String, resultPath: String) {
         self.jobID = jobID
         self.signedBuildID = signedBuildID
         self.bundleIdentifier = bundleIdentifier
@@ -67,6 +86,7 @@ public struct SigningJob: Codable, Sendable {
         self.certificateSHA1 = certificateSHA1
         self.profile = profile
         self.nested = nested
+        self.injectDylibs = injectDylibs
         self.source = source
         self.uploadPath = uploadPath
         self.resultPath = resultPath
@@ -82,6 +102,7 @@ public struct SigningJob: Codable, Sendable {
         profile = try container.decode(Profile.self, forKey: .profile)
         // Leases from backends that predate extension signing carry no list.
         nested = try container.decodeIfPresent([Nested].self, forKey: .nested) ?? []
+        injectDylibs = try container.decodeIfPresent([InjectDylib].self, forKey: .injectDylibs) ?? []
         source = try container.decode(Source.self, forKey: .source)
         uploadPath = try container.decode(String.self, forKey: .uploadPath)
         resultPath = try container.decode(String.self, forKey: .resultPath)
@@ -90,6 +111,7 @@ public struct SigningJob: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case jobID = "job_id", signedBuildID = "signed_build_id", bundleIdentifier = "bundle_identifier"
         case teamIdentifier = "team_identifier", certificateSHA1 = "certificate_sha1", profile, nested, source
+        case injectDylibs = "inject_dylibs"
         case uploadPath = "upload_path", resultPath = "result_path"
     }
 }

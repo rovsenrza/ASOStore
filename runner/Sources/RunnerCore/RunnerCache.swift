@@ -99,12 +99,13 @@ public actor RunnerCache {
         }
     }
 
-    static func workspace(source: URL, job: SigningJob, zsign: String, settings: Settings) throws -> Workspace {
-        // Profiles intentionally vary between devices. Source, signing identities and bundle
-        // mappings do not: a change to any of them creates a separate signing tree.
+    static func workspace(source: URL, job: SigningJob, zsign: String, injectKey: [String] = [], settings: Settings) throws -> Workspace {
+        // Profiles intentionally vary between devices. Source, signing identities, bundle
+        // mappings and injected dylibs do not: a change to any of them creates a separate
+        // signing tree, so an injected tree is never reused for a plain sign or a stale shim.
         let toolHash = try RequestSigner.sha256(fileAt: URL(fileURLWithPath: try Shell.locate(zsign)))
         let mapping = job.nested.map { "\($0.path)=\($0.bundleIdentifier)" }.sorted()
-        let context = ["runner-cache-v1", job.source.sha256.lowercased(), job.teamIdentifier, job.certificateSHA1.uppercased(), job.bundleIdentifier, toolHash] + mapping
+        let context = ["runner-cache-v1", job.source.sha256.lowercased(), job.teamIdentifier, job.certificateSHA1.uppercased(), job.bundleIdentifier, toolHash] + mapping + ["inject:"] + injectKey.sorted()
         let key = "sign-" + RequestSigner.sha256(try JSONEncoder().encode(context))
         let lock = try CacheLock(settings: settings, key: key)
         let entry = settings.directory.appendingPathComponent("entries/" + key, isDirectory: true)

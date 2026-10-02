@@ -227,6 +227,8 @@ class SigningService
                 'bundle_identifier' => $extension['bundle_identifier'],
                 'profile' => ['uuid' => $extension['profile']->uuid, 'content' => $extension['profile']->content_encrypted],
             ], $this->profiles->extensionProfiles($artifact, $profile)),
+            // Launch-compatibility shim for apps that share through an App Group / keychain.
+            'inject_dylibs' => app(CompatShim::class)->dylibsFor($artifact),
             'source' => $source,
             'upload_path' => "/api/worker/v1/jobs/{$job->public_id}/artifact",
             'result_path' => "/api/worker/v1/jobs/{$job->public_id}/result",

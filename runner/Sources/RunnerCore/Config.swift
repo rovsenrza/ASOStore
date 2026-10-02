@@ -39,7 +39,7 @@ public struct RunnerConfig: Sendable {
         self.cacheTTL = cacheTTL
     }
 
-    public static let currentVersion = "2.2.0"
+    public static let currentVersion = "2.3.0"
 
     public static func fromEnvironment(_ env: [String: String] = ProcessInfo.processInfo.environment) throws -> RunnerConfig {
         func required(_ key: String) throws -> String {

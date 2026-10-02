@@ -130,6 +130,14 @@ return [
         'warmup_enabled' => (bool) env('STOREFRONT_SIGNING_WARMUP_ENABLED', true),
         // Popularity is measured from actual install requests over the last 30 days.
         'warmup_popular_limit' => (int) env('STOREFRONT_SIGNING_WARMUP_POPULAR_LIMIT', 3),
+
+        // Launch-compatibility shim injected into re-signed apps that share through an
+        // App Group or keychain group (ios/compat-shim). Without it such apps quit on
+        // launch because the vendor's original groups are not ours after re-signing.
+        'compat_shim' => [
+            'enabled' => (bool) env('STOREFRONT_SIGNING_COMPAT_SHIM', true),
+            'path' => env('STOREFRONT_SIGNING_COMPAT_SHIM_PATH', base_path('../ios/compat-shim/RuStoreCompat.dylib')),
+        ],
     ],
 
     /*

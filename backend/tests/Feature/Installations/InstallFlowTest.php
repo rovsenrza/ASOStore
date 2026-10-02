@@ -308,6 +308,46 @@ it('leases a ten minute source URL for object storage without exposing runner cr
         ->and($source['sha256'])->toBe($this->artifact->sha256);
 });
 
+it('adds the compatibility shim to the lease only for apps that share through groups', function () {
+    runnerHeartbeat();
+    $shim = tempnam(sys_get_temp_dir(), 'shim').'.dylib';
+    file_put_contents($shim, "\xCA\xFE\xBA\xBE fake");
+    config(['storefront.signing.compat_shim.enabled' => true, 'storefront.signing.compat_shim.path' => $shim]);
+
+    // The fixture app declares no App Group: no shim.
+    Sanctum::actingAs($this->customer);
+    $this->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")->assertStatus(202);
+    expect(worker('POST', '/api/worker/v1/leases', '{}')->json('data.inject_dylibs'))->toBe([]);
+    forgetGuards();
+
+    // An app that shares through an App Group gets the shim injected.
+    $manager = userWithRoles(RoleSlug::CatalogManager);
+    $grouped = CatalogApp::factory()->create(['visibility' => 'PUBLISHED']);
+    approveTeamFor('com.example.grouped');
+    $ipa = IpaBuilder::app('com.example.grouped')
+        ->executable(IpaBuilder::machO(entitlements: [
+            'application-identifier' => 'ABCDE12345.com.example.grouped',
+            'com.apple.security.application-groups' => ['group.com.example.grouped'],
+        ]))->build();
+    $artifact = inspected(uploadIpa($manager, $grouped, $ipa));
+    test()->postJson("/api/v1/admin/artifacts/{$artifact->public_id}/review", [
+        'decision' => 'approve',
+        'checklist' => ['source_verified' => true, 'distribution_rights_confirmed' => true, 'inspection_report_reviewed' => true],
+        'acknowledge_scan_result' => true,
+    ])->assertOk();
+    test()->postJson("/api/v1/admin/artifacts/{$artifact->public_id}/publish")->assertOk();
+    forgetGuards();
+    approveTeamFor('com.example.grouped');
+
+    Sanctum::actingAs($this->customer);
+    $this->postJson("/api/v1/apps/{$grouped->public_id}/prepare")->assertStatus(202);
+    $lease = worker('POST', '/api/worker/v1/leases', '{}')->json('data');
+    expect($lease['inject_dylibs'])->toHaveCount(1)
+        ->and($lease['inject_dylibs'][0]['name'])->toBe('RuStoreCompat.dylib')
+        ->and(base64_decode($lease['inject_dylibs'][0]['content']))->toBe(file_get_contents($shim));
+    @unlink($shim);
+});
+
 it('leases separate jobs to concurrent workers sharing one runner identity', function () {
     runnerHeartbeat();
     foreach (range(1, 2) as $ignored) {

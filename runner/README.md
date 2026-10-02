@@ -40,6 +40,15 @@ App Group identifiers cannot be created through the App Store Connect API: creat
 developer portal and assign it to the app's and the extensions' App IDs, or the profiles carry no
 `com.apple.security.application-groups`.
 
+The lease may list dylibs to inject under `inject_dylibs` (`name`, base64 `content`, optional
+`weak`). The backend sends the launch-compatibility shim (`ios/compat-shim/RuStoreCompat.dylib`) for
+apps that share through an App Group or keychain group, which otherwise quit on launch because the
+vendor's original groups are not ours after re-signing. zsign copies each dylib into the app, adds a
+load command and signs it. Injection happens only when a signing tree is built fresh — a warm tree
+already carries the dylib — and the injected set is part of the tree's cache key, so an injected tree
+is never reused for a plain sign and a new shim version rebuilds the tree. The report lists
+`injected_dylibs`.
+
 ## Identities folder
 
 One file pair per signing identity: `<name>.key` (PEM private key) and `<name>.cer` (the certificate

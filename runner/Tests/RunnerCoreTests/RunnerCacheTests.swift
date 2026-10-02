@@ -7,6 +7,63 @@ import Testing
         SigningJob(jobID: "test", signedBuildID: "build", bundleIdentifier: "com.example.test", teamIdentifier: "TESTTEAM01", certificateSHA1: "cert", profile: .init(uuid: "profile", content: ""), source: .init(sha256: RequestSigner.sha256(bytes), sizeBytes: bytes.count, path: "/source"), uploadPath: "", resultPath: "")
     }
 
+    @Test func writesInjectedDylibsUnderTheirNameAndRejectsBadOnes() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let bytes = Data("fake dylib".utf8)
+        let prepared = try Signer.prepareInjected([
+            .init(name: "RuStoreCompat.dylib", content: bytes.base64EncodedString()),
+        ], workDirectory: root)
+        #expect(prepared.count == 1)
+        #expect(prepared[0].file.lastPathComponent == "RuStoreCompat.dylib")
+        #expect(prepared[0].key == "RuStoreCompat.dylib:\(RequestSigner.sha256(bytes))")
+        #expect(try Data(contentsOf: prepared[0].file) == bytes)
+
+        for bad in ["../evil.dylib", "nested/x.dylib", "notadylib", ".hidden.dylib"] {
+            #expect(throws: RunnerError.self) {
+                _ = try Signer.prepareInjected([.init(name: bad, content: bytes.base64EncodedString())], workDirectory: root)
+            }
+        }
+        #expect(throws: RunnerError.self) {
+            _ = try Signer.prepareInjected([.init(name: "x.dylib", content: "not base64 @@@")], workDirectory: root)
+        }
+    }
+
+    @Test func injectedTreesDoNotShareACacheEntryWithPlainOrDifferentShims() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let settings = RunnerCache.Settings(directory: root.appendingPathComponent("cache"))
+        let bytes = Data("source ipa bytes for a tiny app".utf8)
+        let source = root.appendingPathComponent("src.ipa")
+        // A minimal valid zip with one Payload/App.app so unpack succeeds.
+        let payload = root.appendingPathComponent("Payload/App.app", isDirectory: true)
+        try FileManager.default.createDirectory(at: payload, withIntermediateDirectories: true)
+        try Data("x".utf8).write(to: payload.appendingPathComponent("App"))
+        try Shell.require("TEST", "sh", ["-c", "cd '\(root.path)' && zip -qry '\(source.path)' Payload"])
+        let job = job(try Data(contentsOf: source))
+
+        let zsign = (try? Shell.locate("zsign")) != nil ? "zsign" : "/bin/echo"
+        func entryCount() throws -> Int {
+            (try? FileManager.default.contentsOfDirectory(atPath: settings.directory.appendingPathComponent("entries").path).filter { $0.hasPrefix("sign-") }.count) ?? 0
+        }
+        // Each workspace holds an exclusive lock on its key until released, so build and
+        // commit one at a time (as the sequential signer does).
+        func build(_ injectKey: [String]) throws -> Bool {
+            let workspace = try RunnerCache.workspace(source: source, job: job, zsign: zsign, injectKey: injectKey, settings: settings)
+            defer { withExtendedLifetime(workspace) {} }
+            try workspace.commit()
+            return workspace.hit
+        }
+        // A plain tree, and two different shim versions, each get their own entry — an
+        // injected tree is never reused for a plain sign, nor across a shim change.
+        #expect(try build([]) == false)
+        #expect(try build(["RuStoreCompat.dylib:aaa"]) == false)
+        #expect(try build(["RuStoreCompat.dylib:bbb"]) == false)
+        #expect(try entryCount() == 3)
+    }
+
     @Test func coalescesDownloadsAndReusesTheVerifiedSource() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)

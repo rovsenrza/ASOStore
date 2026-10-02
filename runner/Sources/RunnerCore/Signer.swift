@@ -41,10 +41,14 @@ public struct Signer: Sendable {
             throw RunnerError.job(code: "CERTIFICATE_NOT_HELD", message: "Lease wants \(job.certificateSHA1)", retryable: true)
         }
 
+        // Dylibs the backend asks us to inject (RuStoreCompat). Written once; the key
+        // keeps an injected signing tree separate from a plain one and versions the shim.
+        let injected = try Self.prepareInjected(job.injectDylibs, workDirectory: workDirectory)
+
         let workspace: RunnerCache.Workspace?
         if let cache {
             do {
-                workspace = try RunnerCache.workspace(source: source, job: job, zsign: zsign, settings: cache)
+                workspace = try RunnerCache.workspace(source: source, job: job, zsign: zsign, injectKey: injected.map(\.key), settings: cache)
             } catch {
                 Log.info("signing cache unavailable; using an isolated job folder")
                 workspace = nil
@@ -90,6 +94,15 @@ public struct Signer: Sendable {
             }
         }
 
+        // Inject only when the tree is fresh: zsign modifies the unpacked app in place, so a
+        // warm tree already carries the dylib and its load command from the cold run that
+        // built this (inject-keyed) entry; re-injecting would add a second load command.
+        if workspace?.hit != true {
+            for dylib in injected {
+                arguments += [dylib.weak ? "-w" : "-l", dylib.file.path]
+            }
+        }
+
         let output = workDirectory.appendingPathComponent("signed.ipa")
         let signingStarted = Date()
         let zsigned = try Shell.run(zsign, arguments + ["-o", output.path, app.path], in: workspace?.directory ?? workDirectory)
@@ -119,7 +132,29 @@ public struct Signer: Sendable {
             "signature_policy": "fresh-resource-seal-v1",
             "zsign_seconds": String(format: "%.1f", signingSeconds),
             "verification_seconds": String(format: "%.1f", verificationSeconds),
+            "injected_dylibs": injected.map(\.name).sorted().joined(separator: ","),
         ])
+    }
+
+    struct InjectedDylib { let name: String; let file: URL; let weak: Bool; let key: String }
+
+    /// Writes each injected dylib to a private folder under its own basename (zsign copies it
+    /// into the app by that name), and returns a stable per-dylib key for the cache.
+    static func prepareInjected(_ dylibs: [SigningJob.InjectDylib], workDirectory: URL) throws -> [InjectedDylib] {
+        guard !dylibs.isEmpty else { return [] }
+        let folder = workDirectory.appendingPathComponent("inject", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        return try dylibs.map { dylib in
+            guard dylib.name.hasSuffix(".dylib"), !dylib.name.contains("/"), !dylib.name.contains(".."), !dylib.name.hasPrefix(".") else {
+                throw RunnerError.job(code: "INJECT_DYLIB_INVALID", message: "Bad inject dylib name \(dylib.name)", retryable: false)
+            }
+            guard let data = Data(base64Encoded: dylib.content), !data.isEmpty, data.count < 64 * 1024 * 1024 else {
+                throw RunnerError.job(code: "INJECT_DYLIB_INVALID", message: "Inject dylib \(dylib.name) is not valid base64", retryable: false)
+            }
+            let file = folder.appendingPathComponent(dylib.name)
+            try data.write(to: file)
+            return InjectedDylib(name: dylib.name, file: file, weak: dylib.weak == true, key: "\(dylib.name):\(RequestSigner.sha256(data))")
+        }
     }
 
     /// Checks code/CMS hashes, sealed resources and the lease requirements.
