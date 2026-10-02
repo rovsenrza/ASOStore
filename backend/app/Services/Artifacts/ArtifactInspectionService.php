@@ -135,8 +135,10 @@ class ArtifactInspectionService
         $siblings = AppArtifact::query()
             ->where('app_id', $artifact->app_id)
             ->whereKeyNot($artifact->getKey())
-            // A cleaned copy replaces its source: the two share the version (and bundle ID) by design.
-            ->when($artifact->derived_from_artifact_id, fn ($query, $source) => $query->whereKeyNot($source))
+            // A cleaned copy replaces its source: the two share the version (and bundle ID) by design,
+            // as do the retired builds an authorized same-version replacement superseded.
+            ->when($artifact->derived_from_artifact_id, fn ($query, $source) => $query->whereKeyNot($source)
+                ->where('status', '!=', ArtifactStatus::Expired->value))
             ->whereNotIn('status', self::DISCARDED)
             ->whereNotNull('bundle_identifier');
 

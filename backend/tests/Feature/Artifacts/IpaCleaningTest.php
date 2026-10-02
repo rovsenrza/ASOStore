@@ -104,6 +104,20 @@ it('cleans a published build into a copy of the same version that supersedes it 
         ->and($original->status_reason)->toBe('SUPERSEDED');
 });
 
+it('cleans a published build that replaced an earlier upload of the same version', function () {
+    $original = inspected(uploadIpa($this->manager, $this->catalogApp, injectedIpa()));
+    approveAndPublish($original);
+    // An authorized same-version replacement left the earlier upload superseded; a retired build
+    // does not make the cleaned copy a duplicate.
+    AppArtifact::factory()->create([
+        'app_id' => $this->catalogApp->id, 'status' => ArtifactStatus::Expired, 'status_reason' => 'SUPERSEDED',
+        'bundle_identifier' => $original->bundle_identifier, 'version' => $original->version, 'build_number' => $original->build_number,
+    ]);
+
+    $this->postJson("/api/v1/admin/artifacts/{$original->public_id}/clean", ['recommended' => true, 'reason' => 'Реклама'])->assertStatus(202);
+    expect(AppArtifact::query()->where('derived_from_artifact_id', $original->id)->sole()->status)->toBe(ArtifactStatus::ProvenanceReview);
+});
+
 it('shows the minimum iOS of a cleaned copy once it replaces the published build', function () {
     // As most supplied IPAs: Info.plist claims iOS 10.0 while the executable needs 18.0.
     $original = inspected(uploadIpa($this->manager, $this->catalogApp, IpaBuilder::app()->info(['MinimumOSVersion' => '10.0'])->build()));
