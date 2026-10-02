@@ -150,6 +150,8 @@ class ArtifactReviewService
                 ['min_ios_version' => $artifact->min_ios_version, 'released_at' => now()],
             );
             $version->released_at ??= now();
+            // A cleaned copy of the same version may declare the minimum its executable really needs.
+            $version->min_ios_version = $artifact->min_ios_version ?? $version->min_ios_version;
             $version->save();
 
             $this->states->transition($artifact, ArtifactStatus::Published, actor: $by, extra: ['app_version_id' => $version->id, 'status_reason' => null]);
