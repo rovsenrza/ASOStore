@@ -6,6 +6,7 @@ use App\Enums\ErrorCode;
 use App\Enums\PipelineJobStatus;
 use App\Exceptions\ApiException;
 use App\Exceptions\IllegalStateTransition;
+use App\Jobs\CleanArtifactJob;
 use App\Jobs\InspectArtifactJob;
 use App\Jobs\PrepareSigningJob;
 use App\Jobs\VerifySignatureJob;
@@ -36,11 +37,11 @@ class PipelineJobService
      *
      * @param  array<string, mixed>  $payload  Visible to operators; never put secrets here.
      */
-    public function create(string $type, string $idempotencyKey, Model $subject, array $payload = [], ?Actor $actor = null): PipelineJob
+    public function create(string $type, string $idempotencyKey, Model $subject, array $payload = [], ?Actor $actor = null, ?int $maxAttempts = null): PipelineJob
     {
         $actor ??= Actor::current();
 
-        return PipelineJob::query()->firstOrCreate(['idempotency_key' => $idempotencyKey], [
+        return PipelineJob::query()->firstOrCreate(['idempotency_key' => $idempotencyKey], array_filter(['max_attempts' => $maxAttempts]) + [
             'type' => $type,
             'actor_type' => $actor->type,
             'actor_id' => $actor->id,
@@ -233,6 +234,7 @@ class PipelineJobService
     {
         match ($job->type) {
             InspectArtifactJob::TYPE => InspectArtifactJob::dispatch($job->id)->afterCommit(),
+            CleanArtifactJob::TYPE => CleanArtifactJob::dispatch($job->id)->afterCommit(),
             PrepareSigningJob::TYPE => PrepareSigningJob::dispatch($job->id)->afterCommit(),
             VerifySignatureJob::TYPE => VerifySignatureJob::dispatch($job->id)->afterCommit(),
             // Runner jobs are picked up by a runner lease; nothing to dispatch.

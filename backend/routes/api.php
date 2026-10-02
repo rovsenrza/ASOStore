@@ -164,6 +164,7 @@ Route::prefix('admin')->name('api.admin.')->group(function () {
         Route::post('/artifacts/{artifact}/publish', [ArtifactController::class, 'publish'])->can('artifacts.manage')->middleware('idempotent')->name('artifacts.publish');
         Route::post('/artifacts/{artifact}/revoke', [ArtifactController::class, 'revoke'])->can('artifacts.manage')->middleware('idempotent')->name('artifacts.revoke');
         Route::post('/artifacts/{artifact}/inspect', [ArtifactController::class, 'inspect'])->can('artifacts.manage')->middleware('idempotent')->name('artifacts.inspect');
+        Route::post('/artifacts/{artifact}/clean', [ArtifactController::class, 'clean'])->can('artifacts.manage')->middleware('idempotent')->name('artifacts.clean');
         Route::post('/artifacts/{artifact}/documents', [ArtifactController::class, 'storeDocument'])->can('artifacts.manage')->name('artifacts.documents.store');
         Route::get('/artifacts/{artifact}/documents/{document}', [ArtifactController::class, 'showDocument'])->can('artifacts.view')->name('artifacts.documents.show');
         Route::get('/jobs', [JobController::class, 'index'])->can('jobs.view')->name('jobs.index');

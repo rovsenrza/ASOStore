@@ -28,6 +28,7 @@ class ArtifactInspectionService
         private readonly StateMachine $states,
         private readonly IpaInspector $inspector,
         private readonly AuditService $audit,
+        private readonly IpaCleaner $cleaner,
     ) {}
 
     /**
@@ -61,8 +62,13 @@ class ArtifactInspectionService
 
         try {
             $result = $this->inspector->inspect($file->path);
+            // Injected modules, encrypted parts and metadata problems: for the reviewer and the cleaning action.
+            $cleaning = $this->cleaner->analyze($file->path);
         } finally {
             $file->release();
+        }
+        if ($cleaning !== null) {
+            $result = new InspectionResult($result->outcome, $result->failureCode, $result->report + ['cleaning' => $cleaning]);
         }
 
         return $this->finish($artifact, $result, $actor);
@@ -129,6 +135,8 @@ class ArtifactInspectionService
         $siblings = AppArtifact::query()
             ->where('app_id', $artifact->app_id)
             ->whereKeyNot($artifact->getKey())
+            // A cleaned copy replaces its source: the two share the version (and bundle ID) by design.
+            ->when($artifact->derived_from_artifact_id, fn ($query, $source) => $query->whereKeyNot($source))
             ->whereNotIn('status', self::DISCARDED)
             ->whereNotNull('bundle_identifier');
 

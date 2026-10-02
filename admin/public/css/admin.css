@@ -372,3 +372,5 @@ label.field input, label.field select, label.field textarea { width: 100%; min-w
 ol.home-list { counter-reset: banner; }
 ol.home-list .home-row::before { counter-increment: banner; content: counter(banner); width: 1.4em; text-align: center; font-weight: 800; color: var(--ink-soft); }
 @media (max-width: 640px) { .home-row { flex-wrap: wrap; } }
+.cleaning-list li { padding: 6px 0; }
+.cleaning-list__details { margin-top: 2px; font-size: .78rem; overflow-wrap: anywhere; }

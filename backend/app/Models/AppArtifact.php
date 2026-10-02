@@ -27,6 +27,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $min_ios_version
  * @property array<string, mixed>|null $inspection
  * @property int|null $app_version_id
+ * @property int|null $derived_from_artifact_id
+ * @property array<string, mixed>|null $cleaning_report
  * @property Carbon $declaration_accepted_at
  *
  * An original uploaded IPA. Identity and declaration columns are immutable at
@@ -48,6 +50,7 @@ class AppArtifact extends Model
         'app_id', 'app_version_id', 'sha256', 'size_bytes', 'storage_disk', 'storage_path', 'original_filename',
         'source_type', 'uploaded_by', 'declaration_version', 'declaration_accepted_at', 'declaration_ip',
         'status', 'status_reason', 'bundle_identifier', 'version', 'build_number', 'min_ios_version', 'inspection',
+        'derived_from_artifact_id', 'cleaning_report',
     ];
 
     protected function casts(): array
@@ -58,8 +61,19 @@ class AppArtifact extends Model
             'size_bytes' => 'integer',
             'declaration_accepted_at' => 'datetime',
             'inspection' => 'array',
+            'cleaning_report' => 'array',
             'purged_at' => 'datetime',
         ];
+    }
+
+    /**
+     * The artifact this cleaned copy was made from (tools/ipa-cleaner).
+     *
+     * @return BelongsTo<AppArtifact, $this>
+     */
+    public function derivedFrom(): BelongsTo
+    {
+        return $this->belongsTo(AppArtifact::class, 'derived_from_artifact_id');
     }
 
     /**

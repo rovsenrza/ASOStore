@@ -50,6 +50,13 @@ jobs:
       - uses: actions/checkout@v4
       - run: npx --yes @stoplight/spectral-cli@6 lint docs/api/openapi.yaml --ruleset .spectral.yaml --fail-severity=warn
 
+  ipa-cleaner:
+    name: IPA cleaner (Python standard library)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest discover -s tools/ipa-cleaner/tests -v
+
   web:
     name: Portal and admin smoke
     runs-on: ubuntu-latest

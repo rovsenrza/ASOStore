@@ -2091,6 +2091,51 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /admin/artifacts/{artifact}/clean:
+    post:
+      tags: [Admin]
+      operationId: adminCleanArtifact
+      summary: Make a cleaned copy of an IPA (tools/ipa-cleaner)
+      description: >-
+        Requires artifacts.manage. Queues a CleanArtifactJob that removes what is selected —
+        the reviewed promotions, pinned library patches and metadata fixes (recommended), chosen
+        modules and app extensions from inspection.cleaning, opt-in mods — and verifies the result.
+        The copy is a new artifact (derived_from) that goes through inspection and review again;
+        the source leaves the review queue (PROVENANCE_FAILED / REJECTED / REVOKED with
+        REPLACED_BY_CLEANED_COPY), and a PUBLISHED source stays until its copy is published.
+        A refusal fails the job with the cleaner's explanation. 503 when the tool is not installed.
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/ArtifactId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                recommended: { type: boolean }
+                remove: { type: array, maxItems: 100, items: { type: string, description: Archive path of a module from inspection.cleaning.modules } }
+                remove_extensions: { type: array, maxItems: 50, items: { type: string, description: Archive path of an app extension (…/PlugIns/X.appex/) } }
+                opt_in: { type: array, maxItems: 20, items: { type: string, description: Rule id of an opt-in mod } }
+                fix_metadata: { type: boolean }
+                reason: { type: string, maxLength: 2000 }
+      responses:
+        "202":
+          description: Queued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AdminArtifactReinspectResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
   /admin/artifacts/{artifact}/documents:
     post:
       tags: [Admin]

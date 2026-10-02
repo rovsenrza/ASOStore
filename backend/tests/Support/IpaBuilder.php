@@ -184,11 +184,13 @@ class IpaBuilder
 
     /**
      * A thin 64-bit Mach-O with build version, encryption info and a code
-     * signature carrying an entitlements blob.
+     * signature carrying an entitlements blob. $loads become LC_LOAD_DYLIB
+     * commands the binary uses no symbol from, as an injector appends them.
      *
      * @param  array<string, mixed>|null  $entitlements
+     * @param  list<string>  $loads
      */
-    public static function machO(int $cpuType = self::ARM64, int $cryptId = 0, int $platform = 2, ?array $entitlements = null): string
+    public static function machO(int $cpuType = self::ARM64, int $cryptId = 0, int $platform = 2, ?array $entitlements = null, array $loads = []): string
     {
         $entitlements ??= ['application-identifier' => 'ABCDE12345.com.example.demo', 'get-task-allow' => false];
         $xml = self::plist($entitlements);
@@ -198,13 +200,18 @@ class IpaBuilder
 
         $buildVersion = pack('VVVVVV', 0x32, 24, $platform, 0x00120000, 0x00120000, 0);
         $encryption = pack('VVVVVV', 0x2C, 24, 0x4000, $cryptId ? 0x1000 : 0, $cryptId, 0);
-        $commandsSize = strlen($buildVersion) + strlen($encryption) + 16;
+        $dylibs = '';
+        foreach ($loads as $name) {
+            $size = (24 + strlen($name) + 1 + 7) & ~7;
+            $dylibs .= str_pad(pack('VVVVVV', 0xC, $size, 24, 0, 0, 0).$name."\0", $size, "\0");
+        }
+        $commandsSize = strlen($buildVersion) + strlen($encryption) + strlen($dylibs) + 16;
         $signatureOffset = 32 + $commandsSize;
         $codeSignature = pack('VVVV', 0x1D, 16, $signatureOffset, strlen($signature));
 
-        $header = pack('VVVVVVVV', 0xFEEDFACF, $cpuType, 0, 2, 3, $commandsSize, 0, 0);
+        $header = pack('VVVVVVVV', 0xFEEDFACF, $cpuType, 0, 2, 3 + count($loads), $commandsSize, 0, 0);
 
-        return $header.$buildVersion.$encryption.$codeSignature.$signature;
+        return $header.$buildVersion.$encryption.$dylibs.$codeSignature.$signature;
     }
 
     /**

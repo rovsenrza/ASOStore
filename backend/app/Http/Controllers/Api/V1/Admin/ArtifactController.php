@@ -11,7 +11,9 @@ use App\Models\ArtifactReview;
 use App\Models\AuditLog;
 use App\Models\PipelineJob;
 use App\Models\ProvenanceDocument;
+use App\Services\Artifacts\ArtifactCleaningService;
 use App\Services\Artifacts\ArtifactReviewService;
+use App\Services\Artifacts\IpaCleaner;
 use App\Services\Audit\AuditService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -66,7 +68,7 @@ class ArtifactController extends Controller
 
     public function show(Request $request, AppArtifact $artifact): JsonResponse
     {
-        $artifact->load(['app' => fn ($app) => $app->withTrashed(), 'uploader', 'appVersion', 'reviews.reviewer', 'documents', 'pipelineJobs']);
+        $artifact->load(['app' => fn ($app) => $app->withTrashed(), 'uploader', 'appVersion', 'reviews.reviewer', 'documents', 'pipelineJobs.subject', 'derivedFrom']);
 
         $history = AuditLog::query()
             ->where('subject_type', 'app_artifact')
@@ -82,6 +84,11 @@ class ArtifactController extends Controller
             ],
             'app_version_id' => $artifact->appVersion?->public_id,
             'inspection' => $artifact->inspection,
+            // tools/ipa-cleaner: where a cleaned copy came from and what was removed, and the copies made from this one.
+            'derived_from' => $artifact->derivedFrom ? ['id' => $artifact->derivedFrom->public_id, 'sha256' => $artifact->derivedFrom->sha256] : null,
+            'cleaning_report' => $artifact->cleaning_report,
+            'cleaned_copies' => AppArtifact::query()->where('derived_from_artifact_id', $artifact->id)->latest('id')->get()
+                ->map(fn (AppArtifact $copy) => ['id' => $copy->public_id, 'status' => $copy->status->value, 'created_at' => $copy->created_at?->toIso8601ZuluString()])->all(),
             'reviews' => $artifact->reviews->map(fn (ArtifactReview $review) => [
                 'id' => $review->public_id,
                 'decision' => $review->decision,
@@ -141,6 +148,28 @@ class ArtifactController extends Controller
     {
         $data = $request->validate(['reason' => ['nullable', 'string', 'max:2000']]);
         $job = $this->reviews->reinspect($artifact, $request->user(), $data['reason'] ?? null);
+
+        return ApiResponse::ok(['artifact' => $this->summary($artifact->refresh()), 'job' => JobController::present($job->refresh())], 202);
+    }
+
+    /**
+     * A cleaned copy made by tools/ipa-cleaner: the reviewed promotions (recommended), and/or
+     * chosen modules, extensions, opt-in mods and metadata fixes from the inspection report.
+     */
+    public function clean(Request $request, AppArtifact $artifact, ArtifactCleaningService $cleaning): JsonResponse
+    {
+        $data = $request->validate([
+            'recommended' => ['nullable', 'boolean'],
+            'remove' => ['nullable', 'array', 'max:100'],
+            'remove.*' => ['string', 'max:1024'],
+            'remove_extensions' => ['nullable', 'array', 'max:50'],
+            'remove_extensions.*' => ['string', 'max:1024'],
+            'opt_in' => ['nullable', 'array', 'max:20'],
+            'opt_in.*' => ['string', 'max:64'],
+            'fix_metadata' => ['nullable', 'boolean'],
+            'reason' => ['required', 'string', 'max:2000'],
+        ]);
+        $job = $cleaning->request($artifact, $request->user(), $data, $data['reason'], $request->ip());
 
         return ApiResponse::ok(['artifact' => $this->summary($artifact->refresh()), 'job' => JobController::present($job->refresh())], 202);
     }
@@ -243,7 +272,7 @@ class ArtifactController extends Controller
             return [];
         }
 
-        return match ($artifact->status) {
+        $actions = match ($artifact->status) {
             ArtifactStatus::ProvenanceReview => ['approve', 'reject'],
             ArtifactStatus::Quarantined => ['release', 'reject'],
             ArtifactStatus::Ready => ['publish', 'revoke'],
@@ -251,5 +280,10 @@ class ArtifactController extends Controller
             ArtifactStatus::InspectionFailed => ['inspect'],
             default => [],
         };
+        if (ArtifactCleaningService::cleanable($artifact) && app(IpaCleaner::class)->enabled()) {
+            $actions[] = 'clean';
+        }
+
+        return $actions;
     }
 }

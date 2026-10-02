@@ -158,6 +158,17 @@ return [
         'temp_stale_hours' => 6,
     ],
 
+    /*
+    | tools/ipa-cleaner: finds modules injected into supplied IPAs (promotional pop-ups,
+    | channel gates, tweaks) during inspection, and makes cleaned copies on request.
+    */
+    'ipa_cleaner' => [
+        'enabled' => (bool) env('STOREFRONT_IPA_CLEANER_ENABLED', true),
+        'python' => env('STOREFRONT_IPA_CLEANER_PYTHON', 'python3'),
+        'script' => env('STOREFRONT_IPA_CLEANER_SCRIPT', base_path('../tools/ipa-cleaner/ipa_clean.py')),
+        'timeout' => (int) env('STOREFRONT_IPA_CLEANER_TIMEOUT', 900),
+    ],
+
     // Defaults until the retention decision (IMPLEMENTATION_PLAN §10 Q8).
     'retention' => [
         'upload_session_hours' => (int) env('STOREFRONT_RETENTION_UPLOAD_HOURS', 24),

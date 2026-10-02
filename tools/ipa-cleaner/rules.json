@@ -1,0 +1,159 @@
+{
+  "version": 1,
+  "comment": "Reviewed injections found in customer-provided IPAs (October 2026). A module rule matches only when its file name is listed AND every marker occurs in its bytes; a name alone never removes anything. Library patches apply to the exact reviewed build (SHA-256) only.",
+  "modules": [
+    {
+      "id": "libobjcpatch",
+      "names": [
+        "libobjcpatch.dylib"
+      ],
+      "all_markers": [
+        "https://t.me/",
+        "RSPill"
+      ],
+      "category": "promotion",
+      "reason": "Telegram overlay with RSPill/CertGuardPill promotion",
+      "recommend": true
+    },
+    {
+      "id": "telegram-channel-gate",
+      "names": [
+        "novikomactivation.dylib"
+      ],
+      "all_markers": [
+        "https://t.me/appbankRU",
+        "NVKCheckChannelGate"
+      ],
+      "category": "promotion",
+      "reason": "Mandatory Telegram channel subscription gate",
+      "recommend": true
+    },
+    {
+      "id": "ipacrack-popup",
+      "names": [
+        "001_iApps.dylib",
+        "flutersult.dylib",
+        "ZVfixZV.dylib",
+        "NewFix2.dylib"
+      ],
+      "all_markers": [
+        "https://ipacrack.com",
+        "SCLAlertView"
+      ],
+      "category": "promotion",
+      "reason": "Pop-up sending users to an external IPA site",
+      "recommend": true
+    },
+    {
+      "id": "telegram-channel-popup",
+      "names": [
+        "HelpshiftX.dylib"
+      ],
+      "all_markers": [
+        "https://t.me/MIHALSANCH",
+        "alertControllerWithTitle:message:preferredStyle:"
+      ],
+      "category": "promotion",
+      "reason": "Pop-up promoting a Telegram channel",
+      "recommend": true
+    },
+    {
+      "id": "ymnight-mod",
+      "names": [
+        "YMNight.dylib"
+      ],
+      "all_markers": [
+        "https://t.me/",
+        "VIPPopup"
+      ],
+      "category": "optional-mod",
+      "reason": "YMNight mod: its Telegram/VIP pop-up is built in, so removing it removes the whole mod and its features",
+      "recommend": false
+    }
+  ],
+  "library_patches": [
+    {
+      "id": "lead-announcements",
+      "name": "Lead.dylib",
+      "original_sha256": "85e83304b32180288c1f6deb9a813668b41747a4ded06926b7c635f6f6982309",
+      "patched_sha256": "089d3167eeece8464da5ef3150eca5b470f7a3cb525656bb17ab4aa3adbe6256",
+      "reason": "Disable remote announcements, promotion cards and their link handler; Lead features stay",
+      "sites": [
+        [
+          51976,
+          "ff8301d1",
+          "arm64 announcementCardTapped:"
+        ],
+        [
+          52756,
+          "fc6fbaa9",
+          "arm64 rebuildAnnouncementCards"
+        ],
+        [
+          55376,
+          "ff8301d1",
+          "arm64 fetchAnnouncement"
+        ],
+        [
+          12619340,
+          "7f2303d5",
+          "arm64e announcementCardTapped:"
+        ],
+        [
+          12620140,
+          "7f2303d5",
+          "arm64e rebuildAnnouncementCards"
+        ],
+        [
+          12622800,
+          "7f2303d5",
+          "arm64e fetchAnnouncement"
+        ]
+      ]
+    },
+    {
+      "id": "telegram-notification-fix-promotion",
+      "name": "TelegramNotificationFix.dylib",
+      "original_sha256": "0af51a1897bafde99d0f9b7efd64b17d44781a56adf78923cdc4c88e2106eacf",
+      "patched_sha256": "48ae2919c77847719c41422200997b95d40169af780cf36efc75fab82913c8db",
+      "reason": "Disable the DzMohaipa launch promotion block; app-group and notification fixes stay",
+      "sites": [
+        [
+          28148,
+          "ffc301d1",
+          "arm64 launch promotion block"
+        ]
+      ]
+    }
+  ],
+  "hook_markers": [
+    "CydiaSubstrate",
+    "libsubstrate",
+    "MSHookMessageEx",
+    "MSHookFunction",
+    "_logos_method",
+    "_logos_orig",
+    "ellekit",
+    "fishhook",
+    "rebind_symbols",
+    "CaptainHook",
+    "/Library/MobileSubstrate",
+    "/opt/theos",
+    "theos/"
+  ],
+  "promo_markers": [
+    "https://t.me/",
+    "ipacrack.com",
+    "codevn.net"
+  ],
+  "ad_sdk_markers": [
+    "myTarget",
+    "GADBannerView",
+    "GADInterstitial",
+    "YandexMobileAds",
+    "AppLovin",
+    "UnityAds",
+    "IronSource",
+    "FBAudienceNetwork"
+  ]
+}

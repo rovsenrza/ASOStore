@@ -334,6 +334,7 @@ function detail(artifact, rerender, panel) {
   if (report.entitlements) {
     nodes.push(el('h3', {}, t('artifacts.entitlements')), el('p', { className: 'mono' }, Object.keys(report.entitlements).join(', ') || t('artifacts.none')));
   }
+  nodes.push(...cleaningSection(artifact));
 
   if (manage && artifact.available_actions.length) nodes.push(actions(artifact, rerender, panel));
 
@@ -391,8 +392,148 @@ function actions(artifact, rerender, panel) {
     }
     if (action === 'revoke') button(t('artifacts.revoke'), withReason(t('artifacts.revokeTitle'), t('artifacts.revokeMessage'), true, (reason) => post('revoke', { reason })), 'button--danger');
     if (action === 'inspect') button(t('artifacts.inspect'), withReason(t('artifacts.inspectTitle'), t('artifacts.inspectMessage'), false, (reason) => post('inspect', { reason })));
+    if (action === 'clean') button(t('artifacts.clean'), () => cleanDialog(artifact, rerender));
   }
   return row;
+}
+
+/* ---------- IPA cleaning (tools/ipa-cleaner) ---------- */
+
+const fileName = (path) => path.replace(/\/$/, '').split('/').pop();
+const categoryLabel = (category) => (t.has(`artifacts.cleaning.category.${category}`) ? t(`artifacts.cleaning.category.${category}`) : category);
+
+/** What inspection found, what a cleaned copy had removed, and the copies made from this file. */
+function cleaningSection(artifact) {
+  const analysis = artifact.inspection?.cleaning;
+  const nodes = [el('h3', {}, t('artifacts.cleaning.title'))];
+
+  if (artifact.derived_from) {
+    const report = artifact.cleaning_report ?? {};
+    const lines = [
+      [report.removed_modules?.map((module) => fileName(module.path)), 'removedModules'],
+      [report.removed_extensions?.map(fileName), 'removedExtensions'],
+      [Object.keys(report.patched_libraries ?? {}).map(fileName), 'patchedLibraries'],
+      [report.metadata_fixes?.map((fix) => `${fix.key}: ${fix.from} → ${fix.to}`), 'metadataFixes'],
+    ].filter(([list]) => list?.length).map(([list, key]) => el('p', {}, t(`artifacts.cleaning.${key}`, { list: list.join(', ') })));
+    nodes.push(el('div', { className: 'notice' },
+      el('p', {}, t('artifacts.cleaning.derivedFrom', { id: artifact.derived_from.id }), ' ',
+        el('button', { type: 'button', className: 'button', onclick: () => openArtifact(artifact.derived_from.id) }, t('artifacts.open'))),
+      ...lines));
+  }
+  if (artifact.cleaned_copies?.length) {
+    nodes.push(el('p', {}, el('b', {}, t('artifacts.cleaning.copies'))), el('ul', { className: 'plain-list' }, artifact.cleaned_copies.map((copy) => el('li', {},
+      artifactBadge(copy.status), ' ', el('span', { className: 'mono' }, copy.id), ' ',
+      el('button', { type: 'button', className: 'button', onclick: () => openArtifact(copy.id) }, t('artifacts.open'))))));
+  }
+  if (!analysis) {
+    nodes.push(el('p', { className: 'muted' }, t('artifacts.cleaning.notAnalyzed')));
+    return nodes;
+  }
+  if (analysis.error) {
+    nodes.push(el('div', { className: 'notice notice--error' }, el('p', {}, analysis.error)));
+    return nodes;
+  }
+
+  const extensions = (analysis.extensions ?? []).filter((extension) => extension.encrypted);
+  if (!analysis.modules.length && !extensions.length && !analysis.metadata_issues.length && !analysis.library_patches.length) {
+    nodes.push(el('p', { className: 'muted' }, t('artifacts.cleaning.nothingFound')));
+  }
+  if (analysis.modules.length) {
+    nodes.push(el('p', {}, el('b', {}, t('artifacts.cleaning.modules'))), el('ul', { className: 'plain-list cleaning-list' }, analysis.modules.map((module) => {
+      const details = [module.reason, ...(module.telegram_links ?? []), ...(module.other_markers ?? []), module.hook_markers?.join(', '), module.blocked_reason,
+        module.loaded_by?.length ? t('artifacts.cleaning.loadedBy', { list: module.loaded_by.map(fileName).join(', ') }) : null].filter(Boolean);
+      return el('li', {},
+        el('span', { className: 'mono' }, fileName(module.path)), ' ', el('span', { className: 'muted' }, `· ${categoryLabel(module.category)}`), ' ',
+        module.recommended ? statusBadge('ok', t('artifacts.cleaning.recommendedBadge')) : '',
+        module.removable ? '' : statusBadge('BLOCKED', t('artifacts.cleaning.blocked')),
+        module.encrypted ? statusBadge('warn', t('artifacts.cleaning.encrypted')) : '',
+        details.length ? el('div', { className: 'muted cleaning-list__details' }, details.join(' · ')) : '');
+    })));
+  }
+  if (extensions.length) {
+    nodes.push(el('p', {}, el('b', {}, t('artifacts.cleaning.extensions'))), el('ul', { className: 'plain-list' }, extensions.map((extension) => el('li', {},
+      el('span', { className: 'mono' }, fileName(extension.path)), ` · ${extension.point ?? extension.bundle_id ?? ''} `, statusBadge('warn', t('artifacts.cleaning.encrypted'))))));
+  }
+  if (analysis.library_patches.length) {
+    nodes.push(el('p', {}, el('b', {}, t('artifacts.cleaning.patches'))), el('ul', { className: 'plain-list' }, analysis.library_patches.map((patch) => el('li', {},
+      el('span', { className: 'mono' }, fileName(patch.path)), ` · ${patch.reason} · ${t(`artifacts.cleaning.patchState.${patch.state}`)}`))));
+  }
+  if (analysis.metadata_issues.length) {
+    nodes.push(el('p', {}, el('b', {}, t('artifacts.cleaning.metadata'))), el('ul', { className: 'plain-list' }, analysis.metadata_issues.map((issue) => el('li', { className: 'mono' },
+      `${issue.code}: ${issue.value} → ${issue.fix}`))));
+  }
+  if (analysis.native_ad_sdk_markers?.length) {
+    nodes.push(el('p', { className: 'muted' }, `${t('artifacts.cleaning.adSdks')}: ${analysis.native_ad_sdk_markers.join(', ')}`));
+  }
+  return nodes;
+}
+
+function cleanDialog(artifact, rerender) {
+  const analysis = artifact.inspection?.cleaning?.error ? null : artifact.inspection?.cleaning;
+  const optional = (analysis?.modules ?? []).filter((module) => module.removable && !module.recommended);
+  const extensions = analysis?.extensions ?? [];
+  const check = (name, value, label, checked = false) => el('label', { className: 'check' }, el('input', { type: 'checkbox', name, value, checked }), ` ${label}`);
+
+  const form = el('form', { className: 'form-grid', noValidate: true },
+    el('p', { className: 'muted' }, t('artifacts.cleaning.dialogIntro')),
+    check('recommended', '1', t('artifacts.cleaning.recommended'), true),
+    analysis ? '' : el('p', { className: 'muted' }, t('artifacts.cleaning.notAnalyzed')),
+    optional.length || extensions.length ? el('p', {}, el('b', {}, t('artifacts.cleaning.choose'))) : '',
+    ...optional.map((module) => check('remove', module.path, `${fileName(module.path)} — ${categoryLabel(module.category)}`)),
+    optional.some((module) => ['suspected-hook', 'hook-runtime'].includes(module.category)) ? el('p', { className: 'muted' }, t('artifacts.cleaning.riskNote')) : '',
+    ...extensions.map((extension) => check('remove_extensions', extension.path,
+      `${fileName(extension.path)}${extension.encrypted ? ` (${t('artifacts.cleaning.encrypted')})` : ''}${extension.point ? ` — ${extension.point}` : ''}`)),
+    extensions.length ? el('p', { className: 'muted' }, t('artifacts.cleaning.extensionNote')) : '',
+    analysis?.metadata_issues?.length ? check('fix_metadata', '1', t('artifacts.cleaning.fixMetadata')) : '',
+    el('label', { className: 'field' }, t('artifacts.cleaning.reason'), el('input', { name: 'reason', required: true, maxLength: 2000 })),
+    el('div', { className: 'button-row' }, el('button', { type: 'submit', className: 'button button--primary' }, t('artifacts.cleaning.submit'))),
+    el('div', { className: 'form-status', role: 'status', ariaLive: 'polite' }));
+  openDialog(t, { title: `${t('artifacts.cleaning.title')} · ${artifact.original_filename}`, body: form, wide: true });
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    const status = form.querySelector('.form-status');
+    const submit = form.querySelector('button[type="submit"]');
+    const data = new FormData(form);
+    submit.disabled = true;
+    try {
+      const { data: started } = await api.post(`/admin/artifacts/${artifact.id}/clean`, {
+        recommended: data.has('recommended'),
+        remove: data.getAll('remove'),
+        remove_extensions: data.getAll('remove_extensions'),
+        fix_metadata: data.has('fix_metadata'),
+        reason: data.get('reason'),
+      }, { idempotencyKey: newIdempotencyKey('artifact-clean') });
+      toast(t('artifacts.cleaning.started'), { tone: 'ok' });
+      status.replaceChildren(el('p', { className: 'muted' }, t('artifacts.cleaning.waiting')));
+      const { job, detail } = await followCleaning(artifact.id, started.job.id);
+      tables.forEach((table) => table.reload());
+      await rerender();
+      if (job?.status === 'SUCCEEDED') {
+        const copy = job.result_code === 'CLEANED' ? detail.cleaned_copies[0] : null;
+        status.replaceChildren(el('div', { className: 'notice' }, el('p', {}, t.has(`artifacts.cleaning.result.${job.result_code}`) ? t(`artifacts.cleaning.result.${job.result_code}`) : job.result_code),
+          copy ? el('button', { type: 'button', className: 'button button--primary', onclick: () => openArtifact(copy.id) }, t('artifacts.cleaning.openCopy')) : ''));
+      } else {
+        status.replaceChildren(el('div', { className: 'notice notice--error' }, el('p', {}, t('artifacts.cleaning.failedResult', { message: job?.error_message ?? job?.status ?? '—' }))));
+        submit.disabled = false;
+      }
+    } catch (error) {
+      status.replaceChildren(errorNotice(t, error));
+      submit.disabled = false;
+    }
+  });
+}
+
+/** The cleaning job runs on the files queue: follow it through the artifact detail until it settles. */
+async function followCleaning(artifactId, jobId) {
+  for (let attempt = 0; attempt < 240; attempt += 1) {
+    const { data } = await api.get(`/admin/artifacts/${artifactId}`);
+    const job = data.jobs.find((candidate) => candidate.id === jobId);
+    if (job && ['SUCCEEDED', 'FAILED_PERMANENT', 'FAILED_RETRYABLE', 'CANCELLED'].includes(job.status)) return { job, detail: data };
+    await new Promise((resolve) => { setTimeout(resolve, Math.min(1500 + attempt * 250, 5000)); });
+  }
+  return { job: null, detail: null };
 }
 
 /** Provenance approval: every checklist item, and the scan acknowledgement unless the scan was clean. */
