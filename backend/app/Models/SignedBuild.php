@@ -6,6 +6,7 @@ use App\Enums\SignedBuildStatus;
 use App\Models\Concerns\HasPublicId;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
@@ -22,6 +23,8 @@ use Illuminate\Support\Carbon;
  * @property string|null $storage_path
  * @property array<string, mixed>|null $signing_report
  * @property Carbon|null $expires_at
+ * @property Carbon|null $last_used_at
+ * @property Carbon|null $purged_at
  */
 class SignedBuild extends Model
 {
@@ -34,7 +37,7 @@ class SignedBuild extends Model
 
     protected $fillable = [
         'artifact_id', 'device_id', 'signing_profile_id', 'certificate_id', 'status', 'status_reason',
-        'sha256', 'size_bytes', 'storage_path', 'signing_report', 'signed_at', 'verified_at', 'expires_at',
+        'sha256', 'size_bytes', 'storage_path', 'signing_report', 'signed_at', 'verified_at', 'expires_at', 'last_used_at',
     ];
 
     protected function casts(): array
@@ -46,6 +49,8 @@ class SignedBuild extends Model
             'signed_at' => 'datetime',
             'verified_at' => 'datetime',
             'expires_at' => 'datetime',
+            'last_used_at' => 'datetime',
+            'purged_at' => 'datetime',
         ];
     }
 
@@ -83,6 +88,22 @@ class SignedBuild extends Model
         return $certificate === null
             ? $this->certificate_id === null
             : $certificate->status === 'ACTIVE' && ($certificate->expires_at === null || $certificate->expires_at->isFuture());
+    }
+
+    /** Marks the build as wanted, so it is not reclaimed as idle (StorageJanitor). At most once a minute. */
+    public function markUsed(): void
+    {
+        if ($this->last_used_at === null || $this->last_used_at->lt(now()->subMinute())) {
+            $this->forceFill(['last_used_at' => now()])->saveQuietly();
+        }
+    }
+
+    /**
+     * @return HasMany<Installation, $this>
+     */
+    public function installations(): HasMany
+    {
+        return $this->hasMany(Installation::class);
     }
 
     /**

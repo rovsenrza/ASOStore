@@ -15,6 +15,7 @@ use App\Models\PipelineJob;
 use App\Models\Runner;
 use App\Models\SignedBuild;
 use App\Services\Artifacts\ArtifactFileCache;
+use App\Services\Artifacts\LocalArtifactFile;
 use App\Services\Audit\Actor;
 use App\Services\Installations\InstallationService;
 use App\Services\Pipeline\PipelineJobService;
@@ -67,11 +68,13 @@ class SigningService
                 if ($priority === 0) {
                     $this->promote($existing);
                 }
+                // Keeps a build that is still wanted from being reclaimed as idle (StorageJanitor).
+                $existing->forceFill(['last_used_at' => now()])->save();
 
                 return $existing;
             }
 
-            $build = SignedBuild::create(['artifact_id' => $artifact->id, 'device_id' => $device->id]);
+            $build = SignedBuild::create(['artifact_id' => $artifact->id, 'device_id' => $device->id, 'last_used_at' => now()]);
             $job = $this->jobs->create(PrepareSigningJob::TYPE, 'prepare-signing:'.$build->public_id, $build, [
                 'signed_build_id' => $build->public_id,
                 'artifact_id' => $artifact->public_id,
@@ -254,26 +257,29 @@ class SigningService
 
         $context = hash_init('sha256');
         $size = 0;
-        $temporary = tmpfile() ?: throw new RuntimeException('No temporary file available.');
-        while (! feof($body)) {
-            $chunk = fread($body, 1024 * 1024);
-            if ($chunk === false || $chunk === '') {
-                break;
-            }
-            hash_update($context, $chunk);
-            $size += strlen($chunk);
-            fwrite($temporary, $chunk);
-        }
-        rewind($temporary);
-        $sha256 = hash_final($context);
+        $temporaryPath = LocalArtifactFile::temporaryPath('signed');
+        $temporary = fopen($temporaryPath, 'w+b') ?: throw new RuntimeException('No temporary file available.');
         try {
+            while (! feof($body)) {
+                $chunk = fread($body, 1024 * 1024);
+                if ($chunk === false || $chunk === '') {
+                    break;
+                }
+                hash_update($context, $chunk);
+                $size += strlen($chunk);
+                fwrite($temporary, $chunk);
+            }
+            rewind($temporary);
+            $sha256 = hash_final($context);
             $disk = Storage::disk('artifacts');
             $disk->put($path, $temporary);
             app(ArtifactFileCache::class)->store($disk, $path, $sha256, $size, $temporary);
         } finally {
             fclose($temporary);
+            @unlink($temporaryPath);
         }
-        $build->forceFill(['storage_path' => $path, 'sha256' => $sha256, 'size_bytes' => $size])->save();
+        // A retried build may have had an earlier file reclaimed; this one is live again.
+        $build->forceFill(['storage_path' => $path, 'sha256' => $sha256, 'size_bytes' => $size, 'purged_at' => null, 'last_used_at' => now()])->save();
         $this->jobs->extendLease($job, self::LEASE_SECONDS);
 
         return ['sha256' => $sha256, 'size_bytes' => $size];

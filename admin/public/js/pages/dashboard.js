@@ -57,7 +57,7 @@ async function loadMetrics() {
     }
     const format = (metric) => {
       if (metric.name.endsWith('_rate')) return `${Math.round(metric.value * 1000) / 10} %`;
-      if (metric.name === 'artifact_storage_bytes') return `${(metric.value / 1024 ** 3).toFixed(2)} ГБ`;
+      if (metric.name.endsWith('_bytes')) return `${(metric.value / 1024 ** 3).toFixed(2)} ГБ`;
       return String(Math.round(metric.value * 10) / 10);
     };
     list.replaceChildren(...data.map((metric) => {
@@ -75,6 +75,28 @@ async function loadMetrics() {
   }
 }
 
+// Signed builds are per-device copies; the server removes idle ones every ten minutes.
+async function loadStorage() {
+  if (!can('jobs.view')) return;
+  const widget = document.querySelector('#widget-storage');
+  widget.hidden = false;
+  const value = widget.querySelector('.value');
+  const gb = (bytes) => `${(bytes / 1024 ** 3).toFixed(1).replace('.', ',')} ГБ`;
+  try {
+    const { data } = await api.get('/admin/storage');
+    const { bytes, budget_bytes: budget, by_kind: kinds } = data.signed_builds;
+    value.textContent = `${gb(bytes)} из ${gb(budget)}`;
+    widget.querySelector('progress').value = budget ? Math.min(100, Math.round((bytes / budget) * 100)) : 0;
+    widget.querySelector('[data-storage-kinds]').textContent = `Подготовлено заранее: ${kinds.warm.count} · ждут установки: ${kinds.ready.count} · установлено: ${kinds.delivered.count}`;
+    const lastRun = data.last_run ? ` · очистка ${new Date(data.last_run.at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : '';
+    widget.querySelector('[data-storage-other]').textContent = `Оригиналы: ${gb(data.originals.bytes)} · диск свободен: ${gb(data.disk.free_bytes)}${lastRun}`;
+  } catch (error) {
+    value.replaceChildren(statusBadge('failed', t('status.failed')));
+    widget.querySelector('[data-storage-kinds]').textContent = t.error(error);
+  }
+}
+
 loadHealth();
 loadQuota();
+loadStorage();
 loadMetrics();

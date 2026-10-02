@@ -2859,6 +2859,27 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
 
+  /admin/storage:
+    get:
+      tags: [Admin]
+      operationId: adminGetStorage
+      summary: Storage use and the signed-build budget
+      description: >-
+        Requires jobs.view. Signed builds (per-device delivery copies) by kind — prepared ahead
+        and never asked for (warm), waiting for the install tap (ready), installed (delivered) —
+        against their budget; originals; free disk; the private file cache; and the summary of
+        the last StorageJanitor run, which removes idle builds every ten minutes.
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SuccessEnvelope" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
   /admin/support-tickets:
     get:
       tags: [Admin]

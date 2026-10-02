@@ -20,7 +20,7 @@ it('collects every FULL_PLAN metric and shows the latest values to operators', f
     expect(array_keys($metrics))->toBe([
         'api_request_duration', 'api_error_rate', 'device_registration_success_rate', 'apple_api_429_count',
         'artifact_inspection_failures', 'signing_success_rate', 'install_authorization_success_rate',
-        'queue_depth', 'artifact_storage_bytes', 'quota_remaining_by_team_family',
+        'queue_depth', 'artifact_storage_bytes', 'signed_build_bytes', 'quota_remaining_by_team_family',
     ])->and($metrics['api_error_rate'])->toBe(0.0)
         ->and(MetricSnapshot::where('name', 'api_request_duration')->count())->toBe(1);
 

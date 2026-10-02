@@ -32,6 +32,8 @@
         <env name="DB_DATABASE" value="storefront_test"/>
         <env name="STOREFRONT_APPLE_DRIVER" value="fake"/>
         <env name="STOREFRONT_APPLE_FAKE_PROCESSING_SECONDS" value="0"/>
+        <!-- The free-space guard is tested explicitly; the host's own disk must not decide other tests. -->
+        <env name="STOREFRONT_MIN_FREE_DISK_RATIO" value="0"/>
         <env name="STOREFRONT_UDID_HMAC_KEY" value="dGVzdC1vbmx5LXVkaWQtaG1hYy1rZXktMzItYnl0ZXM="/>
         <env name="DB_URL" value=""/>
         <env name="MAIL_MAILER" value="array"/>

@@ -132,10 +132,38 @@ return [
         'warmup_popular_limit' => (int) env('STOREFRONT_SIGNING_WARMUP_POPULAR_LIMIT', 3),
     ],
 
+    /*
+    | A signed build is a per-device delivery copy of a published IPA: it can always be
+    | signed again from the original. StorageJanitor removes idle ones so object storage
+    | and the local disk do not fill up as devices × apps grow.
+    */
+    'build_storage' => [
+        // Hard ceiling for all signed builds together; the least recently used go first.
+        'budget_bytes' => (int) ((float) env('STOREFRONT_SIGNED_BUILD_BUDGET_GB', 30) * 1024 ** 3),
+        // Idle time before removal: prepared ahead and never asked for / installed / waiting for the tap.
+        'warm_idle_hours' => (int) env('STOREFRONT_WARM_BUILD_IDLE_HOURS', 12),
+        'delivered_idle_hours' => (int) env('STOREFRONT_DELIVERED_BUILD_IDLE_HOURS', 24),
+        'ready_idle_hours' => (int) env('STOREFRONT_READY_BUILD_IDLE_HOURS', 72),
+        // A build used this recently is never removed, not even over budget (a download may be running).
+        'in_use_minutes' => 30,
+        // Speculative builds stop above this share of the budget, or past this many per device.
+        'warmup_budget_ratio' => 0.7,
+        'warm_builds_per_device' => (int) env('STOREFRONT_WARM_BUILDS_PER_DEVICE', 5),
+        // Originals of superseded versions are kept this long for a rollback, then removed.
+        'superseded_original_days' => (int) env('STOREFRONT_SUPERSEDED_ORIGINAL_DAYS', 14),
+        // Local caches and speculative builds stop below this share of free disk space.
+        'min_free_disk_ratio' => (float) env('STOREFRONT_MIN_FREE_DISK_RATIO', 0.15),
+        // Private temporary copies of IPAs; anything older than the stale age was left by a killed worker.
+        'temp_path' => storage_path('app/private/tmp'),
+        'temp_stale_hours' => 6,
+    ],
+
     // Defaults until the retention decision (IMPLEMENTATION_PLAN §10 Q8).
     'retention' => [
         'upload_session_hours' => (int) env('STOREFRONT_RETENTION_UPLOAD_HOURS', 24),
         'rejected_artifact_days' => (int) env('STOREFRONT_RETENTION_REJECTED_ARTIFACT_DAYS', 90),
+        // Signed builds that can no longer be installed lose their file within the hour
+        // (StorageJanitor); this is the fallback for a build it could not reach.
         'signed_build_days' => (int) env('STOREFRONT_RETENTION_SIGNED_BUILD_DAYS', 30),
         'installation_event_days' => (int) env('STOREFRONT_RETENTION_INSTALLATION_EVENT_DAYS', 365),
     ],

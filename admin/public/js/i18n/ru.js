@@ -376,6 +376,7 @@ export default {
       install_authorization_success_rate: 'Завершённые установки',
       queue_depth: 'Задач в очереди',
       artifact_storage_bytes: 'Объём хранилища',
+      signed_build_bytes: 'Подписанные сборки',
       quota_remaining_by_team_family: 'Свободно мест',
     },
   },

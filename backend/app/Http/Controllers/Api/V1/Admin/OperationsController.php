@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\SupportTicket;
 use App\Models\User;
+use App\Services\Artifacts\StorageJanitor;
 use App\Services\Audit\AuditService;
 use App\Services\Operations\MetricsCollector;
 use App\Services\Privacy\AccountDataService;
@@ -20,6 +21,12 @@ class OperationsController extends Controller
     public function metrics(MetricsCollector $metrics): JsonResponse
     {
         return ApiResponse::ok($metrics->latest());
+    }
+
+    /** Where the bytes are: signed builds against their budget, originals, disk and cache. */
+    public function storage(StorageJanitor $janitor): JsonResponse
+    {
+        return ApiResponse::ok($janitor->report());
     }
 
     public function tickets(Request $request): JsonResponse

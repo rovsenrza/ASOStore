@@ -60,11 +60,21 @@ class InstallationService
                 ->get();
 
             foreach ($active as $installation) {
-                if ($installation->artifact_id === $artifact->id) {
+                if ($installation->artifact_id !== $artifact->id) {
+                    // A newer build was published meanwhile: the old attempt is replaced.
+                    $this->states->transition($installation, InstallationStatus::Failed, 'Superseded by a newer build.', Actor::user($user), extra: ['status_reason' => 'SUPERSEDED']);
+
+                    continue;
+                }
+                if ($this->resumable($installation)) {
+                    $installation->signedBuild?->markUsed();
+
                     return $installation;
                 }
-                // A newer build was published meanwhile: the old attempt is replaced.
-                $this->states->transition($installation, InstallationStatus::Failed, 'Superseded by a newer build.', Actor::user($user), extra: ['status_reason' => 'SUPERSEDED']);
+                // Its signed build is gone (reclaimed as idle, revoked): this attempt ends and a new one starts.
+                $this->states->transition($installation, $installation->status === InstallationStatus::Preparing ? InstallationStatus::Failed : InstallationStatus::Expired,
+                    'Signed build is no longer available.', Actor::user($user), extra: ['status_reason' => 'BUILD_EXPIRED']);
+                $this->event($installation, 'EXPIRED', ['reason' => 'BUILD_EXPIRED']);
             }
 
             $build = $this->signing->requestBuild($artifact, $device);
@@ -123,6 +133,7 @@ class InstallationService
                 throw new ApiException(ErrorCode::ArtifactNotInstallable, details: ['status' => $installation->status->value]);
             }
             $this->assertInstallable($installation);
+            $installation->signedBuild?->markUsed();
 
             if ($installation->status !== InstallationStatus::ReadyToInstall) {
                 // A new link replaces the previous one.
@@ -208,6 +219,8 @@ class InstallationService
         if (! in_array($installation->status, [InstallationStatus::ManifestFetched, InstallationStatus::Delivered], true)) {
             throw new ApiException(ErrorCode::InstallTokenExpired);
         }
+        // A running download keeps its file from being reclaimed (StorageJanitor).
+        $installation->signedBuild?->markUsed();
 
         return (string) $installation->signedBuild?->storage_path;
     }
@@ -254,6 +267,23 @@ class InstallationService
         foreach ($waiting as $installation) {
             $this->states->transition($installation, InstallationStatus::Failed, $reason, Actor::system('signing'), extra: ['status_reason' => $reason]);
             $this->event($installation, 'FAILED', ['reason' => $reason]);
+        }
+    }
+
+    /**
+     * An idle build's file was reclaimed: installations still waiting for the tap end,
+     * and the next tap prepares a new build (the client offers «Получить» again).
+     */
+    public function buildReclaimed(SignedBuild $build, string $reason): void
+    {
+        $waiting = Installation::query()
+            ->where('signed_build_id', $build->id)
+            ->whereIn('status', [InstallationStatus::ReadyToInstall->value, InstallationStatus::Authorized->value, InstallationStatus::ManifestFetched->value])
+            ->get();
+
+        foreach ($waiting as $installation) {
+            $this->states->transition($installation, InstallationStatus::Expired, 'Signed build reclaimed while idle.', Actor::system('storage'), extra: ['status_reason' => $reason]);
+            $this->event($installation, 'EXPIRED', ['reason' => $reason]);
         }
     }
 
@@ -321,6 +351,19 @@ class InstallationService
             'created_at' => $installation->created_at?->toIso8601ZuluString(),
             'updated_at' => $installation->updated_at?->toIso8601ZuluString(),
         ];
+    }
+
+    /** Can this unfinished installation still reach a download with its own build? */
+    private function resumable(Installation $installation): bool
+    {
+        $build = $installation->signedBuild;
+        if ($build === null) {
+            return false;
+        }
+
+        return $installation->status === InstallationStatus::Preparing
+            ? in_array($build->status, [SignedBuildStatus::SigningPending, SignedBuildStatus::Signing, SignedBuildStatus::Signed, SignedBuildStatus::SignatureVerified, SignedBuildStatus::Deliverable], true)
+            : $build->isDeliverable();
     }
 
     private function markReady(Installation $installation): void

@@ -54,7 +54,7 @@ function concrete(string $uri): string
 }
 
 it('covers every admin route', function () {
-    expect(adminRoutes())->toHaveCount(72);
+    expect(adminRoutes())->toHaveCount(73);
 });
 
 it('turns away guests and customers on every admin route', function () {

@@ -57,6 +57,8 @@ class MetricsCollector
                 + DB::table('jobs')->count()),
             'artifact_storage_bytes' => (float) (AppArtifact::query()->whereNull('purged_at')->sum('size_bytes')
                 + SignedBuild::query()->whereNull('purged_at')->whereNotNull('storage_path')->sum('size_bytes')),
+            // Per-device copies; StorageJanitor keeps them under their budget.
+            'signed_build_bytes' => (float) SignedBuild::query()->whereNull('purged_at')->whereNotNull('storage_path')->sum('size_bytes'),
             'quota_remaining_by_team_family' => $this->quotaRemaining(),
         ];
 

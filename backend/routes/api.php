@@ -181,6 +181,7 @@ Route::prefix('admin')->name('api.admin.')->group(function () {
         Route::post('/quota-assignments/{assignment}/approve', [TeamAssignmentController::class, 'approve'])->can('teams.manage')->middleware('idempotent')->name('quota-assignments.approve');
         Route::post('/quota-assignments/{assignment}/reject', [TeamAssignmentController::class, 'reject'])->can('teams.manage')->middleware('idempotent')->name('quota-assignments.reject');
         Route::get('/metrics', [OperationsController::class, 'metrics'])->can('jobs.view')->name('metrics');
+        Route::get('/storage', [OperationsController::class, 'storage'])->can('jobs.view')->name('storage');
         Route::get('/support-tickets', [OperationsController::class, 'tickets'])->can('users.view')->name('support-tickets.index');
         Route::post('/support-tickets/{ticket}/close', [OperationsController::class, 'closeTicket'])->can('users.view')->name('support-tickets.close');
         Route::post('/users/{user}/erase', [OperationsController::class, 'erase'])->can('users.manage')->middleware('idempotent')->name('users.erase');

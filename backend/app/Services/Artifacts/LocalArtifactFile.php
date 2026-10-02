@@ -25,18 +25,47 @@ final class LocalArtifactFile
             return new self($disk->path($relative), false);
         }
 
-        $path = tempnam(sys_get_temp_dir(), 'ipa');
+        $path = self::temporaryPath('ipa');
         $source = $disk->readStream($relative);
-        if ($path === false || $source === null) {
+        if ($source === null) {
+            @unlink($path);
             throw new RuntimeException('The artifact file cannot be read.');
         }
-        chmod($path, 0600);
         $target = fopen($path, 'wb');
-        stream_copy_to_stream($source, $target);
-        fclose($source);
-        fclose($target);
+        try {
+            if ($target === false || stream_copy_to_stream($source, $target) === false) {
+                throw new RuntimeException('The artifact file cannot be copied.');
+            }
+        } catch (\Throwable $exception) {
+            @unlink($path);
+            throw $exception;
+        } finally {
+            fclose($source);
+            if (is_resource($target)) {
+                fclose($target);
+            }
+        }
 
         return new self($path, true);
+    }
+
+    /**
+     * A new private file for a temporary IPA copy. They live in one directory, so a copy
+     * left behind by a killed worker is found and removed (StorageJanitor).
+     */
+    public static function temporaryPath(string $prefix): string
+    {
+        $directory = (string) config('storefront.build_storage.temp_path', storage_path('app/private/tmp'));
+        if (! is_dir($directory) && ! @mkdir($directory, 0700, true) && ! is_dir($directory)) {
+            throw new RuntimeException('The temporary directory cannot be created.');
+        }
+        $path = tempnam($directory, $prefix);
+        if ($path === false) {
+            throw new RuntimeException('No temporary file available.');
+        }
+        chmod($path, 0600);
+
+        return $path;
     }
 
     public function release(): void

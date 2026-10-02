@@ -43,6 +43,8 @@ class InstallDeliveryController extends Controller
 
     public function download(Request $request, string $installation): SymfonyResponse
     {
+        // Unbuffered by nginx, the response lasts as long as the phone takes to receive it.
+        set_time_limit(0);
         $model = Installation::query()->where('public_id', strtolower($installation))->first();
 
         if (! $request->hasValidSignature()) {

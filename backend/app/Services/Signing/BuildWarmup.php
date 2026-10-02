@@ -7,6 +7,7 @@ use App\Jobs\WarmBuildJob;
 use App\Models\CatalogApp;
 use App\Models\Certificate;
 use App\Models\Device;
+use App\Services\Artifacts\StorageJanitor;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Cache;
 
@@ -58,6 +59,8 @@ final class BuildWarmup
             && Certificate::query()->where('apple_team_id', $device->latestRegistration->apple_team_id)
                 ->where('status', 'ACTIVE')->whereNotNull('runner_id')
                 ->where(fn (Builder $query) => $query->whereNull('expires_at')->orWhere('expires_at', '>', now()->addDay()))
-                ->exists();
+                ->exists()
+            // Speculative builds must not be what fills the storage.
+            && app(StorageJanitor::class)->allowsWarmup($device);
     }
 }
