@@ -28,6 +28,7 @@
 static NSArray<NSString *> *gRealGroups;      // App Groups this signature actually holds.
 static NSString *gPrimaryGroup;               // The one we map missing groups to.
 static NSString *gTeamPrefix;                 // "<TEAMID>." from application-identifier.
+static NSSet<NSString *> *gKeychainGroups;    // Keychain groups this signature literally holds.
 static NSString *gOriginalBundleID;           // Vendor's bundle ID, when the signer recorded it.
 static NSBundle *gMainBundle;
 static NSDictionary *gSpoofedInfo;
@@ -91,15 +92,19 @@ static id rs_initWithSuite(id self, SEL _cmd, NSString *suite) {
 
 #pragma mark - Keychain access groups
 
-// The app shares keychain items under the vendor's team prefix, which we do not
-// own. Drop a foreign access group from the query so the item uses our default
-// group; keep it when it is already under our team.
+// The app shares keychain items under groups the vendor's signature held (its own
+// team prefix, or ours plus a name like "<TEAM>.ru.yandex.mobile.auth" that it
+// builds at runtime). iOS matches access groups against the entitlement as exact
+// strings, and ours is the literal "<TEAM>.*", so any such group fails with
+// errSecMissingEntitlement. Drop every group we do not literally hold, so the item
+// lands in our default group.
 static CFDictionaryRef RSRewriteQuery(CFDictionaryRef query) {
     if (query == NULL) return NULL;
     NSDictionary *q = (__bridge NSDictionary *)query;
     id group = q[(__bridge id)kSecAttrAccessGroup];
     if (![group isKindOfClass:NSString.class]) return NULL;
-    if (gTeamPrefix != nil && [(NSString *)group hasPrefix:gTeamPrefix]) return NULL;
+    if ([gKeychainGroups containsObject:group]) return NULL;
+    RSLog(@"keychain group %@ -> default", group);
     NSMutableDictionary *rewritten = [q mutableCopy];
     [rewritten removeObjectForKey:(__bridge id)kSecAttrAccessGroup];
     return (CFDictionaryRef)CFBridgingRetain(rewritten);
@@ -110,9 +115,24 @@ static OSStatus (*orig_SecItemCopyMatching)(CFDictionaryRef, CFTypeRef *);
 static OSStatus (*orig_SecItemUpdate)(CFDictionaryRef, CFDictionaryRef);
 static OSStatus (*orig_SecItemDelete)(CFDictionaryRef);
 
+// Two groups the app keeps apart now share our default one, so a second add of
+// the same item reports a duplicate. The app means to store it: replace the old one.
+static OSStatus RSReplaceDuplicate(CFDictionaryRef rewritten, CFTypeRef *result) {
+    NSDictionary *q = (__bridge NSDictionary *)rewritten;
+    NSMutableDictionary *match = [NSMutableDictionary dictionary];
+    for (id key in @[(__bridge id)kSecClass, (__bridge id)kSecAttrService, (__bridge id)kSecAttrAccount,
+                     (__bridge id)kSecAttrServer, (__bridge id)kSecAttrSynchronizable]) {
+        if (q[key] != nil) match[key] = q[key];
+    }
+    if (match.count < 2) return errSecDuplicateItem; // too vague to delete safely
+    orig_SecItemDelete((__bridge CFDictionaryRef)match);
+    return orig_SecItemAdd(rewritten, result);
+}
+
 static OSStatus rs_SecItemAdd(CFDictionaryRef query, CFTypeRef *result) {
     CFDictionaryRef r = RSRewriteQuery(query);
     OSStatus status = orig_SecItemAdd(r ?: query, result);
+    if (r && status == errSecDuplicateItem) status = RSReplaceDuplicate(r, result);
     if (r) CFRelease(r);
     return status;
 }
@@ -185,6 +205,12 @@ static void RuStoreCompatInit(void) {
             NSRange dot = [appID rangeOfString:@"."];
             if (dot.location != NSNotFound) gTeamPrefix = [appID substringToIndex:dot.location + 1];
         }
+        NSMutableSet *keychainGroups = [NSMutableSet set];
+        id declared = RSEntitlement(@"keychain-access-groups");
+        if ([declared isKindOfClass:NSArray.class]) [keychainGroups addObjectsFromArray:declared];
+        if ([appID isKindOfClass:NSString.class]) [keychainGroups addObject:appID];
+        [keychainGroups addObjectsFromArray:gRealGroups];
+        gKeychainGroups = [keychainGroups copy];
         gMainBundle = NSBundle.mainBundle;
         id original = [gMainBundle objectForInfoDictionaryKey:@"RuStoreOriginalBundleIdentifier"];
         if ([original isKindOfClass:NSString.class] && [(NSString *)original length] > 0
