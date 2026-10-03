@@ -12,9 +12,13 @@ final class InstallationCoordinator {
     /// Latest server state per app ID, for installations started or resumed here.
     private(set) var installations: [String: InstallationDTO] = [:]
     private(set) var lastError: APIError?
+    /// Ready-to-install rows the user cleared from the bell, kept per installation id so a freshly
+    /// prepared build notifies again. Observable so the bell badge and the list react to a clear.
+    private(set) var dismissedNotifications: Set<String>
 
     @ObservationIgnored private let repository: PreparationRepository
     @ObservationIgnored private let store: ActiveInstallationStore
+    @ObservationIgnored private let dismissedStore: DismissedNotificationsStore
     @ObservationIgnored private let openURL: @MainActor (URL) async -> Bool
     @ObservationIgnored private let pollDelay: @Sendable (Int) -> Duration
     @ObservationIgnored private var polls: [String: Task<Void, Never>] = [:]
@@ -25,13 +29,41 @@ final class InstallationCoordinator {
     init(
         repository: PreparationRepository,
         store: ActiveInstallationStore = .shared,
+        dismissedStore: DismissedNotificationsStore = .shared,
         openURL: @escaping @MainActor (URL) async -> Bool,
         pollDelay: @escaping @Sendable (Int) -> Duration = { attempt in .seconds(min(1 + attempt, 5)) }
     ) {
         self.repository = repository
         self.store = store
+        self.dismissedStore = dismissedStore
         self.openURL = openURL
         self.pollDelay = pollDelay
+        dismissedNotifications = dismissedStore.load()
+    }
+
+    /// Ready-to-install notifications still showing in the bell (cleared ones excluded).
+    var pendingNotifications: [InstallationDTO] {
+        installations.values
+            .filter { $0.status == "READY_TO_INSTALL" && !dismissedNotifications.contains($0.id) }
+    }
+
+    func isNotificationDismissed(_ id: String) -> Bool {
+        dismissedNotifications.contains(id)
+    }
+
+    /// Swipe-to-clear a single ready notification.
+    func dismissNotification(_ id: String) {
+        guard dismissedNotifications.insert(id).inserted else { return }
+        dismissedStore.save(dismissedNotifications)
+    }
+
+    /// Clear-all: hide every ready notification currently shown.
+    func clearNotifications(_ ids: some Sequence<String>) {
+        let before = dismissedNotifications.count
+        dismissedNotifications.formUnion(ids)
+        if dismissedNotifications.count != before {
+            dismissedStore.save(dismissedNotifications)
+        }
     }
 
     /// The CTA state for an app: a live installation known here wins over the
@@ -168,6 +200,23 @@ final class InstallationCoordinator {
                 self.schedulePoll(id, appID: appID, attempt: attempt + 1)
             }
         }
+    }
+}
+
+/// Notification rows the user cleared from the bell, in UserDefaults so a clear sticks across launches.
+nonisolated struct DismissedNotificationsStore: Sendable {
+    static let shared = DismissedNotificationsStore()
+
+    private let key = "dismissedNotificationIDs"
+    private let limit = 300
+
+    func load() -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
+    }
+
+    func save(_ ids: Set<String>) {
+        // Bound the stored set so it cannot grow without limit over the life of the install.
+        UserDefaults.standard.set(Array(ids.suffix(limit)), forKey: key)
     }
 }
 

@@ -12,66 +12,82 @@ struct AppDetailView: View {
     @State private var headerHidden = false
     @State private var viewer: ScreenshotSelection?
     @Namespace private var screenshotZoom
+    @Environment(\.dismiss) private var dismiss
 
     init(app: StoreApp) {
         _app = State(initialValue: app)
     }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                if app.featureImageURL != nil {
-                    StretchyBanner(url: app.featureImageURL)
-                }
-                VStack(alignment: .leading, spacing: 28) {
-                    if isStale {
-                        StaleDataBanner()
+        // A root GeometryReader reads the real top safe-area inset; the scroll content then
+        // ignores it, so the banner bleeds up under the status bar/notch like the App Store.
+        GeometryReader { proxy in
+            let topInset = proxy.safeAreaInsets.top
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    if app.featureImageURL != nil {
+                        StretchyBanner(url: app.featureImageURL, topInset: topInset)
+                    } else {
+                        // No banner: keep the header clear of the notch.
+                        Color.clear.frame(height: topInset + 8)
                     }
-                    appHeader
-                    if let loadError {
-                        errorNotice(loadError)
+                    VStack(alignment: .leading, spacing: 28) {
+                        if isStale {
+                            StaleDataBanner()
+                        }
+                        appHeader
+                        if let loadError {
+                            errorNotice(loadError)
+                        }
+                        facts
+                        screenshots
+                        about
+                        whatsNew
+                        information
                     }
-                    facts
-                    screenshots
-                    about
-                    whatsNew
-                    information
-                }
-                .padding(.horizontal, AppSpacing.standard)
-                .padding(.top, app.featureImageURL == nil ? 8 : -44)
-                .padding(.bottom, 40)
-            }
-        }
-        .background(AppPalette.canvas)
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-            // Past the header's install button (the banner, when there is one, sits above it).
-            geometry.contentOffset.y + geometry.contentInsets.top > 190 + (app.featureImageURL == nil ? 0 : StretchyBanner.height - 44)
-        } action: { _, hidden in
-            withAnimation(Motion.state) { headerHidden = hidden }
-        }
-        .safeAreaInset(edge: .bottom) {
-            if headerHidden {
-                InstallBar(app: app)
                     .padding(.horizontal, AppSpacing.standard)
-                    .padding(.bottom, 6)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .padding(.top, app.featureImageURL == nil ? 8 : -44)
+                    .padding(.bottom, 40)
+                }
             }
-        }
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                AppIconView(app: app, size: 30)
-                    .opacity(headerHidden ? 1 : 0)
-                    .scaleEffect(headerHidden ? 1 : 0.6)
-                    .accessibilityLabel(app.name)
+            .ignoresSafeArea(edges: .top)
+            .scrollIndicators(.hidden)
+            .background(AppPalette.canvas)
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                // Past the header's install button (the banner, when there is one, sits above it).
+                geometry.contentOffset.y + geometry.contentInsets.top > 190 + (app.featureImageURL == nil ? 0 : StretchyBanner.height - 44)
+            } action: { _, hidden in
+                withAnimation(Motion.state) { headerHidden = hidden }
             }
+            .safeAreaInset(edge: .bottom) {
+                if headerHidden {
+                    InstallBar(app: app)
+                        .padding(.horizontal, AppSpacing.standard)
+                        .padding(.bottom, 6)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            // Full-bleed banner: hide the system bar and float a glass back button over the artwork.
+            .toolbar(.hidden, for: .navigationBar)
+            .overlay(alignment: .topLeading) {
+                Button { dismiss() } label: {
+                    Image(systemName: "chevron.backward")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                        .glassCircle()
+                }
+                .padding(.top, topInset)
+                .padding(.leading, 12)
+                .accessibilityLabel("Назад")
+            }
+            .fullScreenCover(item: $viewer) { selection in
+                ScreenshotViewer(urls: app.screenshots, selection: selection.index)
+                    .navigationTransition(.zoom(sourceID: selection.index, in: screenshotZoom))
+            }
+            .task { await load() }
+            .refreshable { await load() }
         }
-        .fullScreenCover(item: $viewer) { selection in
-            ScreenshotViewer(urls: app.screenshots, selection: selection.index)
-                .navigationTransition(.zoom(sourceID: selection.index, in: screenshotZoom))
-        }
-        .task { await load() }
-        .refreshable { await load() }
     }
 
     private func load() async {
@@ -342,13 +358,15 @@ struct AppDetailView: View {
 /// The banner above the header. Pulling down stretches it instead of showing a gap.
 private struct StretchyBanner: View {
     let url: URL?
+    /// The top safe-area inset the artwork extends up through, so it reaches the notch.
+    var topInset: CGFloat = 0
     static let height = 196.0
 
     var body: some View {
         GeometryReader { proxy in
             let pull = max(0, proxy.frame(in: .scrollView).minY)
             ScreenshotImage(url: url)
-                .frame(width: proxy.size.width, height: Self.height + pull)
+                .frame(width: proxy.size.width, height: Self.height + topInset + pull)
                 .clipped()
                 .overlay {
                     // The header below sits on the canvas: fade the artwork into it.
@@ -356,7 +374,7 @@ private struct StretchyBanner: View {
                 }
                 .offset(y: -pull)
         }
-        .frame(height: Self.height)
+        .frame(height: Self.height + topInset)
         .accessibilityHidden(true)
     }
 }

@@ -40,8 +40,8 @@ struct StoreHeader: View {
         .padding(.horizontal, AppSpacing.standard)
     }
 
-    /// Installations ready to install: the only notifications the app has.
+    /// Installations ready to install and not cleared from the bell: the only notifications the app has.
     private var pending: Int {
-        installations?.installations.values.filter { $0.status == "READY_TO_INSTALL" }.count ?? 0
+        installations?.pendingNotifications.count ?? 0
     }
 }
