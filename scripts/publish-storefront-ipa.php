@@ -35,8 +35,16 @@ require __DIR__.'/../backend/vendor/autoload.php';
 $app = require __DIR__.'/../backend/bootstrap/app.php';
 $app->make(Kernel::class)->bootstrap();
 
-$options = getopt('', ['team:', 'bundle:'], $rest);
-$source = $argv[$rest] ?? '';
+// Options may come before or after the file (getopt stops at the first plain argument).
+$options = [];
+$source = '';
+foreach (array_slice($argv, 1) as $argument) {
+    if (preg_match('/^--(team|bundle)=(.+)$/', $argument, $match) === 1) {
+        $options[$match[1]] = $match[2];
+    } elseif (! str_starts_with($argument, '--')) {
+        $source = $argument;
+    }
+}
 if (! is_file($source)) {
     fwrite(STDERR, "Usage: php scripts/publish-storefront-ipa.php /path/to/RuAppStore.ipa [--team=TEAMID --bundle=com.ruappstore.appN]\n");
     exit(2);
