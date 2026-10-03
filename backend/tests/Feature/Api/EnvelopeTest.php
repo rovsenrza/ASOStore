@@ -75,3 +75,9 @@ it('hides internal error details when debug is off', function () {
     $response->assertStatus(500)->assertJsonPath('error.code', 'INTERNAL');
     expect($response->getContent())->not->toContain('hunter2');
 });
+
+it('answers an unauthenticated API call with the 401 envelope even without Accept: application/json', function () {
+    $this->get('/api/v1/imports')
+        ->assertStatus(401)
+        ->assertJsonPath('error.code', 'UNAUTHENTICATED');
+});

@@ -12,6 +12,7 @@ use App\Http\Middleware\VerifyWorkerSignature;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Support\Facades\Route;
 
@@ -38,6 +39,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // Same-origin browser requests get session cookies + CSRF (Sanctum SPA, IMPLEMENTATION_PLAN D2).
         $middleware->statefulApi();
         $middleware->throttleApi();
+        // There is no named login route: API callers get the 401 envelope (ApiExceptionRenderer)
+        // whatever they Accept, and a browser on a server page goes to the portal's sign-in.
+        $middleware->redirectGuestsTo(fn (Request $request) => $request->is('api/*') ? null : '/login.html');
         $middleware->alias([
             'active' => EnsureAccountActive::class,
             'staff' => RequireStaffSession::class,
