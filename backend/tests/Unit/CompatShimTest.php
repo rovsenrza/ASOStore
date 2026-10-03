@@ -61,6 +61,18 @@ it('ships a real fat arm64/arm64e dylib at the configured default path', functio
         ->and(strlen($bytes))->toBeGreaterThan(10000);
 });
 
+it('signs listed apps exactly as supplied, without the shim', function () {
+    $groups = ['com.apple.security.application-groups' => ['group.x']];
+    config(['storefront.signing.compat_shim.skip_bundle_ids' => ['com.yandex.fintech.*']]);
+    $shim = app(CompatShim::class);
+    $skipped = AppArtifact::factory()->make(['bundle_identifier' => 'com.yandex.fintech.bank-app', 'inspection' => ['entitlements' => $groups]]);
+    $other = AppArtifact::factory()->make(['bundle_identifier' => 'ru.vk.app', 'inspection' => ['entitlements' => $groups]]);
+
+    expect($shim->skipped($skipped))->toBeTrue()
+        ->and($shim->dylibsFor($skipped))->toBe([])
+        ->and($shim->dylibsFor($other))->toHaveCount(1);
+});
+
 it('keeps the vendor bundle ID only for listed apps that are signed under another one', function () {
     config(['storefront.signing.compat_shim.keep_bundle_ids' => ['ru.yandex.mobile.music', 'ru.kinopoisk.*']]);
     $shim = app(CompatShim::class);

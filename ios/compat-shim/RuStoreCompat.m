@@ -35,9 +35,23 @@ static NSDictionary *gSpoofedInfo;
 
 static void RSLog(NSString *format, ...) {
 #ifdef RUSTORE_COMPAT_DEBUG
+    // Also kept in the app's Library/Caches/RuStoreCompat.log, readable over USB without the system log.
+    static FILE *file;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Caches/RuStoreCompat.log"];
+        file = fopen(path.fileSystemRepresentation, "a");
+    });
     va_list args; va_start(args, format);
-    NSLogv([@"[RuStoreCompat] " stringByAppendingString:format], args);
+    NSString *line = [[NSString alloc] initWithFormat:format arguments:args];
     va_end(args);
+    NSLog(@"[RuStoreCompat] %@", line);
+    if (file != NULL) {
+        @synchronized (NSFileManager.class) {
+            fprintf(file, "%.3f %s\n", CFAbsoluteTimeGetCurrent(), line.UTF8String);
+            fflush(file);
+        }
+    }
 #else
     (void)format;
 #endif
@@ -129,28 +143,44 @@ static OSStatus RSReplaceDuplicate(CFDictionaryRef rewritten, CFTypeRef *result)
     return orig_SecItemAdd(rewritten, result);
 }
 
+// Debug builds trace every keychain call: which item, which group, and what iOS answered.
+static void RSTrace(const char *call, CFDictionaryRef query, BOOL rewritten, OSStatus status) {
+#ifdef RUSTORE_COMPAT_DEBUG
+    NSDictionary *q = (__bridge NSDictionary *)query;
+    RSLog(@"%s status=%d rewritten=%d class=%@ service=%@ account=%@ group=%@ accessible=%@ token=%@", call, (int)status,
+          rewritten, q[(__bridge id)kSecClass], q[(__bridge id)kSecAttrService], q[(__bridge id)kSecAttrAccount],
+          q[(__bridge id)kSecAttrAccessGroup], q[(__bridge id)kSecAttrAccessible], q[(__bridge id)kSecAttrTokenID]);
+#else
+    (void)call; (void)query; (void)rewritten; (void)status;
+#endif
+}
+
 static OSStatus rs_SecItemAdd(CFDictionaryRef query, CFTypeRef *result) {
     CFDictionaryRef r = RSRewriteQuery(query);
     OSStatus status = orig_SecItemAdd(r ?: query, result);
     if (r && status == errSecDuplicateItem) status = RSReplaceDuplicate(r, result);
+    RSTrace("add", query, r != NULL, status);
     if (r) CFRelease(r);
     return status;
 }
 static OSStatus rs_SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
     CFDictionaryRef r = RSRewriteQuery(query);
     OSStatus status = orig_SecItemCopyMatching(r ?: query, result);
+    RSTrace("copy", query, r != NULL, status);
     if (r) CFRelease(r);
     return status;
 }
 static OSStatus rs_SecItemUpdate(CFDictionaryRef query, CFDictionaryRef attributes) {
     CFDictionaryRef r = RSRewriteQuery(query);
     OSStatus status = orig_SecItemUpdate(r ?: query, attributes);
+    RSTrace("update", query, r != NULL, status);
     if (r) CFRelease(r);
     return status;
 }
 static OSStatus rs_SecItemDelete(CFDictionaryRef query) {
     CFDictionaryRef r = RSRewriteQuery(query);
     OSStatus status = orig_SecItemDelete(r ?: query);
+    RSTrace("delete", query, r != NULL, status);
     if (r) CFRelease(r);
     return status;
 }

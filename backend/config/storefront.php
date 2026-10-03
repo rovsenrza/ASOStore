@@ -151,6 +151,8 @@ return [
             // e.g. Yandex sign-in, which sends no SMS to an unknown app. They keep seeing their
             // original bundle ID inside the app (the shim answers with it); comma-separated.
             'keep_bundle_ids' => array_values(array_filter(array_map('trim', explode(',', (string) env('STOREFRONT_SIGNING_KEEP_BUNDLE_IDS', ''))))),
+            // Apps (same matching) signed exactly as supplied, with no shim; comma-separated.
+            'skip_bundle_ids' => array_values(array_filter(array_map('trim', explode(',', (string) env('STOREFRONT_SIGNING_COMPAT_SHIM_SKIP', ''))))),
         ],
     ],
 

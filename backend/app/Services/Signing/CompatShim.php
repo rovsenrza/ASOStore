@@ -33,12 +33,32 @@ class CompatShim
      */
     public function dylibsFor(AppArtifact $artifact): array
     {
-        if (! $this->enabled() || (! $this->needsShim($artifact) && $this->originalBundleFor($artifact) === null)) {
+        if (! $this->enabled() || $this->skipped($artifact)
+            || (! $this->needsShim($artifact) && $this->originalBundleFor($artifact) === null)) {
             return [];
         }
         $content = $this->encoded();
 
         return $content === null ? [] : [['name' => self::NAME, 'content' => $content]];
+    }
+
+    /**
+     * Apps signed exactly as supplied, without the shim (storefront.signing.compat_shim
+     * .skip_bundle_ids), e.g. a package that already carries its own sideload fix.
+     */
+    public function skipped(AppArtifact $artifact): bool
+    {
+        $bundle = $artifact->bundle_identifier;
+        if (! is_string($bundle)) {
+            return false;
+        }
+        foreach ((array) config('storefront.signing.compat_shim.skip_bundle_ids', []) as $pattern) {
+            if (is_string($pattern) && $pattern !== '' && fnmatch($pattern, $bundle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /** An app sharing through an App Group or a keychain group loses it on re-sign. */
