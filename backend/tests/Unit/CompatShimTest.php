@@ -60,3 +60,24 @@ it('ships a real fat arm64/arm64e dylib at the configured default path', functio
     expect(bin2hex(substr($bytes, 0, 4)))->toBe('cafebabe')
         ->and(strlen($bytes))->toBeGreaterThan(10000);
 });
+
+it('keeps the vendor bundle ID only for listed apps that are signed under another one', function () {
+    config(['storefront.signing.compat_shim.keep_bundle_ids' => ['ru.yandex.mobile.music', 'ru.kinopoisk.*']]);
+    $shim = app(CompatShim::class);
+    $listed = AppArtifact::factory()->create(['bundle_identifier' => 'ru.yandex.mobile.music', 'inspection' => []]);
+    $listed->app->forceFill(['bundle_identifier' => 'com.ruappstore.tgmusic'])->save();
+    $wildcard = AppArtifact::factory()->create(['bundle_identifier' => 'ru.kinopoisk.tv', 'inspection' => []]);
+    $wildcard->app->forceFill(['bundle_identifier' => 'com.ruappstore.tgkino'])->save();
+    $other = AppArtifact::factory()->create(['bundle_identifier' => 'ru.vk.app', 'inspection' => []]);
+    $other->app->forceFill(['bundle_identifier' => 'com.ruappstore.tgvk'])->save();
+
+    expect($shim->originalBundleFor($listed->refresh()))->toBe('ru.yandex.mobile.music')
+        ->and($shim->originalBundleFor($wildcard->refresh()))->toBe('ru.kinopoisk.tv')
+        ->and($shim->originalBundleFor($other->refresh()))->toBeNull()
+        // A listed app gets the shim even without App Groups, so its lookups can be answered.
+        ->and($shim->dylibsFor($listed))->toHaveCount(1)
+        ->and($shim->dylibsFor($other))->toBe([]);
+
+    config(['storefront.signing.compat_shim.keep_bundle_ids' => []]);
+    expect(app(CompatShim::class)->originalBundleFor($listed))->toBeNull();
+});

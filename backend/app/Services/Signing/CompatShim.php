@@ -33,7 +33,7 @@ class CompatShim
      */
     public function dylibsFor(AppArtifact $artifact): array
     {
-        if (! $this->enabled() || ! $this->needsShim($artifact)) {
+        if (! $this->enabled() || (! $this->needsShim($artifact) && $this->originalBundleFor($artifact) === null)) {
             return [];
         }
         $content = $this->encoded();
@@ -51,6 +51,26 @@ class CompatShim
 
         return array_key_exists('com.apple.security.application-groups', $entitlements)
             || array_key_exists('keychain-access-groups', $entitlements);
+    }
+
+    /**
+     * The IPA's own bundle ID, when the app must keep seeing it (storefront.signing.compat_shim
+     * .keep_bundle_ids) and signing gives it another one. The runner records it in Info.plist and
+     * the shim answers the app's bundle-ID lookups with it.
+     */
+    public function originalBundleFor(AppArtifact $artifact): ?string
+    {
+        $original = $artifact->bundle_identifier;
+        if (! $this->enabled() || ! is_string($original) || $original === $artifact->signingBundleIdentifier()) {
+            return null;
+        }
+        foreach ((array) config('storefront.signing.compat_shim.keep_bundle_ids', []) as $pattern) {
+            if (is_string($pattern) && $pattern !== '' && fnmatch($pattern, $original)) {
+                return $original;
+            }
+        }
+
+        return null;
     }
 
     private function encoded(): ?string

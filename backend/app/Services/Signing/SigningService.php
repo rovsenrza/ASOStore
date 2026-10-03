@@ -250,6 +250,10 @@ class SigningService
         if ($build->bootstrap_claim_encrypted !== null) {
             $lease['bootstrap_claim'] = $build->bootstrap_claim_encrypted;
         }
+        // The vendor's bundle ID, for apps whose servers check it (CompatShim::originalBundleFor).
+        if (($original = app(CompatShim::class)->originalBundleFor($artifact)) !== null) {
+            $lease['original_bundle_identifier'] = $original;
+        }
 
         return $lease;
     }

@@ -147,6 +147,10 @@ return [
         'compat_shim' => [
             'enabled' => (bool) env('STOREFRONT_SIGNING_COMPAT_SHIM', true),
             'path' => env('STOREFRONT_SIGNING_COMPAT_SHIM_PATH', base_path('../ios/compat-shim/RuStoreCompat.dylib')),
+            // Apps (by the IPA's own bundle ID, `*` wildcards) whose servers check who is calling,
+            // e.g. Yandex sign-in, which sends no SMS to an unknown app. They keep seeing their
+            // original bundle ID inside the app (the shim answers with it); comma-separated.
+            'keep_bundle_ids' => array_values(array_filter(array_map('trim', explode(',', (string) env('STOREFRONT_SIGNING_KEEP_BUNDLE_IDS', ''))))),
         ],
     ],
 

@@ -272,6 +272,35 @@ struct SigningTests {
         #expect(info?["StorefrontBootstrapClaim"] as? String == "one-time-code-xyz")
     }
 
+    @Test func recordsTheOriginalBundleIdentifierForTheShim() throws {
+        let setup = try SigningSetup()
+        defer { setup.remove() }
+        var job = setup.job
+        job.originalBundleIdentifier = "ru.yandex.mobile.music"
+
+        let output = try Signer().sign(job: job, identity: setup.identity, source: setup.source, workDirectory: setup.work)
+
+        // The app is still identified (and signed) as the leased bundle; the vendor's ID is only recorded.
+        let app = try Signer.unpack(output.ipa, into: setup.work.appendingPathComponent("check-original"), code: "UNPACK_FAILED")
+        let info = try PropertyListSerialization.propertyList(from: Data(contentsOf: app.appendingPathComponent("Info.plist")), format: nil) as? [String: Any]
+        #expect(info?["CFBundleIdentifier"] as? String == job.bundleIdentifier)
+        #expect(info?["RuStoreOriginalBundleIdentifier"] as? String == "ru.yandex.mobile.music")
+    }
+
+    @Test func refusesAMalformedOriginalBundleIdentifier() throws {
+        let setup = try SigningSetup()
+        defer { setup.remove() }
+        var job = setup.job
+        job.originalBundleIdentifier = "not a bundle id</string>"
+
+        #expect {
+            try Signer().sign(job: job, identity: setup.identity, source: setup.source, workDirectory: setup.work)
+        } throws: { error in
+            guard case let RunnerError.job(code, _, _) = error else { return false }
+            return code == "INFO_PLIST_INVALID"
+        }
+    }
+
     @Test func rejectsAModifiedExecutable() throws {
         let setup = try SigningSetup()
         defer { setup.remove() }
@@ -609,5 +638,9 @@ struct SigningSetup {
 
         let plain = try JSONDecoder().decode(SigningJob.self, from: Data(json.replacingOccurrences(of: "\"bootstrap_claim\":\"one-time-code\",", with: "").utf8))
         #expect(plain.bootstrapClaim == nil)
+        #expect(plain.originalBundleIdentifier == nil)
+
+        let original = try JSONDecoder().decode(SigningJob.self, from: Data(json.replacingOccurrences(of: "\"bootstrap_claim\":\"one-time-code\",", with: "\"original_bundle_identifier\":\"ru.yandex.mobile.music\",").utf8))
+        #expect(original.originalBundleIdentifier == "ru.yandex.mobile.music")
     }
 }

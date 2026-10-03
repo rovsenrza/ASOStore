@@ -78,11 +78,15 @@ public struct SigningJob: Codable, Sendable {
     /// Info.plist (StorefrontBootstrapClaim) before signing, so the storefront app can sign the
     /// enrolled customer in on first launch without a password. Only ever set for that app.
     public var bootstrapClaim: String?
+    /// The vendor's own bundle ID, for apps whose servers check it (e.g. Yandex sign-in). Written
+    /// into Info.plist as RuStoreOriginalBundleIdentifier; the RuStoreCompat shim answers the
+    /// app's own bundle-ID lookups with it. Only set for apps the backend lists.
+    public var originalBundleIdentifier: String?
     public var source: Source
     public var uploadPath: String
     public var resultPath: String
 
-    public init(jobID: String, signedBuildID: String, bundleIdentifier: String, teamIdentifier: String, certificateSHA1: String, profile: Profile, nested: [Nested] = [], injectDylibs: [InjectDylib] = [], bootstrapClaim: String? = nil, source: Source, uploadPath: String, resultPath: String) {
+    public init(jobID: String, signedBuildID: String, bundleIdentifier: String, teamIdentifier: String, certificateSHA1: String, profile: Profile, nested: [Nested] = [], injectDylibs: [InjectDylib] = [], bootstrapClaim: String? = nil, originalBundleIdentifier: String? = nil, source: Source, uploadPath: String, resultPath: String) {
         self.jobID = jobID
         self.signedBuildID = signedBuildID
         self.bundleIdentifier = bundleIdentifier
@@ -92,6 +96,7 @@ public struct SigningJob: Codable, Sendable {
         self.nested = nested
         self.injectDylibs = injectDylibs
         self.bootstrapClaim = bootstrapClaim
+        self.originalBundleIdentifier = originalBundleIdentifier
         self.source = source
         self.uploadPath = uploadPath
         self.resultPath = resultPath
@@ -109,6 +114,7 @@ public struct SigningJob: Codable, Sendable {
         nested = try container.decodeIfPresent([Nested].self, forKey: .nested) ?? []
         injectDylibs = try container.decodeIfPresent([InjectDylib].self, forKey: .injectDylibs) ?? []
         bootstrapClaim = try container.decodeIfPresent(String.self, forKey: .bootstrapClaim)
+        originalBundleIdentifier = try container.decodeIfPresent(String.self, forKey: .originalBundleIdentifier)
         source = try container.decode(Source.self, forKey: .source)
         uploadPath = try container.decode(String.self, forKey: .uploadPath)
         resultPath = try container.decode(String.self, forKey: .resultPath)
@@ -119,6 +125,7 @@ public struct SigningJob: Codable, Sendable {
         case teamIdentifier = "team_identifier", certificateSHA1 = "certificate_sha1", profile, nested, source
         case injectDylibs = "inject_dylibs"
         case bootstrapClaim = "bootstrap_claim"
+        case originalBundleIdentifier = "original_bundle_identifier"
         case uploadPath = "upload_path", resultPath = "result_path"
     }
 }

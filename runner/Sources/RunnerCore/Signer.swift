@@ -48,6 +48,7 @@ public struct Signer: Sendable {
         // The one-time bootstrap claim is part of the tree's identity, so a build for one customer
         // is never reused for another (each has a different claim; most storefront signs are fresh).
         let cacheKey = injected.map(\.key) + (job.bootstrapClaim.map { ["bootstrap:" + RequestSigner.sha256(Data($0.utf8))] } ?? [])
+            + (job.originalBundleIdentifier.map { ["original:" + $0] } ?? [])
 
         let workspace: RunnerCache.Workspace?
         if let cache {
@@ -70,6 +71,13 @@ public struct Signer: Sendable {
         try Self.setBundleIdentifier(job.bundleIdentifier, bundle: app)
         for nested in job.nested {
             try Self.setBundleIdentifier(nested.bundleIdentifier, bundle: app.appendingPathComponent(nested.path))
+        }
+        // Record the vendor's bundle ID for the compat shim (listed apps only).
+        if let original = job.originalBundleIdentifier {
+            guard original.range(of: #"^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$"#, options: .regularExpression) != nil else {
+                throw RunnerError.job(code: "INFO_PLIST_INVALID", message: "Refusing original bundle ID \(original)", retryable: false)
+            }
+            try Self.setInfoValue(original, forKey: "RuStoreOriginalBundleIdentifier", bundle: app)
         }
         // Embed the one-time login code (storefront app only) so first launch signs the customer in.
         if let claim = job.bootstrapClaim {

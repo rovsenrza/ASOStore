@@ -14,6 +14,11 @@
 //
 // It reads what iOS granted from the app's own entitlements, so it needs no
 // knowledge of any specific app and works for every future one the same way.
+//
+// For apps whose servers check who is calling (Yandex sign-in refuses to send an
+// SMS to an unknown app), the signer may also record the vendor's original bundle
+// ID in Info.plist (RuStoreOriginalBundleIdentifier). The app's own main-bundle
+// lookups then answer with that ID. iOS itself still sees our real signature.
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <Security/Security.h>
@@ -23,6 +28,9 @@
 static NSArray<NSString *> *gRealGroups;      // App Groups this signature actually holds.
 static NSString *gPrimaryGroup;               // The one we map missing groups to.
 static NSString *gTeamPrefix;                 // "<TEAMID>." from application-identifier.
+static NSString *gOriginalBundleID;           // Vendor's bundle ID, when the signer recorded it.
+static NSBundle *gMainBundle;
+static NSDictionary *gSpoofedInfo;
 
 static void RSLog(NSString *format, ...) {
 #ifdef RUSTORE_COMPAT_DEBUG
@@ -127,6 +135,35 @@ static OSStatus rs_SecItemDelete(CFDictionaryRef query) {
     return status;
 }
 
+#pragma mark - Original bundle ID
+
+static NSString *(*orig_bundleIdentifier)(id, SEL);
+static NSDictionary *(*orig_infoDictionary)(id, SEL);
+static id (*orig_objectForInfoKey)(id, SEL, NSString *);
+
+static NSString *rs_bundleIdentifier(id self, SEL _cmd) {
+    if (self == gMainBundle) return gOriginalBundleID;
+    return orig_bundleIdentifier(self, _cmd);
+}
+
+static NSDictionary *rs_infoDictionary(id self, SEL _cmd) {
+    NSDictionary *info = orig_infoDictionary(self, _cmd);
+    if (self != gMainBundle || info == nil) return info;
+    @synchronized (gMainBundle) {
+        if (gSpoofedInfo == nil) {
+            NSMutableDictionary *copy = [info mutableCopy];
+            copy[@"CFBundleIdentifier"] = gOriginalBundleID;
+            gSpoofedInfo = [copy copy];
+        }
+        return gSpoofedInfo;
+    }
+}
+
+static id rs_objectForInfoKey(id self, SEL _cmd, NSString *key) {
+    if (self == gMainBundle && [key isEqualToString:@"CFBundleIdentifier"]) return gOriginalBundleID;
+    return orig_objectForInfoKey(self, _cmd, key);
+}
+
 #pragma mark - Install
 
 static void RSSwizzle(Class cls, SEL selector, IMP replacement, void *store) {
@@ -148,7 +185,19 @@ static void RuStoreCompatInit(void) {
             NSRange dot = [appID rangeOfString:@"."];
             if (dot.location != NSNotFound) gTeamPrefix = [appID substringToIndex:dot.location + 1];
         }
-        RSLog(@"groups=%@ primary=%@ team=%@", gRealGroups, gPrimaryGroup, gTeamPrefix);
+        gMainBundle = NSBundle.mainBundle;
+        id original = [gMainBundle objectForInfoDictionaryKey:@"RuStoreOriginalBundleIdentifier"];
+        if ([original isKindOfClass:NSString.class] && [(NSString *)original length] > 0
+            && ![original isEqualToString:gMainBundle.bundleIdentifier]) {
+            gOriginalBundleID = [original copy];
+        }
+        RSLog(@"groups=%@ primary=%@ team=%@ original=%@", gRealGroups, gPrimaryGroup, gTeamPrefix, gOriginalBundleID);
+
+        if (gOriginalBundleID != nil) {
+            RSSwizzle(NSBundle.class, @selector(bundleIdentifier), (IMP)rs_bundleIdentifier, &orig_bundleIdentifier);
+            RSSwizzle(NSBundle.class, @selector(infoDictionary), (IMP)rs_infoDictionary, &orig_infoDictionary);
+            RSSwizzle(NSBundle.class, @selector(objectForInfoDictionaryKey:), (IMP)rs_objectForInfoKey, &orig_objectForInfoKey);
+        }
 
         if (gPrimaryGroup != nil) {
             RSSwizzle(NSFileManager.class, @selector(containerURLForSecurityApplicationGroupIdentifier:),

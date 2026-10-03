@@ -17,6 +17,12 @@ it was actually granted, read from its own entitlements at launch:
 - `SecItemAdd/CopyMatching/Update/Delete` (via fishhook) — a foreign keychain access group is
   dropped so the item uses our default group.
 
+For apps listed in `STOREFRONT_SIGNING_KEEP_BUNDLE_IDS` (backend), the runner also records the
+vendor's bundle ID in Info.plist as `RuStoreOriginalBundleIdentifier`, and the shim answers the
+app's own main-bundle lookups (`bundleIdentifier`, `infoDictionary`, `objectForInfoDictionaryKey:`)
+with it. Some servers check who is calling: Yandex sign-in sends no SMS to an unknown app ID. iOS
+itself still sees our real signature; apps that are not listed are not affected.
+
 It only ever falls back: when the real call already works (the app's own sideload fix handled
 it, or the group is genuinely ours) it changes nothing. No ads, no network, no servers. This is
 the same mechanism the supplied IPAs' own mods used (the removed YMNight did exactly this);
