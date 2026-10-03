@@ -554,6 +554,19 @@ it('keeps the plans and payment buttons behind the channel, but not the menu or 
     expect(TelegramStoreOrder::sole()->customer_id)->toBe(customer(TESTER_ID)->id);
 });
 
+it('stops buying as soon as a customer leaves the channel', function () {
+    $statuses = new ArrayObject([BUYER_ID => 'member']);
+    fakeChannel($this, $statuses);
+
+    ($this->press)(BUYER_ID, 'buy');
+    expect(($this->sentTo)(BUYER_ID)->last())->not->toContain('Подпишитесь');
+
+    $statuses[BUYER_ID] = 'left';
+    ($this->press)(BUYER_ID, 'plan:month1');
+    expect(TelegramStoreOrder::count())->toBe(0)
+        ->and(($this->sentTo)(BUYER_ID)->last())->toContain('Подпишитесь на наш канал');
+});
+
 it('lets customers buy when Telegram cannot say whether they are subscribed', function () {
     config(['telegram_store.required_channel' => '@ruappstors']);
     $this->channel = fn () => Http::response(['ok' => false, 'error_code' => 400, 'description' => 'Bad Request: member list is inaccessible'], 400);

@@ -5,7 +5,6 @@ namespace App\Services\TelegramStore\Bot;
 use App\Services\TelegramStore\TelegramApi;
 use App\Services\TelegramStore\TelegramApiException;
 use Illuminate\Http\Client\ConnectionException;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -13,12 +12,12 @@ use Illuminate\Support\Facades\Log;
  * news, instructions and catalog updates reach them there. The bot has to be an admin of the
  * channel to see its members. If Telegram cannot answer, the customer is let through rather
  * than losing a sale to an outage; the failure is logged.
+ *
+ * Every gated press asks Telegram afresh, so someone who leaves the channel loses access to
+ * buying at once; only buying and paying are gated, so this is a handful of calls per order.
  */
 class ChannelGate
 {
-    /** A confirmed subscription is trusted this long, so every button press does not ask Telegram. */
-    private const TRUST_MINUTES = 10;
-
     public function __construct(private readonly TelegramApi $api) {}
 
     /** The channel's @username, or null when the gate is off. */
@@ -43,10 +42,6 @@ class ChannelGate
         if ($channel === null || in_array((string) $userId, config('telegram_store.admin_ids', []), true)) {
             return true;
         }
-        if (Cache::has($this->key($userId))) {
-            return true;
-        }
-
         try {
             $member = $this->api->call('getChatMember', ['chat_id' => $channel, 'user_id' => $userId]);
         } catch (TelegramApiException $failure) {
@@ -64,13 +59,9 @@ class ChannelGate
         }
 
         $status = is_array($member) ? ($member['status'] ?? null) : null;
-        $subscribed = in_array($status, ['creator', 'administrator', 'member'], true)
-            || ($status === 'restricted' && ($member['is_member'] ?? false) === true);
-        if ($subscribed) {
-            Cache::put($this->key($userId), true, now()->addMinutes(self::TRUST_MINUTES));
-        }
 
-        return $subscribed;
+        return in_array($status, ['creator', 'administrator', 'member'], true)
+            || ($status === 'restricted' && ($member['is_member'] ?? false) === true);
     }
 
     /** Asks to subscribe; «Я подписался» checks again and continues with $next (a callback). */
@@ -87,10 +78,5 @@ class ChannelGate
                 [Screen::button('⬅️ В меню', 'menu')],
             ],
         );
-    }
-
-    private function key(int $userId): string
-    {
-        return 'telegram_store.channel_member.'.$userId;
     }
 }
