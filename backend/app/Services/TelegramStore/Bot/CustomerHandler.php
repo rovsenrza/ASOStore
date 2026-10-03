@@ -21,6 +21,7 @@ class CustomerHandler
         private readonly GatewayResolver $gateways,
         private readonly AdminHandler $admin,
         private readonly PromoService $promos,
+        private readonly ChannelGate $gate,
     ) {}
 
     public function message(Context $ctx, string $text): void
@@ -45,8 +46,15 @@ class CustomerHandler
 
         // «Оплатить в Telegram» on the website's purchase page: straight to the order for that plan.
         if ($command === '/start' && preg_match('/^\/start\s+buy(?:_(\w{1,32}))?$/', $text, $match)) {
+            if ($this->held($ctx, isset($match[1]) ? 'plan:'.$match[1] : 'buy')) {
+                return;
+            }
             isset($match[1]) ? $this->startOrder($ctx, $match[1]) : $this->messenger->show($ctx, $this->screens->plans($ctx->customer, $this->promos->remembered($ctx->userId())));
 
+            return;
+        }
+
+        if (($command === '/buy' || str_contains($lower, 'купить')) && $this->held($ctx, 'buy')) {
             return;
         }
 
@@ -63,6 +71,24 @@ class CustomerHandler
     public function callback(Context $ctx, string $data): void
     {
         $customer = $ctx->customer;
+
+        // «Я подписался» on the channel screen: check again, then carry on where they were going.
+        if (preg_match('/^sub:(.{1,56})$/', $data, $match)) {
+            if (! $this->gate->passes($ctx->userId())) {
+                $this->messenger->answer($ctx, 'Подписка пока не видна. Подпишитесь на канал и нажмите кнопку ещё раз.', true);
+
+                return;
+            }
+            $this->messenger->answer($ctx, 'Спасибо за подписку! ✅');
+            $this->callback($ctx, $match[1]);
+
+            return;
+        }
+
+        // Buying and paying need a subscription to the news channel.
+        if (preg_match('/^(buy|plan:\w+|(order|bal|pay:\w+|paid|mockpay|promo):[0-9a-z]{26})$/', $data) === 1 && $this->held($ctx, $data)) {
+            return;
+        }
 
         if (in_array($data, ['menu', 'buy', 'profile', 'orders', 'invite', 'help'], true)) {
             $this->messenger->answer($ctx);
@@ -293,6 +319,21 @@ class CustomerHandler
         }
         $this->messenger->answer($ctx);
         $this->messenger->show($ctx, $this->screens->code($order));
+    }
+
+    /**
+     * Shows the channel screen when the customer is not subscribed yet; $next is the callback
+     * that «Я подписался» continues with.
+     */
+    private function held(Context $ctx, string $next): bool
+    {
+        if ($this->gate->passes($ctx->userId())) {
+            return false;
+        }
+        $this->messenger->answer($ctx);
+        $this->messenger->show($ctx, $this->gate->screen($next));
+
+        return true;
     }
 
     private function planMissing(string $planKey): bool

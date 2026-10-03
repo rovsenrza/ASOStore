@@ -37,7 +37,12 @@ beforeEach(function () {
     ]);
     userWithRoles(RoleSlug::Admin);
     $this->blocked = [];
+    // A test sets $this->channel to answer getChatMember (the channel subscription check).
+    $this->channel = null;
     Http::fake(function (Request $request) {
+        if ($this->channel !== null && str_ends_with($request->url(), '/getChatMember')) {
+            return ($this->channel)($request);
+        }
         if (in_array($request['chat_id'] ?? null, $this->blocked, true)) {
             return Http::response(['ok' => false, 'error_code' => 403, 'description' => 'Forbidden: bot was blocked by the user'], 403);
         }
@@ -502,4 +507,57 @@ describe('promo codes', function () {
         ($this->press)(BUYER_ID, 'plan:month1');
         expect(TelegramStoreOrder::sole()->discount_rub)->toBe(88);
     });
+});
+
+/** Answers the channel subscription check from $statuses (user ID => member status). */
+function fakeChannel(object $test, ArrayObject $statuses): void
+{
+    config(['telegram_store.required_channel' => '@ruappstors']);
+    $test->channel = function (Request $request) use ($statuses) {
+        expect($request['chat_id'])->toBe('@ruappstors');
+
+        return Http::response(['ok' => true, 'result' => ['status' => $statuses[$request['user_id']] ?? 'left']]);
+    };
+}
+
+it('asks to subscribe to the channel before an order can be opened, then continues to the plan', function () {
+    $statuses = new ArrayObject([BUYER_ID => 'left']);
+    fakeChannel($this, $statuses);
+
+    // From the website's «Оплатить в Telegram»: no order until they subscribe.
+    ($this->text)(BUYER_ID, '/start buy_month6');
+    expect(TelegramStoreOrder::count())->toBe(0)
+        ->and(($this->sentTo)(BUYER_ID)->last())->toContain('Подпишитесь на наш канал')
+        ->and(($this->buttons)(BUYER_ID))->toContain('sub:plan:month6');
+
+    // «Я подписался» without subscribing: still no order.
+    ($this->press)(BUYER_ID, 'sub:plan:month6');
+    expect(TelegramStoreOrder::count())->toBe(0);
+
+    $statuses[BUYER_ID] = 'member';
+    ($this->press)(BUYER_ID, 'sub:plan:month6');
+    expect(TelegramStoreOrder::sole()->plan_key)->toBe('month6');
+});
+
+it('keeps the plans and payment buttons behind the channel, but not the menu or profile', function () {
+    fakeChannel($this, new ArrayObject([BUYER_ID => 'left', TESTER_ID => 'member']));
+
+    ($this->press)(BUYER_ID, 'buy');
+    expect(($this->buttons)(BUYER_ID))->toBe(['sub:buy', 'menu']);
+    ($this->press)(BUYER_ID, 'plan:month1');
+    expect(TelegramStoreOrder::count())->toBe(0);
+    ($this->press)(BUYER_ID, 'profile');
+    expect(($this->sentTo)(BUYER_ID)->last())->not->toContain('Подпишитесь');
+
+    // A subscriber goes straight through.
+    ($this->press)(TESTER_ID, 'plan:month1');
+    expect(TelegramStoreOrder::sole()->customer_id)->toBe(customer(TESTER_ID)->id);
+});
+
+it('lets customers buy when Telegram cannot say whether they are subscribed', function () {
+    config(['telegram_store.required_channel' => '@ruappstors']);
+    $this->channel = fn () => Http::response(['ok' => false, 'error_code' => 400, 'description' => 'Bad Request: member list is inaccessible'], 400);
+
+    ($this->text)(BUYER_ID, '/start buy_month1');
+    expect(TelegramStoreOrder::sole()->plan_key)->toBe('month1');
 });

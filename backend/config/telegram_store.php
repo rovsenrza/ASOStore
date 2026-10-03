@@ -34,6 +34,9 @@ return [
 
     'support_url' => env('TELEGRAM_STORE_SUPPORT_URL'),
     'news_url' => env('TELEGRAM_STORE_NEWS_URL'),
+    // Customers must subscribe to this channel (@username or t.me link) before buying; empty = no gate.
+    // The bot must be an admin of the channel to see its members.
+    'required_channel' => env('TELEGRAM_STORE_REQUIRED_CHANNEL'),
     'activation_url' => env('TELEGRAM_STORE_ACTIVATION_URL'),
     // Every bot message is this image with the screen as its caption; empty or missing file = text messages.
     'welcome_banner' => env('TELEGRAM_STORE_WELCOME_BANNER', base_path('../front/public/assets/banners/ru-app-store-telegram-welcome.jpg')),
