@@ -23,6 +23,7 @@ use App\Models\RefreshToken;
 use App\Models\Runner;
 use App\Models\SignedBuild;
 use App\Models\SigningProfile;
+use App\Models\StorefrontClaim;
 use App\Services\Apple\AppGroupProvisioner;
 use App\Services\Apple\AppGroupUnavailable;
 use App\Services\Artifacts\ArtifactFileCache;
@@ -874,11 +875,11 @@ it('embeds a one-time login code in the storefront build and signs the customer 
     $this->catalogApp->forceFill(['is_storefront' => true])->save();
 
     // Preparing the storefront app mints a device-bound claim and stores it (encrypted) on the build.
-    $installation = app(App\Services\Installations\InstallationService::class)
+    $installation = app(InstallationService::class)
         ->prepare($this->customer, $this->device, $this->catalogApp->refresh());
     $build = $installation->signedBuild;
 
-    expect(App\Models\StorefrontClaim::where('user_id', $this->customer->id)->where('device_id', $this->device->id)->count())->toBe(1)
+    expect(StorefrontClaim::where('user_id', $this->customer->id)->where('device_id', $this->device->id)->count())->toBe(1)
         ->and($build->refresh()->bootstrap_claim_encrypted)->not->toBeNull();
 
     // The runner's lease carries that code, so the signed IPA embeds it in Info.plist.
@@ -896,10 +897,65 @@ it('embeds a one-time login code in the storefront build and signs the customer 
 it('does not embed a login code for an ordinary app', function () {
     runnerHeartbeat();
     Sanctum::actingAs($this->customer);
-    $installation = app(App\Services\Installations\InstallationService::class)
+    $installation = app(InstallationService::class)
         ->prepare($this->customer, $this->device, $this->catalogApp);
 
     expect($installation->signedBuild->refresh()->bootstrap_claim_encrypted)->toBeNull();
     $lease = runnerSigns($this);
     expect($lease)->not->toHaveKey('bootstrap_claim');
+});
+
+it('imports an IPA from Files, keeps it private to its owner, and makes it installable', function () {
+    runnerHeartbeat();
+    $bytes = IpaBuilder::app('com.vendor.importme')->info(['CFBundleDisplayName' => 'Imported One'])->build();
+    Sanctum::actingAs($this->customer);
+
+    $start = $this->postJson('/api/v1/imports', [
+        'filename' => 'My Cool App.ipa', 'size_bytes' => strlen($bytes), 'declaration_accepted' => true,
+    ])->assertCreated()->json('data');
+    $this->call('PUT', "/api/v1/imports/{$start['id']}/chunks/0", [], [], [], [
+        'CONTENT_TYPE' => 'application/octet-stream', 'HTTP_ACCEPT' => 'application/json',
+    ], $bytes)->assertOk();
+    $complete = $this->postJson("/api/v1/imports/{$start['id']}/complete")->assertCreated()->json('data');
+    expect($complete['status'])->toBe('PROVENANCE_REVIEW');
+
+    $importId = $start['import_id'];
+    $app = CatalogApp::where('public_id', $importId)->sole();
+    expect($app->imported_by_user_id)->toBe($this->customer->id)
+        ->and($app->visibility->value)->toBe('HIDDEN')
+        ->and($app->bundle_identifier)->toStartWith('com.ruappstore.');
+
+    // Listed for its owner, with the name read from the bundle...
+    $this->getJson('/api/v1/imports')->assertOk()
+        ->assertJsonPath('data.0.id', $importId)
+        ->assertJsonPath('data.0.name', 'Imported One');
+    // ...never in the public catalog.
+    $catalog = collect($this->getJson('/api/v1/apps')->assertOk()->json('data'));
+    expect($catalog->pluck('id'))->not->toContain($importId);
+
+    // Install: approve + publish + prepare a signed build for this device.
+    $this->postJson("/api/v1/imports/{$importId}/install")->assertStatus(202)->assertJsonPath('data.status', 'PREPARING');
+    $app->refresh();
+    expect($app->publishedArtifact()->exists())->toBeTrue()
+        ->and(SignedBuild::whereHas('artifact', fn ($q) => $q->where('app_id', $app->id))->exists())->toBeTrue();
+});
+
+it("does not let another customer see or install someone else's import", function () {
+    $bytes = IpaBuilder::app()->build();
+    Sanctum::actingAs($this->customer);
+    $importId = $this->postJson('/api/v1/imports', ['filename' => 'A.ipa', 'size_bytes' => strlen($bytes), 'declaration_accepted' => true])
+        ->assertCreated()->json('data.import_id');
+
+    Sanctum::actingAs(subscribedCustomer());
+    $this->postJson("/api/v1/imports/{$importId}/install")->assertNotFound();
+    $this->getJson('/api/v1/imports')->assertOk()->assertJsonCount(0, 'data');
+});
+
+it('caps how many imports a customer can start', function () {
+    config(['storefront.imports.daily_limit' => 1]);
+    $bytes = IpaBuilder::app()->build();
+    Sanctum::actingAs($this->customer);
+    $this->postJson('/api/v1/imports', ['filename' => 'A.ipa', 'size_bytes' => strlen($bytes), 'declaration_accepted' => true])->assertCreated();
+    $this->postJson('/api/v1/imports', ['filename' => 'B.ipa', 'size_bytes' => strlen($bytes), 'declaration_accepted' => true])
+        ->assertStatus(409)->assertJsonPath('error.code', 'QUOTA_EXHAUSTED');
 });

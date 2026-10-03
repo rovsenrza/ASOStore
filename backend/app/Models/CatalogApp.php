@@ -47,7 +47,7 @@ class CatalogApp extends Model
     protected $fillable = [
         'slug', 'name', 'subtitle', 'description', 'bundle_identifier', 'app_store_id', 'category_id', 'publisher_id',
         'source_type', 'visibility', 'age_rating', 'icon_path', 'banner_path', 'is_storefront', 'featured_rank',
-        'support_url', 'privacy_url',
+        'support_url', 'privacy_url', 'imported_by_user_id',
     ];
 
     protected function casts(): array
@@ -147,5 +147,11 @@ class CatalogApp extends Model
     public function scopeVisibleToCustomers(Builder $query): void
     {
         $query->where('visibility', AppVisibility::Published->value);
+    }
+
+    /** The customer who imported this app, for a customer-imported listing (IPA from Files or a link). */
+    public function importer(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'imported_by_user_id');
     }
 }

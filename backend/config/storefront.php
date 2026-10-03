@@ -80,6 +80,13 @@ return [
         'device_ca_file' => env('STOREFRONT_ENROLLMENT_DEVICE_CA'),
     ],
 
+    // Customer self-import of IPAs (from Files or a link). Signed on the Apple certificate for one
+    // device, so imports are capped per customer to protect the cert.
+    'imports' => [
+        'daily_limit' => (int) env('STOREFRONT_IMPORT_DAILY_LIMIT', 10),
+        'total_limit' => (int) env('STOREFRONT_IMPORT_TOTAL_LIMIT', 30),
+    ],
+
     'claims' => [
         'ttl_minutes' => 10,
         // The code embedded in the storefront build lives longer, to cover download and install

@@ -26,6 +26,7 @@ use App\Http\Controllers\Api\V1\Customer\DeviceController;
 use App\Http\Controllers\Api\V1\Customer\EmailVerificationController;
 use App\Http\Controllers\Api\V1\Customer\EnrollmentController;
 use App\Http\Controllers\Api\V1\Customer\FeedController;
+use App\Http\Controllers\Api\V1\Customer\ImportController;
 use App\Http\Controllers\Api\V1\Customer\InstallationController;
 use App\Http\Controllers\Api\V1\Customer\InstallDeliveryController;
 use App\Http\Controllers\Api\V1\Customer\StorefrontStatusController;
@@ -81,6 +82,13 @@ Route::middleware(['auth:sanctum', 'active', 'verified.web'])->group(function ()
     Route::get('/installations/{installation}', [InstallationController::class, 'show'])->name('api.installations.show');
     Route::post('/installations/{installation}/authorize', [InstallationController::class, 'authorize'])->middleware(['throttle:installs', 'idempotent'])->name('api.installations.authorize');
     Route::get('/library', [InstallationController::class, 'library'])->name('api.library');
+
+    // Customer self-import of an IPA from Files (owner-only; hidden from the public catalog).
+    Route::get('/imports', [ImportController::class, 'index'])->name('api.imports.index');
+    Route::post('/imports', [ImportController::class, 'store'])->middleware('throttle:imports')->name('api.imports.store');
+    Route::put('/imports/{upload}/chunks/{number}', [ImportController::class, 'chunk'])->whereNumber('number')->name('api.imports.chunk');
+    Route::post('/imports/{upload}/complete', [ImportController::class, 'complete'])->middleware('throttle:imports')->name('api.imports.complete');
+    Route::post('/imports/{import}/install', [ImportController::class, 'install'])->middleware(['throttle:installs', 'idempotent'])->name('api.imports.install');
 });
 
 Route::middleware(['auth:sanctum', 'active'])->group(function () {
