@@ -37,7 +37,7 @@ struct StorefrontApp: App {
                 // then pick up installations that were in flight when the app was killed.
                 .task {
                     await session.restore()
-                    await signInFromPortalOnce()
+                    await signInAutomaticallyOnce()
                     await installations.resume()
                 }
                 .onOpenURL { url in
@@ -46,13 +46,39 @@ struct StorefrontApp: App {
         }
     }
 
-    /// First launch after installing from the portal: the customer is signed in already in Safari,
-    /// so ask the portal for a claim link instead of showing a sign-in form.
-    private func signInFromPortalOnce() async {
+    /// First launch after installing from enrollment: sign in with no taps.
+    ///
+    /// This build was signed for one enrolled device and carries a one-time, device-bound login
+    /// code in its Info.plist (StorefrontBootstrapClaim); redeeming it opens the app already signed
+    /// in. If there is no code, or it has expired, fall back to the Safari handoff (one tap).
+    private func signInAutomaticallyOnce() async {
         let environment = await apiClient.environment
-        guard environment.mode == .live, session.state == .signedOut, !PortalHandoff.attemptedAutomatically else { return }
+        guard environment.mode == .live, session.state == .signedOut else { return }
+
+        if let code = Self.embeddedBootstrapClaim, !Self.bootstrapClaimRedeemed {
+            // One-time: don't retry a consumed code on the next launch.
+            Self.bootstrapClaimRedeemed = true
+            do {
+                try await session.redeemClaim(code: code)
+                return
+            } catch {
+                // Expired or already used: fall through to the handoff.
+            }
+        }
+
+        guard !PortalHandoff.attemptedAutomatically else { return }
         PortalHandoff.attemptedAutomatically = true
         guard let url = await handoff.claimLink(portalURL: environment.portalURL) else { return }
         await router.handle(url, session: session)
+    }
+
+    /// The one-time code embedded in this build at signing (nil for a build signed without one).
+    private static var embeddedBootstrapClaim: String? {
+        (Bundle.main.object(forInfoDictionaryKey: "StorefrontBootstrapClaim") as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    private static var bootstrapClaimRedeemed: Bool {
+        get { UserDefaults.standard.bool(forKey: "bootstrapClaimRedeemed") }
+        set { UserDefaults.standard.set(newValue, forKey: "bootstrapClaimRedeemed") }
     }
 }

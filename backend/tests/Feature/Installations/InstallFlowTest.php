@@ -868,3 +868,38 @@ it('does not prewarm an incompatible app or a device that lost eligibility', fun
     app(BuildWarmup::class)->forDevice($this->device->fresh());
     Queue::assertNotPushed(WarmBuildJob::class);
 });
+
+it('embeds a one-time login code in the storefront build and signs the customer in with it', function () {
+    runnerHeartbeat();
+    $this->catalogApp->forceFill(['is_storefront' => true])->save();
+
+    // Preparing the storefront app mints a device-bound claim and stores it (encrypted) on the build.
+    $installation = app(App\Services\Installations\InstallationService::class)
+        ->prepare($this->customer, $this->device, $this->catalogApp->refresh());
+    $build = $installation->signedBuild;
+
+    expect(App\Models\StorefrontClaim::where('user_id', $this->customer->id)->where('device_id', $this->device->id)->count())->toBe(1)
+        ->and($build->refresh()->bootstrap_claim_encrypted)->not->toBeNull();
+
+    // The runner's lease carries that code, so the signed IPA embeds it in Info.plist.
+    Sanctum::actingAs($this->customer);
+    $lease = runnerSigns($this);
+    expect($lease['bootstrap_claim'] ?? null)->toBe($build->refresh()->bootstrap_claim_encrypted);
+
+    // Redeeming that embedded code signs in this customer, with no password — the zero-tap first launch.
+    forgetGuards();
+    $this->postJson('/api/v1/storefront/claims/redeem', ['code' => $lease['bootstrap_claim']])
+        ->assertStatus(201)
+        ->assertJsonPath('data.user.email', $this->customer->email);
+});
+
+it('does not embed a login code for an ordinary app', function () {
+    runnerHeartbeat();
+    Sanctum::actingAs($this->customer);
+    $installation = app(App\Services\Installations\InstallationService::class)
+        ->prepare($this->customer, $this->device, $this->catalogApp);
+
+    expect($installation->signedBuild->refresh()->bootstrap_claim_encrypted)->toBeNull();
+    $lease = runnerSigns($this);
+    expect($lease)->not->toHaveKey('bootstrap_claim');
+});

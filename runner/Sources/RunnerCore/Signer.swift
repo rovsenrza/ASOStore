@@ -45,10 +45,14 @@ public struct Signer: Sendable {
         // keeps an injected signing tree separate from a plain one and versions the shim.
         let injected = try Self.prepareInjected(job.injectDylibs, workDirectory: workDirectory)
 
+        // The one-time bootstrap claim is part of the tree's identity, so a build for one customer
+        // is never reused for another (each has a different claim; most storefront signs are fresh).
+        let cacheKey = injected.map(\.key) + (job.bootstrapClaim.map { ["bootstrap:" + RequestSigner.sha256(Data($0.utf8))] } ?? [])
+
         let workspace: RunnerCache.Workspace?
         if let cache {
             do {
-                workspace = try RunnerCache.workspace(source: source, job: job, zsign: zsign, injectKey: injected.map(\.key), settings: cache)
+                workspace = try RunnerCache.workspace(source: source, job: job, zsign: zsign, injectKey: cacheKey, settings: cache)
             } catch {
                 Log.info("signing cache unavailable; using an isolated job folder")
                 workspace = nil
@@ -66,6 +70,10 @@ public struct Signer: Sendable {
         try Self.setBundleIdentifier(job.bundleIdentifier, bundle: app)
         for nested in job.nested {
             try Self.setBundleIdentifier(nested.bundleIdentifier, bundle: app.appendingPathComponent(nested.path))
+        }
+        // Embed the one-time login code (storefront app only) so first launch signs the customer in.
+        if let claim = job.bootstrapClaim {
+            try Self.setInfoValue(claim, forKey: "StorefrontBootstrapClaim", bundle: app)
         }
 
         let profileData = try Self.decodeProfile(job.profile)
@@ -133,6 +141,7 @@ public struct Signer: Sendable {
             "zsign_seconds": String(format: "%.1f", signingSeconds),
             "verification_seconds": String(format: "%.1f", verificationSeconds),
             "injected_dylibs": injected.map(\.name).sorted().joined(separator: ","),
+            "bootstrap_embedded": job.bootstrapClaim == nil ? "no" : "yes",
         ])
     }
 
@@ -278,6 +287,23 @@ public struct Signer: Sendable {
         }
         guard info["CFBundleIdentifier"] as? String != identifier else { return }
         info["CFBundleIdentifier"] = identifier
+        try PropertyListSerialization.data(fromPropertyList: info, format: format, options: 0).write(to: file)
+    }
+
+    /// Writes a bounded string value into the app's Info.plist (the one-time StorefrontBootstrapClaim),
+    /// keeping the plist's own format. The key is restricted to letters so the lease cannot set
+    /// arbitrary Info.plist entries, and the value is size-capped.
+    static func setInfoValue(_ value: String, forKey key: String, bundle: URL) throws {
+        guard value.utf8.count <= 4096, !key.isEmpty, key.allSatisfy(\.isLetter) else {
+            throw RunnerError.job(code: "INFO_PLIST_INVALID", message: "Refusing to embed \(key)", retryable: false)
+        }
+        let file = bundle.appendingPathComponent("Info.plist")
+        var format = PropertyListSerialization.PropertyListFormat.xml
+        guard var info = try PropertyListSerialization.propertyList(from: Data(contentsOf: file), options: [], format: &format) as? [String: Any] else {
+            throw RunnerError.job(code: "INFO_PLIST_INVALID", message: "\(bundle.lastPathComponent)/Info.plist is not a dictionary", retryable: false)
+        }
+        guard info[key] as? String != value else { return }
+        info[key] = value
         try PropertyListSerialization.data(fromPropertyList: info, format: format, options: 0).write(to: file)
     }
 

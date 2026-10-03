@@ -82,6 +82,9 @@ return [
 
     'claims' => [
         'ttl_minutes' => 10,
+        // The code embedded in the storefront build lives longer, to cover download and install
+        // before the customer first opens the app.
+        'bootstrap_ttl_minutes' => (int) env('STOREFRONT_BOOTSTRAP_TTL_MINUTES', 60),
         'url_scheme' => 'storefront',
     ],
 

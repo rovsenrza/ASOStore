@@ -37,19 +37,31 @@ class ClaimService
             throw new ApiException(ErrorCode::DeviceNotEligible);
         }
 
-        $code = rtrim(strtr(base64_encode(random_bytes(24)), '+/', '-_'), '=');
-        $claim = StorefrontClaim::create([
-            'user_id' => $user->id,
-            'device_id' => $device->id,
-            'code_hash' => hash('sha256', $code),
-            'expires_at' => now()->addMinutes((int) config('storefront.claims.ttl_minutes')),
-        ]);
+        $code = $this->mint($user, $device);
 
         return [
             'code' => $code,
             'url' => config('storefront.claims.url_scheme').'://claim?'.http_build_query(['code' => $code]),
-            'expires_at' => $claim->expires_at->toIso8601ZuluString(),
+            'expires_at' => now()->addMinutes((int) config('storefront.claims.ttl_minutes'))->toIso8601ZuluString(),
         ];
+    }
+
+    /**
+     * Mints a one-time, device-bound claim and returns the plaintext code (only the hash is stored).
+     * Used for the code embedded in the storefront build, so first launch signs the customer in; it
+     * gets a longer life than an interactive claim to cover download and install before first launch.
+     */
+    public function mint(User $user, Device $device, ?int $ttlMinutes = null): string
+    {
+        $code = rtrim(strtr(base64_encode(random_bytes(24)), '+/', '-_'), '=');
+        StorefrontClaim::create([
+            'user_id' => $user->id,
+            'device_id' => $device->id,
+            'code_hash' => hash('sha256', $code),
+            'expires_at' => now()->addMinutes($ttlMinutes ?? (int) config('storefront.claims.ttl_minutes')),
+        ]);
+
+        return $code;
     }
 
     /**

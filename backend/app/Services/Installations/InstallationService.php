@@ -67,7 +67,9 @@ class InstallationService
 
                     continue;
                 }
-                if ($this->resumable($installation)) {
+                // The storefront app is always re-prepared fresh so it carries a new one-time
+                // login code; every other app reuses a build that can still be delivered.
+                if (! $app->is_storefront && $this->resumable($installation)) {
                     $installation->signedBuild?->markUsed();
 
                     return $installation;
@@ -78,7 +80,9 @@ class InstallationService
                 $this->event($installation, 'EXPIRED', ['reason' => 'BUILD_EXPIRED']);
             }
 
-            $build = $this->signing->requestBuild($artifact, $device);
+            // The storefront app embeds a one-time login code for this customer, so first launch
+            // signs them in without a password.
+            $build = $this->signing->requestBuild($artifact, $device, bootstrapUser: $app->is_storefront ? $user : null);
             $installation = Installation::create([
                 'user_id' => $user->id,
                 'device_id' => $device->id,

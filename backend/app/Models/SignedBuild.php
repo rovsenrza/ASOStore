@@ -38,6 +38,7 @@ class SignedBuild extends Model
     protected $fillable = [
         'artifact_id', 'device_id', 'signing_profile_id', 'certificate_id', 'status', 'status_reason',
         'sha256', 'size_bytes', 'storage_path', 'signing_report', 'signed_at', 'verified_at', 'expires_at', 'last_used_at',
+        'bootstrap_claim_encrypted',
     ];
 
     protected function casts(): array
@@ -51,6 +52,7 @@ class SignedBuild extends Model
             'expires_at' => 'datetime',
             'last_used_at' => 'datetime',
             'purged_at' => 'datetime',
+            'bootstrap_claim_encrypted' => 'encrypted',
         ];
     }
 

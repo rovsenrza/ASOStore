@@ -550,3 +550,49 @@ struct SigningSetup {
         return (ipa, job, extensionProfile)
     }
 }
+
+@Suite struct BootstrapClaimEmbedTests {
+    private func bundle(_ plist: String) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("embed-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try plist.write(to: dir.appendingPathComponent("Info.plist"), atomically: true, encoding: .utf8)
+        return dir
+    }
+
+    @Test func embedsTheClaimKeepingOtherKeys() throws {
+        let dir = try bundle("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <plist version="1.0"><dict><key>CFBundleIdentifier</key><string>com.ruappstore.app</string><key>CFBundleExecutable</key><string>Storefront</string></dict></plist>
+        """)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        try Signer.setInfoValue("one-time-code-abc", forKey: "StorefrontBootstrapClaim", bundle: dir)
+
+        let info = try PropertyListSerialization.propertyList(from: Data(contentsOf: dir.appendingPathComponent("Info.plist")), format: nil) as? [String: Any]
+        #expect(info?["StorefrontBootstrapClaim"] as? String == "one-time-code-abc")
+        #expect(info?["CFBundleIdentifier"] as? String == "com.ruappstore.app")
+        #expect(info?["CFBundleExecutable"] as? String == "Storefront")
+    }
+
+    @Test func rejectsANonLetterKeyAndOversizeValue() throws {
+        let dir = try bundle("<?xml version=\"1.0\"?><plist version=\"1.0\"><dict/></plist>")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        #expect(throws: (any Error).self) { try Signer.setInfoValue("x", forKey: "Bad Key", bundle: dir) }
+        #expect(throws: (any Error).self) { try Signer.setInfoValue(String(repeating: "a", count: 5000), forKey: "Claim", bundle: dir) }
+    }
+
+    @Test func decodesTheClaimFromTheLeaseJSON() throws {
+        // The backend sends the lease as JSON with snake_case keys; a lease without the field
+        // (any other app) decodes to nil.
+        let json = """
+        {"job_id":"j","signed_build_id":"b","bundle_identifier":"com.ruappstore.app","team_identifier":"TEAM123456",
+         "certificate_sha1":"AAAA","profile":{"uuid":"U","content":""},"bootstrap_claim":"one-time-code",
+         "source":{"sha256":"0","size_bytes":1,"path":"x"},"upload_path":"u","result_path":"r"}
+        """
+        let job = try JSONDecoder().decode(SigningJob.self, from: Data(json.utf8))
+        #expect(job.bootstrapClaim == "one-time-code")
+
+        let plain = try JSONDecoder().decode(SigningJob.self, from: Data(json.replacingOccurrences(of: "\"bootstrap_claim\":\"one-time-code\",", with: "").utf8))
+        #expect(plain.bootstrapClaim == nil)
+    }
+}

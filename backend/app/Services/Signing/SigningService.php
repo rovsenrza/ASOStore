@@ -14,11 +14,13 @@ use App\Models\Device;
 use App\Models\PipelineJob;
 use App\Models\Runner;
 use App\Models\SignedBuild;
+use App\Models\User;
 use App\Services\Artifacts\ArtifactFileCache;
 use App\Services\Artifacts\LocalArtifactFile;
 use App\Services\Audit\Actor;
 use App\Services\Installations\InstallationService;
 use App\Services\Pipeline\PipelineJobService;
+use App\Services\Storefront\ClaimService;
 use App\StateMachines\StateMachine;
 use Illuminate\Filesystem\AwsS3V3Adapter;
 use Illuminate\Support\Facades\DB;
@@ -52,29 +54,40 @@ class SigningService
     /**
      * Reuses a live build for (artifact, device), or starts a new one.
      */
-    public function requestBuild(AppArtifact $artifact, Device $device, int $priority = 0): SignedBuild
+    public function requestBuild(AppArtifact $artifact, Device $device, int $priority = 0, ?User $bootstrapUser = null): SignedBuild
     {
-        return DB::transaction(function () use ($artifact, $device, $priority) {
+        return DB::transaction(function () use ($artifact, $device, $priority, $bootstrapUser) {
+            // The storefront app embeds a one-time login code per build, so it is always signed
+            // fresh (never a reused build with a code already redeemed on an earlier install).
+            $bootstrap = $bootstrapUser !== null && $artifact->app->is_storefront;
+
             // Also locks the first build: locking an empty build query cannot prevent duplicate inserts.
             Device::query()->whereKey($device->id)->lockForUpdate()->firstOrFail();
-            $existing = SignedBuild::query()
-                ->where(['artifact_id' => $artifact->id, 'device_id' => $device->id])
-                ->whereIn('status', array_map(fn (SignedBuildStatus $status) => $status->value, self::LIVE))
-                ->latest('id')
-                ->lockForUpdate()
-                ->get()
-                ->first(fn (SignedBuild $build) => $build->status !== SignedBuildStatus::Deliverable || $build->isDeliverable());
-            if ($existing !== null) {
-                if ($priority === 0) {
-                    $this->promote($existing);
-                }
-                // Keeps a build that is still wanted from being reclaimed as idle (StorageJanitor).
-                $existing->forceFill(['last_used_at' => now()])->save();
+            if (! $bootstrap) {
+                $existing = SignedBuild::query()
+                    ->where(['artifact_id' => $artifact->id, 'device_id' => $device->id])
+                    ->whereIn('status', array_map(fn (SignedBuildStatus $status) => $status->value, self::LIVE))
+                    ->latest('id')
+                    ->lockForUpdate()
+                    ->get()
+                    ->first(fn (SignedBuild $build) => $build->status !== SignedBuildStatus::Deliverable || $build->isDeliverable());
+                if ($existing !== null) {
+                    if ($priority === 0) {
+                        $this->promote($existing);
+                    }
+                    // Keeps a build that is still wanted from being reclaimed as idle (StorageJanitor).
+                    $existing->forceFill(['last_used_at' => now()])->save();
 
-                return $existing;
+                    return $existing;
+                }
             }
 
-            $build = SignedBuild::create(['artifact_id' => $artifact->id, 'device_id' => $device->id, 'last_used_at' => now()]);
+            $attributes = ['artifact_id' => $artifact->id, 'device_id' => $device->id, 'last_used_at' => now()];
+            if ($bootstrap) {
+                $attributes['bootstrap_claim_encrypted'] = app(ClaimService::class)
+                    ->mint($bootstrapUser, $device, (int) config('storefront.claims.bootstrap_ttl_minutes', 60));
+            }
+            $build = SignedBuild::create($attributes);
             $job = $this->jobs->create(PrepareSigningJob::TYPE, 'prepare-signing:'.$build->public_id, $build, [
                 'signed_build_id' => $build->public_id,
                 'artifact_id' => $artifact->public_id,
@@ -213,7 +226,7 @@ class SigningService
             $source['download_url'] = $disk->temporaryUrl($artifact->storage_path, now()->addMinutes(10));
         }
 
-        return [
+        $lease = [
             'job_id' => $job->public_id,
             'lease_expires_at' => $job->lease_expires_at?->toIso8601ZuluString(),
             'signed_build_id' => $build->public_id,
@@ -233,6 +246,12 @@ class SigningService
             'upload_path' => "/api/worker/v1/jobs/{$job->public_id}/artifact",
             'result_path' => "/api/worker/v1/jobs/{$job->public_id}/result",
         ];
+        // One-time storefront login code to embed in Info.plist (storefront builds only).
+        if ($build->bootstrap_claim_encrypted !== null) {
+            $lease['bootstrap_claim'] = $build->bootstrap_claim_encrypted;
+        }
+
+        return $lease;
     }
 
     public function assertOwner(PipelineJob $job, Runner $runner): SignedBuild

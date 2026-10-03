@@ -74,11 +74,15 @@ public struct SigningJob: Codable, Sendable {
     public var profile: Profile
     public var nested: [Nested]
     public var injectDylibs: [InjectDylib]
+    /// A one-time, device-bound login code the backend asks us to write into the main app's
+    /// Info.plist (StorefrontBootstrapClaim) before signing, so the storefront app can sign the
+    /// enrolled customer in on first launch without a password. Only ever set for that app.
+    public var bootstrapClaim: String?
     public var source: Source
     public var uploadPath: String
     public var resultPath: String
 
-    public init(jobID: String, signedBuildID: String, bundleIdentifier: String, teamIdentifier: String, certificateSHA1: String, profile: Profile, nested: [Nested] = [], injectDylibs: [InjectDylib] = [], source: Source, uploadPath: String, resultPath: String) {
+    public init(jobID: String, signedBuildID: String, bundleIdentifier: String, teamIdentifier: String, certificateSHA1: String, profile: Profile, nested: [Nested] = [], injectDylibs: [InjectDylib] = [], bootstrapClaim: String? = nil, source: Source, uploadPath: String, resultPath: String) {
         self.jobID = jobID
         self.signedBuildID = signedBuildID
         self.bundleIdentifier = bundleIdentifier
@@ -87,6 +91,7 @@ public struct SigningJob: Codable, Sendable {
         self.profile = profile
         self.nested = nested
         self.injectDylibs = injectDylibs
+        self.bootstrapClaim = bootstrapClaim
         self.source = source
         self.uploadPath = uploadPath
         self.resultPath = resultPath
@@ -103,6 +108,7 @@ public struct SigningJob: Codable, Sendable {
         // Leases from backends that predate extension signing carry no list.
         nested = try container.decodeIfPresent([Nested].self, forKey: .nested) ?? []
         injectDylibs = try container.decodeIfPresent([InjectDylib].self, forKey: .injectDylibs) ?? []
+        bootstrapClaim = try container.decodeIfPresent(String.self, forKey: .bootstrapClaim)
         source = try container.decode(Source.self, forKey: .source)
         uploadPath = try container.decode(String.self, forKey: .uploadPath)
         resultPath = try container.decode(String.self, forKey: .resultPath)
@@ -112,6 +118,7 @@ public struct SigningJob: Codable, Sendable {
         case jobID = "job_id", signedBuildID = "signed_build_id", bundleIdentifier = "bundle_identifier"
         case teamIdentifier = "team_identifier", certificateSHA1 = "certificate_sha1", profile, nested, source
         case injectDylibs = "inject_dylibs"
+        case bootstrapClaim = "bootstrap_claim"
         case uploadPath = "upload_path", resultPath = "result_path"
     }
 }
