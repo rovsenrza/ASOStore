@@ -11,6 +11,7 @@ use App\Models\EnrollmentChallenge;
 use App\Models\User;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
+use App\Support\IosVersion;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -100,7 +101,8 @@ class EnrollmentService
 
             $device->fill([
                 'product' => mb_substr($payload['PRODUCT'] ?? '', 0, 32) ?: null,
-                'os_version' => mb_substr($payload['VERSION'] ?? '', 0, 16) ?: null,
+                // VERSION is the build number (23G83); the install check needs the version (26.6).
+                'os_version' => IosVersion::normalize($payload['VERSION'] ?? null) ?? (mb_substr($payload['VERSION'] ?? '', 0, 16) ?: null),
                 'device_family' => DeviceFamily::fromProduct($payload['PRODUCT'] ?? null),
             ]);
             $device->enrolled_at = now();

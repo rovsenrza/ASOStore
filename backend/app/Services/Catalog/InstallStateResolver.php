@@ -55,7 +55,7 @@ class InstallStateResolver
 
         /** @var Device $device */
         $latest = Installation::query()
-            ->with('signedBuild')
+            ->with('signedBuild.profile')
             ->where(['device_id' => $device->id, 'app_id' => $app->id])
             ->latest('id')
             ->first();
@@ -72,7 +72,9 @@ class InstallStateResolver
             $latest->status === InstallationStatus::Delivered => $this->state(InstallStateStatus::Get, installation: $latest),
             ! $sameBuild => $this->state(InstallStateStatus::Get),
             $latest->status === InstallationStatus::Preparing => $this->state(InstallStateStatus::Preparing, progress: $latest->signedBuild?->progress(), installation: $latest),
-            in_array($latest->status, [InstallationStatus::ReadyToInstall, InstallationStatus::Authorized, InstallationStatus::ManifestFetched], true) => $this->state(InstallStateStatus::ReadyToInstall, installation: $latest),
+            // Ready only while its signed build can still be delivered; otherwise the customer starts over,
+            // and prepare signs a new build.
+            in_array($latest->status, [InstallationStatus::ReadyToInstall, InstallationStatus::Authorized, InstallationStatus::ManifestFetched], true) => $latest->signedBuild?->isDeliverable() ? $this->state(InstallStateStatus::ReadyToInstall, installation: $latest) : $this->state(InstallStateStatus::Get),
             $latest->status === InstallationStatus::Failed => $this->state(InstallStateStatus::Failed, installation: $latest, rawReason: $latest->status_reason),
             default => $this->state(InstallStateStatus::Get),
         };

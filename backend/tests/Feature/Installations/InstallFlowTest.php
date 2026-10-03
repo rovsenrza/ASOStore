@@ -26,11 +26,13 @@ use App\Models\SigningProfile;
 use App\Services\Apple\AppGroupProvisioner;
 use App\Services\Apple\AppGroupUnavailable;
 use App\Services\Artifacts\ArtifactFileCache;
+use App\Services\Audit\Actor;
 use App\Services\Devices\DeviceRegistrationService;
 use App\Services\Installations\InstallationService;
 use App\Services\Pipeline\PipelineJobService;
 use App\Services\Signing\BuildWarmup;
 use App\Services\Signing\SigningService;
+use App\StateMachines\StateMachine;
 use Aws\CommandInterface;
 use Aws\MockHandler;
 use Aws\Result;
@@ -422,7 +424,42 @@ it('refuses preparation for devices that are not eligible or not compatible', fu
     $this->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")
         ->assertForbidden()
         ->assertJsonPath('error.code', 'INCOMPATIBLE_DEVICE');
+
+    // The same iOS 17.4 as an older enrollment stored it: the build number.
+    $this->device->forceFill(['os_version' => '21E219'])->save();
+    $this->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")
+        ->assertForbidden()
+        ->assertJsonPath('error.code', 'INCOMPATIBLE_DEVICE')
+        ->assertJsonPath('error.details.device_os_version', '17.4');
     expect(Installation::count())->toBe(0);
+});
+
+it('lets the customer start over when the signed build of a ready installation is gone', function () {
+    runnerHeartbeat();
+    $token = $this->customer->createToken('ios')->plainTextToken;
+    RefreshToken::create([
+        'user_id' => $this->customer->id, 'device_id' => $this->device->id, 'family_id' => 'f1',
+        'token_hash' => hash('sha256', 'r'), 'access_token_id' => $this->customer->tokens()->latest('id')->value('id'),
+        'expires_at' => now()->addDay(),
+    ]);
+    $installation = $this->withToken($token)->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")->assertStatus(202)->json('data');
+    runnerSigns($this);
+    // Expired on its own, as the launch-shim re-sign did, while the installation still says ready.
+    app(StateMachine::class)->transition(SignedBuild::sole(), SignedBuildStatus::Expired, 'Re-signed', Actor::system('test'), extra: ['status_reason' => 'COMPAT_RESIGN']);
+
+    $this->withToken($token)->getJson("/api/v1/apps/{$this->catalogApp->public_id}")->assertJsonPath('data.install_state.status', 'get');
+    $this->withToken($token)->postJson("/api/v1/installations/{$installation['id']}/authorize")
+        ->assertStatus(409)
+        ->assertJsonPath('error.code', 'ARTIFACT_NOT_INSTALLABLE');
+    expect(Installation::sole()->status)->toBe(InstallationStatus::Expired)
+        ->and(Installation::sole()->status_reason)->toBe('BUILD_EXPIRED');
+
+    // The next tap signs a new build.
+    $this->withToken($token)->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")
+        ->assertStatus(202)
+        ->assertJsonPath('data.status', 'PREPARING');
+    expect(SignedBuild::count())->toBe(2)
+        ->and(Installation::count())->toBe(2);
 });
 
 it('keeps jobs queued while no runner is online and finishes after restart without signing twice', function () {

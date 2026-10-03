@@ -20,6 +20,7 @@ use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use App\Services\Signing\SigningService;
 use App\StateMachines\StateMachine;
+use App\Support\IosVersion;
 use CFPropertyList\CFPropertyList;
 use CFPropertyList\CFTypeDetector;
 use Illuminate\Http\Request;
@@ -124,13 +125,22 @@ class InstallationService
      */
     public function authorize(Installation $installation, Device $device, ?string $ip): array
     {
-        return DB::transaction(function () use ($installation, $device, $ip) {
+        $link = DB::transaction(function () use ($installation, $device, $ip) {
             $installation = Installation::query()->whereKey($installation->id)->lockForUpdate()->firstOrFail();
             if ($installation->device_id !== $device->id) {
                 throw new ApiException(ErrorCode::NotFound);
             }
             if (! in_array($installation->status, [InstallationStatus::ReadyToInstall, InstallationStatus::Authorized, InstallationStatus::ManifestFetched], true)) {
                 throw new ApiException(ErrorCode::ArtifactNotInstallable, details: ['status' => $installation->status->value]);
+            }
+            if ($this->buildGone($installation)) {
+                // Its signed build was reclaimed, re-signed or lost its profile: end this attempt, so the app
+                // offers the install again and the next prepare signs a new build (rather than 409 forever).
+                $this->states->transition($installation, InstallationStatus::Expired, 'Signed build is no longer available.',
+                    Actor::user($installation->user), extra: ['status_reason' => 'BUILD_EXPIRED']);
+                $this->event($installation, 'EXPIRED', ['reason' => 'BUILD_EXPIRED']);
+
+                return null;
             }
             $this->assertInstallable($installation);
             $installation->signedBuild?->markUsed();
@@ -159,6 +169,12 @@ class InstallationService
                 'expires_at' => $authorization->expires_at->toIso8601ZuluString(),
             ];
         });
+        // Outside the transaction, so the attempt stays ended.
+        if ($link === null) {
+            throw new ApiException(ErrorCode::ArtifactNotInstallable, details: ['status' => InstallationStatus::Expired->value, 'reason' => 'BUILD_EXPIRED']);
+        }
+
+        return $link;
     }
 
     /**
@@ -366,6 +382,16 @@ class InstallationService
             : $build->isDeliverable();
     }
 
+    /** An installable attempt (eligible device, published artifact) whose own signed build cannot be delivered any more. */
+    private function buildGone(Installation $installation): bool
+    {
+        $build = $installation->signedBuild;
+
+        return $installation->artifact->status === ArtifactStatus::Published
+            && $installation->device->latestRegistration?->status === DeviceRegistrationStatus::Eligible
+            && ($build === null || ! $build->isDeliverable() || $build->device_id !== $installation->device_id);
+    }
+
     private function markReady(Installation $installation): void
     {
         $this->states->transition($installation, InstallationStatus::ReadyToInstall, actor: Actor::system('signing'));
@@ -396,13 +422,15 @@ class InstallationService
             DeviceFamily::Ipad => in_array(1, $families, true) || in_array(2, $families, true),
             DeviceFamily::Unknown => false,
         };
-        $osTooOld = $device->os_version !== null && $artifact->min_ios_version !== null
-            && version_compare($device->os_version, $artifact->min_ios_version, '<');
+        // Devices enrolled before the fix hold the build number (23G83); an unknown value is no reason to refuse.
+        $osVersion = IosVersion::normalize($device->os_version);
+        $osTooOld = $osVersion !== null && $artifact->min_ios_version !== null
+            && version_compare($osVersion, $artifact->min_ios_version, '<');
 
         if (! $supported || $osTooOld) {
             throw new ApiException(ErrorCode::IncompatibleDevice, details: [
                 'min_ios_version' => $artifact->min_ios_version,
-                'device_os_version' => $device->os_version,
+                'device_os_version' => $osVersion ?? $device->os_version,
             ]);
         }
     }

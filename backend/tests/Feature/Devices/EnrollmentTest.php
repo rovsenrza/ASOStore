@@ -56,6 +56,8 @@ describe('device answer', function () {
             ->and($device->udid_encrypted)->toBe(TEST_UDID)
             ->and($device->device_family)->toBe(DeviceFamily::Iphone)
             ->and($device->product)->toBe('iPhone15,2')
+            // The profile service answers VERSION with the build number; the version is kept.
+            ->and($device->os_version)->toBe('18.0')
             ->and(DeviceRegistration::sole()->status)->toBe(DeviceRegistrationStatus::Eligible);
 
         $enrolled = AuditLog::where('action', 'device.enrolled')->sole();
