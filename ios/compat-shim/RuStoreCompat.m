@@ -214,6 +214,16 @@ static id rs_objectForInfoKey(id self, SEL _cmd, NSString *key) {
     return orig_objectForInfoKey(self, _cmd, key);
 }
 
+// Once the app sees its original ID, it may look its own bundle up by it
+// (`Bundle(identifier: Bundle.main.bundleIdentifier!)!`); iOS registered the bundle
+// under our ID and would return nil.
+static NSBundle *(*orig_bundleWithIdentifier)(id, SEL, NSString *);
+
+static NSBundle *rs_bundleWithIdentifier(id self, SEL _cmd, NSString *identifier) {
+    if ([identifier isEqualToString:gOriginalBundleID]) return gMainBundle;
+    return orig_bundleWithIdentifier(self, _cmd, identifier);
+}
+
 #pragma mark - Install
 
 static void RSSwizzle(Class cls, SEL selector, IMP replacement, void *store) {
@@ -253,6 +263,7 @@ static void RuStoreCompatInit(void) {
             RSSwizzle(NSBundle.class, @selector(bundleIdentifier), (IMP)rs_bundleIdentifier, &orig_bundleIdentifier);
             RSSwizzle(NSBundle.class, @selector(infoDictionary), (IMP)rs_infoDictionary, &orig_infoDictionary);
             RSSwizzle(NSBundle.class, @selector(objectForInfoDictionaryKey:), (IMP)rs_objectForInfoKey, &orig_objectForInfoKey);
+            RSSwizzle(object_getClass(NSBundle.class), @selector(bundleWithIdentifier:), (IMP)rs_bundleWithIdentifier, &orig_bundleWithIdentifier);
         }
 
         if (gPrimaryGroup != nil) {
