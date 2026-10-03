@@ -257,6 +257,21 @@ struct SigningTests {
         #expect(output.report["profile_uuid"] == setup.job.profile.uuid)
     }
 
+    @Test func embedsTheBootstrapClaimInTheSignedInfoPlist() throws {
+        let setup = try SigningSetup()
+        defer { setup.remove() }
+        var job = setup.job
+        job.bootstrapClaim = "one-time-code-xyz"
+
+        let output = try Signer().sign(job: job, identity: setup.identity, source: setup.source, workDirectory: setup.work)
+        #expect(output.report["bootstrap_embedded"] == "yes")
+
+        // The code survives signing in the signed app's Info.plist, so first launch can read it.
+        let app = try Signer.unpack(output.ipa, into: setup.work.appendingPathComponent("check-bootstrap"), code: "UNPACK_FAILED")
+        let info = try PropertyListSerialization.propertyList(from: Data(contentsOf: app.appendingPathComponent("Info.plist")), format: nil) as? [String: Any]
+        #expect(info?["StorefrontBootstrapClaim"] as? String == "one-time-code-xyz")
+    }
+
     @Test func rejectsAModifiedExecutable() throws {
         let setup = try SigningSetup()
         defer { setup.remove() }
