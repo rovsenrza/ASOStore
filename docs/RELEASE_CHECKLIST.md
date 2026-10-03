@@ -56,8 +56,8 @@ Status as of 2026-09-26. ✅ done and verified · ⏳ needs the Apple account, a
 
 | | Item | Status |
 |---|---|---|
-| ⛔ | `terms.html` — legal text | placeholder |
-| ⛔ | `privacy.html` — factual draft is published and marked as draft; legal approval required | draft |
+| ⏳ | `terms.html` — legal text | written from the service's actual behaviour (2026-10-03); not reviewed by a lawyer |
+| ⏳ | `privacy.html` — factual text, draft banner removed (2026-10-03); not reviewed by a lawyer | published |
 | ⛔ | `pricing.html` — plans and prices | placeholder |
 | ✅ | Final brand «Ru App Store» replaces `[BRAND]` (web, admin, iOS, API title) | done |
 | ⚠️ | Accessibility: labels, skip links, focus order and `aria-live` statuses reviewed in code; a VoiceOver pass on iOS Safari and in the app is still to do | |

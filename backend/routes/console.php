@@ -51,6 +51,9 @@ Schedule::call(fn () => app(AlertEvaluator::class)->run())
 Schedule::call(fn () => app(RetentionService::class)->run())
     ->name('retention:apply')->dailyAt('04:00')->withoutOverlapping();
 
+// The database cache never drops expired keys nobody reads again (worker nonces, throttles).
+Schedule::command('cache:prune-database')->hourly()->withoutOverlapping();
+
 // Idle signed builds, leftover objects and temporary copies, so storage does not pile up.
 if (config('storefront.build_storage.janitor_enabled')) {
     Schedule::call(fn () => app(StorageJanitor::class)->run())

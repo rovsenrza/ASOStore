@@ -29,6 +29,7 @@ use App\Services\Apple\AppGroupUnavailable;
 use App\Services\Artifacts\ArtifactFileCache;
 use App\Services\Audit\Actor;
 use App\Services\Devices\DeviceRegistrationService;
+use App\Services\Imports\LinkFetcher;
 use App\Services\Installations\InstallationService;
 use App\Services\Pipeline\PipelineJobService;
 use App\Services\Signing\BuildWarmup;
@@ -43,6 +44,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
+use Tests\Support\FakeLinkFetcher;
 use Tests\Support\IpaBuilder;
 use Tests\Support\OpenApiContract;
 use Tests\Support\RecordingAppGroups;
@@ -957,5 +959,96 @@ it('caps how many imports a customer can start', function () {
     Sanctum::actingAs($this->customer);
     $this->postJson('/api/v1/imports', ['filename' => 'A.ipa', 'size_bytes' => strlen($bytes), 'declaration_accepted' => true])->assertCreated();
     $this->postJson('/api/v1/imports', ['filename' => 'B.ipa', 'size_bytes' => strlen($bytes), 'declaration_accepted' => true])
+        ->assertStatus(409)->assertJsonPath('error.code', 'QUOTA_EXHAUSTED');
+});
+
+it('imports an IPA from a link: the server downloads it, inspects it, and the owner can install it', function () {
+    runnerHeartbeat();
+    $bytes = IpaBuilder::app('com.vendor.linked')->info(['CFBundleDisplayName' => 'Linked App'])->build();
+    $fetcher = new FakeLinkFetcher([
+        ['location' => 'https://cdn.files.example/blob/123'],
+        ['body' => $bytes, 'disposition' => 'attachment; filename="Linked.ipa"'],
+    ]);
+    app()->instance(LinkFetcher::class, $fetcher);
+    Sanctum::actingAs($this->customer);
+
+    $importId = $this->postJson('/api/v1/imports/link', ['url' => 'https://files.example/s/Linked.ipa', 'declaration_accepted' => true])
+        ->assertStatus(202)->json('data.id');
+
+    // The queue runs synchronously in tests: downloaded, uploaded and inspected already.
+    $list = $this->getJson('/api/v1/imports');
+    expect(OpenApiContract::errors($list->getContent(), 'ImportListResponse'))->toBe([]);
+    $list->assertOk()
+        ->assertJsonPath('data.0.id', $importId)
+        ->assertJsonPath('data.0.name', 'Linked App')
+        ->assertJsonPath('data.0.status', 'PROVENANCE_REVIEW')
+        ->assertJsonPath('data.0.installable', true);
+    expect($fetcher->requested)->toBe(['https://files.example/s/Linked.ipa', 'https://cdn.files.example/blob/123']);
+
+    $this->postJson("/api/v1/imports/{$importId}/install")->assertStatus(202)->assertJsonPath('data.status', 'PREPARING');
+});
+
+it('shows why a link import failed and does not retry a link that can never work', function () {
+    app()->instance(LinkFetcher::class, new FakeLinkFetcher([['body' => '<html>login</html>']]));
+    Sanctum::actingAs($this->customer);
+
+    $this->postJson('/api/v1/imports/link', ['url' => 'https://files.example/page', 'declaration_accepted' => true])->assertStatus(202);
+
+    $this->getJson('/api/v1/imports')->assertOk()
+        ->assertJsonPath('data.0.status', 'DOWNLOAD_FAILED')
+        ->assertJsonPath('data.0.installable', false)
+        ->assertJsonPath('data.0.failure_reason', 'По ссылке не файл IPA. Нужна прямая ссылка на скачивание.');
+    expect(PipelineJob::where('type', 'FetchImportJob')->sole()->attempt)->toBe(1);
+});
+
+it('refuses a link to a private address before starting an import', function () {
+    app()->instance(LinkFetcher::class, new FakeLinkFetcher([]));
+    Sanctum::actingAs($this->customer);
+
+    $this->postJson('/api/v1/imports/link', ['url' => 'http://169.254.169.254/latest/meta-data', 'declaration_accepted' => true])
+        ->assertStatus(422)->assertJsonPath('error.code', 'VALIDATION_FAILED');
+    expect(CatalogApp::where('imported_by_user_id', $this->customer->id)->count())->toBe(0);
+});
+
+it('lets two customers import the same file', function () {
+    $bytes = IpaBuilder::app('com.vendor.shared')->build();
+    foreach ([$this->customer, subscribedCustomer()] as $customer) {
+        Sanctum::actingAs($customer);
+        $start = $this->postJson('/api/v1/imports', ['filename' => 'Shared.ipa', 'size_bytes' => strlen($bytes), 'declaration_accepted' => true])
+            ->assertCreated()->json('data');
+        $this->call('PUT', "/api/v1/imports/{$start['id']}/chunks/0", [], [], [], [
+            'CONTENT_TYPE' => 'application/octet-stream', 'HTTP_ACCEPT' => 'application/json',
+        ], $bytes)->assertOk();
+        $this->postJson("/api/v1/imports/{$start['id']}/complete")->assertCreated()->assertJsonPath('data.status', 'PROVENANCE_REVIEW');
+    }
+});
+
+it('deletes an import, frees its file and its slot, but still counts it toward today', function () {
+    config(['storefront.imports.total_limit' => 1, 'storefront.imports.daily_limit' => 2]);
+    $bytes = IpaBuilder::app('com.vendor.deleteme')->build();
+    Sanctum::actingAs($this->customer);
+    $start = $this->postJson('/api/v1/imports', ['filename' => 'Del.ipa', 'size_bytes' => strlen($bytes), 'declaration_accepted' => true])
+        ->assertCreated()->json('data');
+    $this->call('PUT', "/api/v1/imports/{$start['id']}/chunks/0", [], [], [], [
+        'CONTENT_TYPE' => 'application/octet-stream', 'HTTP_ACCEPT' => 'application/json',
+    ], $bytes)->assertOk();
+    $this->postJson("/api/v1/imports/{$start['id']}/complete")->assertCreated();
+    $artifact = AppArtifact::whereHas('app', fn ($q) => $q->where('public_id', $start['import_id']))->sole();
+    Storage::disk('artifacts')->assertExists($artifact->storage_path);
+
+    // Another customer cannot delete it.
+    Sanctum::actingAs(subscribedCustomer());
+    $this->deleteJson("/api/v1/imports/{$start['import_id']}")->assertNotFound();
+
+    Sanctum::actingAs($this->customer);
+    $this->deleteJson("/api/v1/imports/{$start['import_id']}")->assertOk();
+    $this->getJson('/api/v1/imports')->assertOk()->assertJsonCount(0, 'data');
+    Storage::disk('artifacts')->assertMissing($artifact->storage_path);
+    expect($artifact->refresh()->purged_at)->not->toBeNull();
+
+    // The total slot is free again; the daily cap (2) still counts the deleted one.
+    $this->postJson('/api/v1/imports', ['filename' => 'B.ipa', 'size_bytes' => 10, 'declaration_accepted' => true])->assertCreated();
+    $this->deleteJson('/api/v1/imports/'.CatalogApp::where('imported_by_user_id', $this->customer->id)->sole()->public_id)->assertOk();
+    $this->postJson('/api/v1/imports', ['filename' => 'C.ipa', 'size_bytes' => 10, 'declaration_accepted' => true])
         ->assertStatus(409)->assertJsonPath('error.code', 'QUOTA_EXHAUSTED');
 });

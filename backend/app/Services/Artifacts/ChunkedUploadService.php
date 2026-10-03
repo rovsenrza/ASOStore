@@ -4,6 +4,7 @@ namespace App\Services\Artifacts;
 
 use App\Enums\ArtifactStatus;
 use App\Enums\ErrorCode;
+use App\Enums\SourceType;
 use App\Exceptions\ApiException;
 use App\Jobs\InspectArtifactJob;
 use App\Models\AppArtifact;
@@ -149,7 +150,9 @@ class ChunkedUploadService
 
             // A file that was rejected, or failed inspection or provenance, may come again once
             // the reason is fixed (e.g. the team approval); any other copy is a duplicate.
-            $duplicate = AppArtifact::query()->where('sha256', $sha256)
+            // A customer's import is private to them, so the same file imported by someone else
+            // (or present in the catalog) is not a duplicate; the stored original is shared by path.
+            $duplicate = $upload->source_type === SourceType::UserImport ? null : AppArtifact::query()->where('sha256', $sha256)
                 ->whereNotIn('status', [ArtifactStatus::Rejected->value, ArtifactStatus::InspectionFailed->value, ArtifactStatus::ProvenanceFailed->value])
                 ->first();
             if ($duplicate !== null) {

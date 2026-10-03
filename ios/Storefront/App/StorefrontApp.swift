@@ -6,6 +6,7 @@ struct StorefrontApp: App {
     @State private var session: SessionStore
     @State private var router = AppRouter()
     @State private var installations: InstallationCoordinator
+    @State private var imports: ImportCenter
     private let handoff = PortalHandoff()
 
     init() {
@@ -18,10 +19,12 @@ struct StorefrontApp: App {
         let apiClient = APIClient.configured()
         self.apiClient = apiClient
         _session = State(initialValue: SessionStore(api: apiClient))
-        _installations = State(initialValue: InstallationCoordinator(
+        let installations = InstallationCoordinator(
             repository: PreparationRepository(api: apiClient),
             openURL: { url in await UIApplication.shared.open(url) }
-        ))
+        )
+        _installations = State(initialValue: installations)
+        _imports = State(initialValue: ImportCenter(repository: ImportRepository(api: apiClient), installations: installations))
     }
 
     var body: some Scene {
@@ -33,6 +36,7 @@ struct StorefrontApp: App {
                 .environment(session)
                 .environment(router)
                 .environment(installations)
+                .environment(imports)
                 // Cold launch: validate the stored session without blocking the UI (FULL_PLAN §11),
                 // then pick up installations that were in flight when the app was killed.
                 .task {
@@ -41,6 +45,12 @@ struct StorefrontApp: App {
                     await installations.resume()
                 }
                 .onOpenURL { url in
+                    // An .ipa another app opened in Ru App Store (iOS copied it to Documents/Inbox).
+                    if url.isFileURL {
+                        router.selectedTab = .manager
+                        imports.incomingFile = url
+                        return
+                    }
                     Task { await router.handle(url, session: session) }
                 }
         }

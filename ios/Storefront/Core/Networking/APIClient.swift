@@ -60,16 +60,39 @@ actor APIClient {
         try await send(method: "POST", path: path, query: [], body: nil)
     }
 
+    /// Raw bytes (an upload chunk), with extra headers and a longer timeout for slow uplinks.
+    func put<Payload: Decodable & Sendable>(
+        _ path: String,
+        data: Data,
+        headers: [String: String] = [:],
+        as type: Payload.Type = Payload.self
+    ) async throws -> APIResponse<Payload> {
+        try await send(method: "PUT", path: path, query: [], body: data, contentType: "application/octet-stream", headers: headers, timeout: 180)
+    }
+
+    func delete<Payload: Decodable & Sendable>(
+        _ path: String,
+        as type: Payload.Type = Payload.self
+    ) async throws -> APIResponse<Payload> {
+        try await send(method: "DELETE", path: path, query: [], body: nil)
+    }
+
     private func send<Payload: Decodable & Sendable>(
         method: String,
         path: String,
         query: [URLQueryItem],
         body: Data?,
+        contentType: String = "application/json",
+        headers: [String: String] = [:],
+        timeout: TimeInterval = 30,
         retryToken: String? = nil
     ) async throws -> APIResponse<Payload> {
         let isRetry = retryToken != nil
         let token: String? = if let retryToken { retryToken } else { await authenticator.accessToken }
-        var request = makeRequest(method: method, path: path, query: query, body: body)
+        var request = makeRequest(method: method, path: path, query: query, body: body, contentType: contentType, timeout: timeout)
+        for (name, value) in headers {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
         if let token {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
@@ -80,7 +103,10 @@ actor APIClient {
             let fresh = try await authenticator.refresh(after: token!) { refreshToken in
                 try await self.refreshTokens(refreshToken)
             }
-            return try await send(method: method, path: path, query: query, body: body, retryToken: fresh.accessToken)
+            return try await send(
+                method: method, path: path, query: query, body: body,
+                contentType: contentType, headers: headers, timeout: timeout, retryToken: fresh.accessToken
+            )
         }
     }
 
@@ -132,7 +158,14 @@ actor APIClient {
         )
     }
 
-    private func makeRequest(method: String, path: String, query: [URLQueryItem], body: Data?) -> URLRequest {
+    private func makeRequest(
+        method: String,
+        path: String,
+        query: [URLQueryItem],
+        body: Data?,
+        contentType: String = "application/json",
+        timeout: TimeInterval = 30
+    ) -> URLRequest {
         var components = URLComponents(
             url: environment.baseURL.appending(path: path.trimmingPrefix("/")),
             resolvingAgainstBaseURL: false
@@ -143,13 +176,13 @@ actor APIClient {
 
         var request = URLRequest(url: components.url!)
         request.httpMethod = method
-        request.timeoutInterval = 30
+        request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("ru", forHTTPHeaderField: "Accept-Language")
         request.setValue("ios-\(UUID().uuidString.lowercased())", forHTTPHeaderField: "X-Request-Id")
         if let body {
             request.httpBody = body
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
         return request
     }

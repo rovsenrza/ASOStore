@@ -7,16 +7,20 @@ use App\Enums\ArtifactStatus;
 use App\Enums\ErrorCode;
 use App\Enums\SourceType;
 use App\Exceptions\ApiException;
+use App\Jobs\FetchImportJob;
 use App\Models\AppArtifact;
 use App\Models\AppCategory;
 use App\Models\AppPublisher;
 use App\Models\CatalogApp;
 use App\Models\UploadSession;
 use App\Models\User;
+use App\Services\Artifacts\ArtifactPurger;
 use App\Services\Artifacts\ArtifactReviewService;
+use App\Services\Artifacts\ChunkedUploadService;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use App\Services\Catalog\TeamEligibilityGranter;
+use App\Services\Pipeline\PipelineJobService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -37,6 +41,10 @@ class ImportService
         private readonly AuditService $audit,
         private readonly TeamEligibilityGranter $eligibility,
         private readonly ArtifactReviewService $review,
+        private readonly ChunkedUploadService $uploads,
+        private readonly PipelineJobService $jobs,
+        private readonly ArtifactPurger $purger,
+        private readonly LinkFetcher $fetcher,
     ) {}
 
     private function dailyLimit(): int
@@ -66,22 +74,7 @@ class ImportService
 
         return DB::transaction(function () use ($user, $filename, $sizeBytes, $sha256, $ip) {
             $app = $this->createOwnedApp($user, $filename);
-            $chunkSize = UploadSession::CHUNK_SIZE;
-            $upload = UploadSession::create([
-                'app_id' => $app->id,
-                'uploaded_by' => $user->id,
-                'original_filename' => basename($filename),
-                'expected_size' => $sizeBytes,
-                'expected_sha256' => $sha256 !== null ? strtolower($sha256) : null,
-                'chunk_size' => $chunkSize,
-                'chunk_count' => (int) ceil($sizeBytes / $chunkSize),
-                'source_type' => SourceType::UserImport->value,
-                'declaration_version' => self::DECLARATION,
-                'declaration_accepted_at' => now(),
-                'declaration_ip' => $ip,
-                'status' => 'OPEN',
-                'expires_at' => now()->addDay(),
-            ]);
+            $upload = $this->openUpload($app, $user, $filename, $sizeBytes, $sha256, $ip);
             $this->audit->record('import.started', $app, after: [
                 'filename' => $upload->original_filename,
                 'size_bytes' => $sizeBytes,
@@ -89,6 +82,78 @@ class ImportService
 
             return $upload;
         });
+    }
+
+    /**
+     * Starts an import from a link: the hidden app is created now (so it shows in the customer's
+     * list at once) and the server downloads the file in FetchImportJob, which then feeds it to
+     * the same upload and inspection as an import from Files.
+     */
+    public function startFromLink(User $user, string $url, ?string $ip): CatalogApp
+    {
+        try {
+            $url = $this->fetcher->normalize($url);
+        } catch (LinkFetchFailed $invalid) {
+            throw new ApiException(ErrorCode::ValidationFailed, $invalid->getMessage(), ['url' => $invalid->getMessage()]);
+        }
+        $this->assertWithinLimits($user);
+
+        return DB::transaction(function () use ($user, $url, $ip) {
+            $filename = rawurldecode(basename((string) parse_url($url, PHP_URL_PATH)));
+            $app = $this->createOwnedApp($user, preg_match('/\.ipa$/i', $filename) === 1 ? $filename : 'Импорт по ссылке.ipa');
+            $job = $this->jobs->create(FetchImportJob::TYPE, FetchImportJob::idempotencyKey($app), $app, [
+                'import_id' => $app->public_id,
+                'url' => $url,
+                'ip' => $ip,
+            ], Actor::user($user), maxAttempts: 3);
+            FetchImportJob::dispatch($job->id)->afterCommit();
+            $this->audit->record('import.link_started', $app, after: ['host' => parse_url($url, PHP_URL_HOST)], actor: Actor::user($user));
+
+            return $app;
+        });
+    }
+
+    /**
+     * Feeds a file the server downloaded for a link import through the chunked upload, so it is
+     * stored, hashed and inspected exactly like one sent from the device.
+     */
+    public function ingest(CatalogApp $app, string $path, string $filename, int $sizeBytes, string $sha256): AppArtifact
+    {
+        if ($sizeBytes > self::MAX_BYTES) {
+            throw new LinkFetchFailed('Файл по ссылке больше 3 ГБ.');
+        }
+        $owner = User::query()->findOrFail($app->imported_by_user_id);
+        $job = $app->pipelineJobs()->where('type', FetchImportJob::TYPE)->latest('id')->first();
+        $upload = $this->openUpload($app, $owner, $filename, $sizeBytes, $sha256, $job?->payload['ip'] ?? null);
+
+        $handle = fopen($path, 'rb');
+        if ($handle === false) {
+            throw LinkFetchFailed::retryable('Сервер временно не может прочитать файл.');
+        }
+        try {
+            for ($number = 0; $number < $upload->chunk_count; $number++) {
+                $this->uploads->storeChunk($upload, $number, (string) fread($handle, $upload->chunk_size), null);
+            }
+
+            return $this->uploads->complete($upload);
+        } catch (ApiException $refused) {
+            throw new LinkFetchFailed($refused->errorCode === ErrorCode::UploadCorrupt
+                ? 'Файл по ссылке скачался с ошибкой.'
+                : 'Файл по ссылке не удалось принять.');
+        } finally {
+            fclose($handle);
+        }
+    }
+
+    /**
+     * Deletes an import: its installs end, its IPA and signed copies are removed from storage
+     * (ArtifactPurger), and the hidden app is soft-deleted so the slot is freed.
+     */
+    public function delete(CatalogApp $app, User $owner): void
+    {
+        $app->delete();
+        $this->audit->record('import.deleted', $app, actor: Actor::user($owner));
+        $this->purger->purgeApp($app, Actor::user($owner), 'Import deleted by its owner.');
     }
 
     /**
@@ -125,9 +190,31 @@ class ImportService
         return $this->review->publish($artifact, $owner);
     }
 
+    private function openUpload(CatalogApp $app, User $user, string $filename, int $sizeBytes, ?string $sha256, ?string $ip): UploadSession
+    {
+        $chunkSize = UploadSession::CHUNK_SIZE;
+
+        return UploadSession::create([
+            'app_id' => $app->id,
+            'uploaded_by' => $user->id,
+            'original_filename' => basename($filename),
+            'expected_size' => $sizeBytes,
+            'expected_sha256' => $sha256 !== null ? strtolower($sha256) : null,
+            'chunk_size' => $chunkSize,
+            'chunk_count' => (int) ceil($sizeBytes / $chunkSize),
+            'source_type' => SourceType::UserImport->value,
+            'declaration_version' => self::DECLARATION,
+            'declaration_accepted_at' => now(),
+            'declaration_ip' => $ip,
+            'status' => 'OPEN',
+            'expires_at' => now()->addDay(),
+        ]);
+    }
+
     private function assertWithinLimits(User $user): void
     {
-        $today = CatalogApp::query()->where('imported_by_user_id', $user->id)->where('created_at', '>=', now()->startOfDay())->count();
+        // Deleted imports still count toward today, so delete-and-retry cannot get round the daily cap.
+        $today = CatalogApp::withTrashed()->where('imported_by_user_id', $user->id)->where('created_at', '>=', now()->startOfDay())->count();
         $total = CatalogApp::query()->where('imported_by_user_id', $user->id)->count();
         if ($today >= $this->dailyLimit() || $total >= $this->totalLimit()) {
             throw new ApiException(ErrorCode::QuotaExhausted, 'Достигнут предел импортов. Удалите старый импорт или попробуйте позже.');

@@ -25,6 +25,7 @@ struct ManagerView: View {
 
     @Environment(\.apiClient) private var api
     @Environment(InstallationCoordinator.self) private var installations: InstallationCoordinator?
+    @Environment(ImportCenter.self) private var imports: ImportCenter?
     @State private var state: LoadState<[InstallationDTO]> = .loading
     @State private var filter: Filter = .all
     @Namespace private var filterSelection
@@ -36,6 +37,8 @@ struct ManagerView: View {
                     StoreHeader()
                         .padding(.bottom, 20)
                     ManagerImportCards()
+                        .padding(.bottom, AppSpacing.generous)
+                    ManagerImportsSection()
                         .padding(.bottom, AppSpacing.generous)
                     filters
                         .padding(.bottom, 12)
@@ -52,6 +55,23 @@ struct ManagerView: View {
             .refreshable { await load() }
             .task { await load() }
             .storeDestinations()
+            .alert("Импорт", isPresented: Binding(
+                get: { imports?.message != nil },
+                set: { if !$0 { imports?.message = nil } }
+            )) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(imports?.message ?? "")
+            }
+            .alert("Импортировать приложение?", isPresented: Binding(
+                get: { imports?.incomingFile != nil },
+                set: { if !$0, imports?.incomingFile != nil { imports?.declineIncomingFile() } }
+            )) {
+                Button("Импортировать") { imports?.acceptIncomingFile() }
+                Button("Отмена", role: .cancel) { imports?.declineIncomingFile() }
+            } message: {
+                Text("«\(imports?.incomingFile?.lastPathComponent ?? "")» будет загружен на сервер, проверен и подписан для вашего iPhone. Вы подтверждаете, что имеете право устанавливать это приложение.")
+            }
         }
     }
 
@@ -128,6 +148,7 @@ struct ManagerView: View {
     }
 
     private func load() async {
+        async let importsRefreshed: Void = refreshImports()
         do {
             let items = try await PreparationRepository(api: api).library()
             // An empty library is content here (the empty message explains it), not an error.
@@ -136,6 +157,11 @@ struct ManagerView: View {
         } catch {
             state = LoadState(error: error)
         }
+        await importsRefreshed
+    }
+
+    private func refreshImports() async {
+        await imports?.refresh()
     }
 }
 

@@ -91,6 +91,14 @@ final class InstallationCoordinator {
         }
     }
 
+    /// Follow an installation started elsewhere (an import's install): poll it, and open the
+    /// install link as soon as it is ready, as if the CTA had been tapped.
+    func follow(_ installation: InstallationDTO) {
+        lastError = nil
+        autoInstall.insert(installation.app.id)
+        update(installation)
+    }
+
     /// Settings → «Сразу открывать установку» (on by default).
     static var autoOpenEnabled: Bool {
         UserDefaults.standard.object(forKey: "autoOpenInstallLinks") as? Bool ?? true

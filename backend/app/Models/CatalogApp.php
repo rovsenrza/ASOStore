@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Storage;
@@ -123,6 +124,16 @@ class CatalogApp extends Model
     }
 
     /**
+     * Jobs about the app itself, e.g. the download of a link import.
+     *
+     * @return MorphMany<PipelineJob, $this>
+     */
+    public function pipelineJobs(): MorphMany
+    {
+        return $this->morphMany(PipelineJob::class, 'subject');
+    }
+
+    /**
      * @return HasMany<AppArtifact, $this>
      */
     public function artifacts(): HasMany
@@ -149,7 +160,11 @@ class CatalogApp extends Model
         $query->where('visibility', AppVisibility::Published->value);
     }
 
-    /** The customer who imported this app, for a customer-imported listing (IPA from Files or a link). */
+    /**
+     * The customer who imported this app, for a customer-imported listing (IPA from Files or a link).
+     *
+     * @return BelongsTo<User, $this>
+     */
     public function importer(): BelongsTo
     {
         return $this->belongsTo(User::class, 'imported_by_user_id');

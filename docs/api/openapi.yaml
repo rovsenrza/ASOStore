@@ -2390,6 +2390,153 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
 
+  /imports:
+    get:
+      tags: [Install]
+      operationId: listImports
+      summary: The customer's own IPA imports, newest first
+      description: 'Imports are hidden apps only their owner sees and installs. status is an artifact status once the file is stored, else DOWNLOADING / DOWNLOAD_FAILED (link) or UPLOADING / UPLOAD_FAILED (Files). installable is true for PROVENANCE_REVIEW (the first install approves it) and PUBLISHED.'
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportListResponse" }
+              examples:
+                imports: { externalValue: examples/imports-list.json }
+        "401": { $ref: "#/components/responses/Error" }
+    post:
+      tags: [Install]
+      operationId: startImportUpload
+      summary: Start a chunked upload of an IPA from Files
+      description: 'Capped per customer (daily and total; QUOTA_EXHAUSTED). Max 3 GiB. Send each chunk with PUT /imports/{upload}/chunks/{n}, then POST /imports/{upload}/complete.'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, size_bytes, declaration_accepted]
+              properties:
+                filename: { type: string, pattern: '\.ipa$' }
+                size_bytes: { type: integer, minimum: 1, maximum: 3221225472 }
+                sha256: { type: [string, "null"], pattern: "^[a-fA-F0-9]{64}$" }
+                declaration_accepted: { type: boolean, const: true }
+      responses:
+        "201":
+          description: Upload session
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportUploadResponse" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /imports/link:
+    post:
+      tags: [Install]
+      operationId: startImportFromLink
+      summary: Import an IPA from an https link (downloaded on the server)
+      description: 'https on port 443 only; hosts resolving to private, loopback, link-local or metadata addresses are refused, on every redirect hop. Dropbox and Google Drive share links are turned into direct downloads. Answers at once; the import shows DOWNLOADING until the file is stored and inspected.'
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url, declaration_accepted]
+              properties:
+                url: { type: string, maxLength: 2048 }
+                declaration_accepted: { type: boolean, const: true }
+      responses:
+        "202":
+          description: Import created, download queued
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportResponse" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /imports/{upload}/chunks/{number}:
+    put:
+      tags: [Install]
+      operationId: putImportChunk
+      summary: Send one chunk (raw bytes); repeating a received chunk is a no-op
+      description: 'Every chunk but the last is chunk_size bytes. X-Chunk-SHA256, when sent, must match; the same chunk with other bytes answers 409.'
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: upload, in: path, required: true, schema: { $ref: "#/components/schemas/PublicId" } }
+        - { name: number, in: path, required: true, schema: { type: integer, minimum: 0 } }
+        - { name: X-Chunk-SHA256, in: header, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200": { description: Chunk stored }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /imports/{upload}/complete:
+    post:
+      tags: [Install]
+      operationId: completeImportUpload
+      summary: Assemble the chunks and start inspection
+      description: 'Checks the whole file against sha256 from the start request. The same file imported by another customer is not a duplicate.'
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: upload, in: path, required: true, schema: { $ref: "#/components/schemas/PublicId" } }
+      responses:
+        "201": { description: Stored; inspection queued }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /imports/{import}/install:
+    post:
+      tags: [Install]
+      operationId: installImport
+      summary: Approve the owner's inspected import and prepare it for this device
+      description: 'The first install approves and publishes the import for its owner only; the app stays hidden from the catalog. Follow the installation like any other.'
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: import, in: path, required: true, schema: { $ref: "#/components/schemas/PublicId" } }
+      responses:
+        "200":
+          description: Installation (already prepared)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstallationResponse" }
+        "202":
+          description: Installation preparing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstallationResponse" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /imports/{import}:
+    delete:
+      tags: [Install]
+      operationId: deleteImport
+      summary: Delete an import; its installs end and its files are removed from storage
+      description: 'Frees a slot of the total cap; deleted imports still count toward the daily cap.'
+      security:
+        - bearerAuth: []
+      parameters:
+        - { name: import, in: path, required: true, schema: { $ref: "#/components/schemas/PublicId" } }
+      responses:
+        "200": { description: Deleted }
+        "404": { $ref: "#/components/responses/Error" }
+
   /install/{token}/manifest.plist:
     get:
       tags: [Install]
@@ -4688,6 +4835,50 @@ components:
         - $ref: "#/components/schemas/SuccessEnvelope"
         - properties:
             data: { $ref: "#/components/schemas/Installation" }
+
+    Import:
+      type: object
+      required: [id, name, status, version, size_bytes, installable, failure_reason, created_at]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        name: { type: string }
+        status: { type: string, description: 'Artifact status, or DOWNLOADING / DOWNLOAD_FAILED / UPLOADING / UPLOAD_FAILED before the file is stored.' }
+        version: { type: [string, "null"] }
+        size_bytes: { type: [integer, "null"] }
+        installable: { type: boolean }
+        failure_reason: { type: [string, "null"], description: 'A failure code, or a Russian sentence for a failed link download.' }
+        created_at: { type: [string, "null"], format: date-time }
+
+    ImportListResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: array
+              items: { $ref: "#/components/schemas/Import" }
+
+    ImportResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/Import" }
+
+    ImportUploadResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: object
+              required: [id, import_id, status, chunk_size, chunk_count, received_chunks, missing_chunks, expires_at]
+              properties:
+                id: { $ref: "#/components/schemas/PublicId" }
+                import_id: { $ref: "#/components/schemas/PublicId" }
+                status: { type: string }
+                chunk_size: { type: integer }
+                chunk_count: { type: integer }
+                received_chunks: { type: array, items: { type: integer } }
+                missing_chunks: { type: array, items: { type: integer } }
+                expires_at: { $ref: "#/components/schemas/Timestamp" }
 
     LibraryResponse:
       allOf:

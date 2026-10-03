@@ -37,6 +37,7 @@ nonisolated struct MockTransport: HTTPTransport {
         switch tail {
         case (_, _, "health"): return "health"
         case (_, _, "library"): return "library"
+        case (_, _, "imports"): return "imports-list"
         case (_, "installations", _): return "installation-ready"
         case (_, "auth", "me"): return "auth-me"
         case (_, "devices", "me"): return "devices-me"

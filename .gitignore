@@ -58,3 +58,9 @@ runner/.zsign_cache/
 /ipas-local
 # Website build
 front/node_modules/
+
+# Apple keys and other credentials: never committed.
+secrets/
+*.p8
+# Built IPAs (scripts/build-storefront-ipa.sh)
+ios/build/

@@ -2,6 +2,10 @@
 
 use App\Models\AppArtifact;
 use App\Services\Signing\CompatShim;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+
+// The artifact factory creates its app and version rows, so this needs a migrated database.
+uses(RefreshDatabase::class);
 
 beforeEach(function () {
     $this->dylib = tempnam(sys_get_temp_dir(), 'shim').'.dylib';

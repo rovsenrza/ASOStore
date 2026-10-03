@@ -18,6 +18,7 @@ use App\Models\TeamAssignment;
 use App\Services\Apple\AppleException;
 use App\Services\Apple\AppleIntegration;
 use App\Services\Audit\AuditService;
+use App\Services\Catalog\TeamEligibilityGranter;
 use App\Services\Quotas\QuotaReconciler;
 use App\Services\Quotas\QuotaService;
 use Illuminate\Http\JsonResponse;
@@ -61,7 +62,7 @@ class AppleTeamController extends Controller
         return ApiResponse::ok($this->present($team->refresh()), 201);
     }
 
-    public function update(Request $request, AppleTeam $team): JsonResponse
+    public function update(Request $request, AppleTeam $team, TeamEligibilityGranter $eligibility): JsonResponse
     {
         $data = $request->validate([
             'name' => ['sometimes', 'string', 'max:255'],
@@ -100,6 +101,12 @@ class AppleTeamController extends Controller
         });
 
         $this->audit->record('apple_team.updated', $team, before: self::plain($before), after: self::plain($team->only(array_keys($before))), reason: $data['reason']);
+
+        // A team that can now sign gets the catalog's own bundle IDs, so a device moved to it on
+        // quota overflow can install everything a device on the first team can.
+        if ($team->status->canRegisterDevices()) {
+            $eligibility->grantOwnBundles($team, $request->user(), 'Own bundle IDs for an active team.');
+        }
 
         return ApiResponse::ok($this->present($team->refresh()));
     }

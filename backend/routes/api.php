@@ -86,9 +86,11 @@ Route::middleware(['auth:sanctum', 'active', 'verified.web'])->group(function ()
     // Customer self-import of an IPA from Files (owner-only; hidden from the public catalog).
     Route::get('/imports', [ImportController::class, 'index'])->name('api.imports.index');
     Route::post('/imports', [ImportController::class, 'store'])->middleware('throttle:imports')->name('api.imports.store');
+    Route::post('/imports/link', [ImportController::class, 'link'])->middleware('throttle:imports')->name('api.imports.link');
     Route::put('/imports/{upload}/chunks/{number}', [ImportController::class, 'chunk'])->whereNumber('number')->name('api.imports.chunk');
     Route::post('/imports/{upload}/complete', [ImportController::class, 'complete'])->middleware('throttle:imports')->name('api.imports.complete');
     Route::post('/imports/{import}/install', [ImportController::class, 'install'])->middleware(['throttle:installs', 'idempotent'])->name('api.imports.install');
+    Route::delete('/imports/{import}', [ImportController::class, 'destroy'])->middleware('throttle:imports')->name('api.imports.destroy');
 });
 
 Route::middleware(['auth:sanctum', 'active'])->group(function () {

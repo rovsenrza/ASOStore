@@ -29,6 +29,7 @@ nonisolated struct ErrorCode: RawRepresentable, Hashable, Sendable, Codable {
     static let activationAlreadyUsed = ErrorCode(rawValue: "ACTIVATION_ALREADY_USED")
     static let forbidden = ErrorCode(rawValue: "FORBIDDEN")
     static let notFound = ErrorCode(rawValue: "NOT_FOUND")
+    static let conflict = ErrorCode(rawValue: "CONFLICT")
     static let rateLimited = ErrorCode(rawValue: "RATE_LIMITED")
     static let deviceNotEligible = ErrorCode(rawValue: "DEVICE_NOT_ELIGIBLE")
     static let devicePendingApple = ErrorCode(rawValue: "DEVICE_PENDING_APPLE")

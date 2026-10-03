@@ -6,7 +6,9 @@ use App\Enums\DeviceFamily;
 use App\Enums\DeviceRegistrationStatus as Status;
 use App\Enums\RoleSlug;
 use App\Models\AppArtifact;
+use App\Models\AppCategory;
 use App\Models\AppleTeam;
+use App\Models\AppPublisher;
 use App\Models\AuditLog;
 use App\Models\CatalogApp;
 use App\Models\Certificate;
@@ -14,6 +16,7 @@ use App\Models\Device;
 use App\Models\DeviceRegistration;
 use App\Models\Installation;
 use App\Models\MembershipYear;
+use App\Models\TeamAppEligibility;
 use App\Models\TeamAssignment;
 use App\Models\User;
 use App\Services\Devices\DeviceRegistrationService;
@@ -258,4 +261,52 @@ it('lets only admins manage teams', function () {
     asStaff(userWithRoles(RoleSlug::CatalogManager))->getJson('/api/v1/admin/apple-teams')->assertForbidden();
     forgetGuards();
     asStaff(userWithRoles(RoleSlug::Support))->postJson('/api/v1/admin/team-eligibilities', [])->assertForbidden();
+});
+
+it('approves a newly activated team for every own bundle ID, so overflow devices can install the catalog', function () {
+    config(['storefront.artifacts.own_bundle_prefix' => 'com.ruappstore.']);
+    approveTeamFor('com.ruappstore.catalog1', $this->primary);
+    CatalogApp::factory()->create(['bundle_identifier' => 'com.ruappstore.catalog2']);
+    approveTeamFor('com.vendor.foreign', $this->primary);
+
+    asStaff($this->admin);
+    $team = $this->postJson('/api/v1/admin/apple-teams', ['apple_team_id' => 'NEWTEAM002', 'name' => 'Overflow'])->assertCreated()->json('data');
+    $this->postJson("/api/v1/admin/apple-teams/{$team['id']}/credentials", [
+        'issuer_id' => 'issuer', 'key_id' => 'ABCDE12346', 'vault_reference' => 'encrypted-file:secrets/apple/ABCDE12346.p8.enc',
+    ])->assertCreated();
+    $this->postJson("/api/v1/admin/apple-teams/{$team['id']}/verify")->assertOk();
+
+    $eligible = $this->patchJson("/api/v1/admin/apple-teams/{$team['id']}", ['status' => 'ACTIVE', 'reason' => 'Overflow team'])
+        ->assertOk()->json('data.eligibilities');
+
+    // Own IDs come along; a vendor's ID still needs its own approval.
+    expect($eligible)->toEqualCanonicalizing(['com.ruappstore.catalog1', 'com.ruappstore.catalog2'])
+        ->and(AuditLog::where('action', 'team.eligibility.own_bundles_granted')->count())->toBe(1);
+});
+
+it('approves a new own-bundle listing for every active team, not just the primary', function () {
+    config(['storefront.artifacts.own_bundle_prefix' => 'com.ruappstore.']);
+    $second = secondTeam();
+    $pending = AppleTeam::create(['apple_team_id' => 'TEAM000003', 'name' => 'Not yet', 'status' => AppleTeamStatus::PendingVerification]);
+
+    asStaff(userWithRoles(RoleSlug::CatalogManager))->postJson('/api/v1/admin/apps', [
+        'name' => 'Ours', 'bundle_identifier' => 'com.ruappstore.newapp', 'source_type' => 'OWN_BUILD',
+        'category_id' => AppCategory::factory()->create()->public_id,
+        'publisher_id' => AppPublisher::factory()->create()->public_id,
+    ])->assertCreated();
+
+    expect(TeamAppEligibility::allows($this->primary->id, 'com.ruappstore.newapp'))->toBeTrue()
+        ->and(TeamAppEligibility::allows($second->id, 'com.ruappstore.newapp'))->toBeTrue()
+        ->and(TeamAppEligibility::allows($pending->id, 'com.ruappstore.newapp'))->toBeFalse();
+});
+
+it('backfills own bundle IDs for an existing team from the CLI', function () {
+    config(['storefront.artifacts.own_bundle_prefix' => 'com.ruappstore.']);
+    approveTeamFor('com.ruappstore.catalog1', $this->primary);
+    $second = secondTeam();
+
+    $this->artisan('apple:grant-own-bundles', ['team-id' => $second->apple_team_id, '--user' => $this->admin->id])
+        ->expectsOutputToContain('1 bundle IDs approved')->assertSuccessful();
+
+    expect(TeamAppEligibility::allows($second->id, 'com.ruappstore.catalog1'))->toBeTrue();
 });

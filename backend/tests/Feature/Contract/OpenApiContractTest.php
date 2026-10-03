@@ -48,6 +48,7 @@ dataset('examples', [
     'installation ready' => ['installation-ready.json', 'InstallationResponse'],
     'install link' => ['install-link.json', 'InstallLinkResponse'],
     'library' => ['library.json', 'LibraryResponse'],
+    'imports' => ['imports-list.json', 'ImportListResponse'],
 ]);
 
 it('keeps every shared example valid against its schema', function (string $file, string $schema) {

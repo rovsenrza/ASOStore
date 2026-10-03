@@ -14,6 +14,46 @@
 			</array>
 		</dict>
 	</array>
+	<!-- «Открыть в Ru App Store» for .ipa files from Files, Safari, Telegram and other apps.
+	     iOS copies the file into Documents/Inbox; ImportCenter uploads it, then deletes the copy. -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>iOS App Package</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>com.apple.itunes.ipa</string>
+			</array>
+		</dict>
+	</array>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<false/>
+	<key>UTImportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.zip-archive</string>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>iOS App Package</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.apple.itunes.ipa</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>ipa</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
