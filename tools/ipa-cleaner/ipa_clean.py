@@ -572,7 +572,7 @@ class Bundle:
                 blocked = "A binary that loads it cannot be checked: " + next(row["problem"] for row in loaders if row["problem"])
             elif not unused:
                 blocked = "A binary uses symbols from it"
-            elif names[PurePosixPath(path).name] > 1:
+            elif names[PurePosixPath(path).name] > 1 and self.duplicate_is_loaded(path):
                 blocked = "Another file in the app has the same name"
             container = self.container(path)
             found.append({
@@ -593,6 +593,20 @@ class Bundle:
                 "other_markers": [marker for marker in promos if marker != "https://t.me/"],
             })
         return found
+
+    def same_named(self, path):
+        name = PurePosixPath(path).name
+        return [other for other in self.binaries if other != path and PurePosixPath(other).name == name]
+
+    def duplicate_is_loaded(self, path):
+        """A same-named copy matters only when something loads it: a copy nobody loads cannot be mistaken for this one."""
+        return any(self.loaded_by.get(other) for other in self.same_named(path))
+
+    def dead_hook_runtime_copies(self, path):
+        """Copies of a bundled hook runtime that nothing loads; they leave together with the runtime."""
+        if not self.hook_runtime(path):
+            return []
+        return [other for other in self.same_named(path) if not self.loaded_by.get(other) and self.hook_runtime(other)]
 
     def hook_runtime(self, path):
         """A bundled substrate/ElleKit: tweaks look it up at runtime (dlsym), invisible to load commands."""
@@ -682,6 +696,10 @@ class Bundle:
         for root in extensions:
             gone |= self.entries_under(root)
         orphans = []
+        for path in sorted(modules):
+            for copy in self.dead_hook_runtime_copies(path):
+                gone |= self.entries_under(self.container(copy))
+                orphans.append(copy)
         while True:
             removed_binaries = {path for path in self.binaries if path in gone}
             added = False

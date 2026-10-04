@@ -129,6 +129,37 @@ class AnalysisTests(unittest.TestCase):
             report = cleaner.clean(source, Path(temp) / "out.ipa", RULES, remove=[runtime, ROOT + "tweak.dylib"])
             self.assertEqual(report["removed_entries"], 2)
 
+    def test_a_same_named_copy_nobody_loads_does_not_block_removal_and_goes_with_the_runtime(self):
+        files = {
+            "App": macho([SYSTEM, "@executable_path/libsubstrate.dylib", "@executable_path/tweak.dylib"]),
+            "libsubstrate.dylib": macho([SYSTEM], data=b"MSHookMessageEx"),
+            "Frameworks/libsubstrate.dylib": macho([SYSTEM], data=b"MSHookMessageEx older build"),
+            "tweak.dylib": macho([SYSTEM, "@executable_path/libsubstrate.dylib"], data=b"_logos_method"),
+        }
+        runtime = ROOT + "libsubstrate.dylib"
+        with tempfile.TemporaryDirectory() as temp:
+            source = write_ipa(Path(temp) / "app.ipa", files)
+            modules = {module["path"]: module for module in cleaner.analyze(source, RULES)["modules"]}
+            self.assertTrue(modules[runtime]["removable"])
+            report = cleaner.clean(source, Path(temp) / "out.ipa", RULES, remove=[runtime, ROOT + "tweak.dylib"])
+            with zipfile.ZipFile(Path(temp) / "out.ipa") as archive:
+                left = [name for name in archive.namelist() if name.endswith(".dylib")]
+            self.assertEqual(left, [])
+            self.assertIn({"path": ROOT + "Frameworks/libsubstrate.dylib", "orphaned_dependency": True}, report["removed_modules"])
+
+    def test_a_same_named_copy_that_is_loaded_still_blocks_removal(self):
+        files = {
+            "App": macho([SYSTEM, "@executable_path/hook.dylib"]),
+            "hook.dylib": macho([SYSTEM, "@rpath/hook.dylib"], data=b"MSHookMessageEx"),
+            "Frameworks/hook.dylib": macho([SYSTEM], data=b"MSHookMessageEx"),
+        }
+        files["App"] = macho([SYSTEM, "@executable_path/hook.dylib", "@rpath/hook.dylib"])
+        with tempfile.TemporaryDirectory() as temp:
+            source = write_ipa(Path(temp) / "app.ipa", files)
+            modules = {module["path"]: module for module in cleaner.analyze(source, RULES)["modules"]}
+            blocked = [module for module in modules.values() if module["blocked_reason"] == "Another file in the app has the same name"]
+            self.assertTrue(blocked)
+
     def test_names_alone_never_match_a_rule(self):
         files = {"App": macho([SYSTEM, "@rpath/libobjcpatch.dylib"], refs=(1,)), "Frameworks/libobjcpatch.dylib": macho([SYSTEM], data=b"ordinary")}
         with tempfile.TemporaryDirectory() as temp:
