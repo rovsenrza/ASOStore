@@ -66,12 +66,23 @@ export function setupPackages(root = document) {
     field('was').innerHTML = `вместо <s>${rub(full)}</s> при оплате по месяцу`;
     const cta = field('cta');
     cta.href = input.dataset.buyUrl;
-    field('cta-label').textContent = `Купить ${input.dataset.term} в Telegram`;
+    field('cta-label').textContent = `Или заказать ${input.dataset.term} в Telegram`;
+    field('pay-label').textContent = `Оплатить ${rub(total)}`;
     block.dispatchEvent(new CustomEvent('plan-change', { bubbles: true, detail: { value: input.value, term: input.dataset.term, total, buyUrl: input.dataset.buyUrl } }));
   };
 
   block.addEventListener('change', (event) => {
     if (event.target.name === 'plan') apply(event.target);
+  });
+
+  // Card/SBP payment on the site is not connected yet: the button answers with a notice.
+  // When the payment system is live, create the payment for the chosen plan here and
+  // send the customer to its page instead of showing the notice.
+  const payButton = field('pay');
+  const payNotice = field('pay-notice');
+  payButton?.addEventListener('click', () => {
+    payNotice.hidden = false;
+    payNotice.scrollIntoView({ block: 'nearest', behavior: reduceMotion() ? 'auto' : 'smooth' });
   });
 
   // ?plan=month12 (or the older 12m) chooses the term.

@@ -238,6 +238,12 @@ button.text-link:disabled { color: var(--ink-2); cursor: default; }
 .offer__pay { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin: 0; font-size: var(--text-sm); color: var(--ink-2); }
 .offer__pay span { padding: 4px 12px; border-radius: var(--r-pill); background: var(--mist); color: var(--ink); font-weight: 600; }
 
+.contact-list { margin: var(--s4) 0; padding-left: 1.2em; display: grid; gap: var(--s3); line-height: 1.55; }
+.contact-list a { color: var(--blue); font-weight: 600; text-underline-offset: 3px; }
+
+.offer__stub[hidden] { display: none; }
+.offer__stub a { color: var(--blue); font-weight: 600; text-underline-offset: 3px; }
+
 /* The payment note is a sentence with links, not a row of chips. */
 .offer__pay:has(a) { display: block; line-height: 1.6; }
 .offer__pay a { color: var(--blue); font-weight: 600; text-underline-offset: 3px; }

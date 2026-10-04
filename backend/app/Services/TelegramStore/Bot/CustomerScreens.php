@@ -55,6 +55,7 @@ class CustomerScreens
         if ($support = $this->supportRow()) {
             $rows[] = $support;
         }
+        $rows[] = $this->legalRow();
 
         return $rows;
     }
@@ -145,6 +146,7 @@ class CustomerScreens
             $lines[] = '';
             $lines[] = 'Выберите способ оплаты 👇';
         }
+        $rows[] = $this->legalRow();
         $rows[] = [Screen::button('❌ Отменить', 'cancel:'.$order->public_id), Screen::button('‹ Тарифы', 'buy')];
 
         return new Screen(implode("\n", $lines), $rows);
@@ -182,6 +184,7 @@ class CustomerScreens
         if ($support = $this->supportRow()) {
             $rows[] = $support;
         }
+        $rows[] = $this->legalRow();
         $rows[] = [Screen::button('‹ Меню', 'menu')];
 
         return new Screen(
@@ -249,6 +252,7 @@ class CustomerScreens
         if ($support = $this->supportRow()) {
             $rows[] = $support;
         }
+        $rows[] = $this->legalRow();
         $rows[] = [Screen::button('🛍 Оформить новый заказ', 'buy')];
 
         return new Screen($text, $rows);
@@ -353,6 +357,7 @@ class CustomerScreens
         if ($support = $this->supportRow()) {
             $rows[] = $support;
         }
+        $rows[] = $this->legalRow();
         $rows[] = [Screen::button('‹ Меню', 'menu')];
 
         return new Screen(
@@ -415,6 +420,21 @@ class CustomerScreens
         $url = config('telegram_store.support_url');
 
         return $url ? [Screen::link('💬 Поддержка', $url)] : null;
+    }
+
+    /**
+     * Privacy policy and user agreement on the site; shown wherever support is offered.
+     *
+     * @return list<array<string, string>>
+     */
+    private function legalRow(): array
+    {
+        $site = rtrim((string) config('app.url'), '/');
+
+        return [
+            Screen::link('🔒 Конфиденциальность', $site.'/privacy.html'),
+            Screen::link('📄 Соглашение', $site.'/terms.html'),
+        ];
     }
 
     private function brand(): string

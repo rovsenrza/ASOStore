@@ -85,6 +85,25 @@ function giveBalance(int $userId, int $amount): void
     app(BalanceLedger::class)->change(customer($userId)->id, $amount, BalanceLedger::ADMIN_ADJUSTMENT);
 }
 
+it('links the privacy policy and the user agreement wherever support is offered', function () {
+    config(['app.url' => 'https://store.example']);
+    $urls = fn () => collect(($this->lastKeyboard)(BUYER_ID))->flatten(1)->pluck('url')->filter()->values()->all();
+
+    ($this->text)(BUYER_ID, '/start');
+    expect($urls())->toContain('https://t.me/support', 'https://store.example/privacy.html', 'https://store.example/terms.html');
+
+    ($this->press)(BUYER_ID, 'help');
+    expect($urls())->toContain('https://store.example/privacy.html', 'https://store.example/terms.html');
+
+    // The links stay even when no support chat is configured.
+    config(['telegram_store.support_url' => null]);
+    ($this->press)(BUYER_ID, 'menu');
+    expect($urls())->toContain('https://store.example/privacy.html', 'https://store.example/terms.html');
+
+    ($this->text)(BUYER_ID, '/start buy_month6');
+    expect($urls())->toContain('https://store.example/privacy.html', 'https://store.example/terms.html');
+});
+
 it('opens the order for a plan chosen on the website', function () {
     ($this->text)(BUYER_ID, '/start buy_month6');
     $order = TelegramStoreOrder::sole();
