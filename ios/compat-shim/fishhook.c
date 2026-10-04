@@ -94,8 +94,12 @@ static void perform_rebinding_with_section(struct rebindings_entry *rebindings,
   void **indirect_symbol_bindings = (void **)((uintptr_t)slide + section->addr);
   vm_prot_t oldProtection = VM_PROT_READ;
   if (isDataConst) {
-    oldProtection = get_protection(rebindings);
-    mprotect(indirect_symbol_bindings, section->size, PROT_READ | PROT_WRITE);
+    // Upstream asks for the protection of `rebindings` (heap memory) and ignores a failed
+    // mprotect. A section that cannot be made writable must be skipped: writing to it faults.
+    oldProtection = get_protection(indirect_symbol_bindings);
+    if (mprotect(indirect_symbol_bindings, section->size, PROT_READ | PROT_WRITE) != 0) {
+      return;
+    }
   }
   for (uint i = 0; i < section->size / sizeof(void *); i++) {
     uint32_t symtab_index = indirect_symbol_indices[i];

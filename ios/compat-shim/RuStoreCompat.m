@@ -23,6 +23,7 @@
 #import <objc/runtime.h>
 #import <Security/Security.h>
 #import <dlfcn.h>
+#import <mach-o/dyld.h>
 #import "fishhook.h"
 
 static NSArray<NSString *> *gRealGroups;      // App Groups this signature actually holds.
@@ -224,6 +225,20 @@ static NSBundle *rs_bundleWithIdentifier(id self, SEL _cmd, NSString *identifier
     return orig_bundleWithIdentifier(self, _cmd, identifier);
 }
 
+#pragma mark - Keychain hooks
+
+static const char *gAppRoot;
+
+static struct rebinding gRebindings[4];
+
+// Called by dyld for every image, loaded now or later. Only images inside the app bundle are hooked.
+static void RSAddImage(const struct mach_header *header, intptr_t slide) {
+    Dl_info info;
+    if (gAppRoot == NULL || dladdr(header, &info) == 0 || info.dli_fname == NULL) return;
+    if (strncmp(info.dli_fname, gAppRoot, strlen(gAppRoot)) != 0) return;
+    rebind_symbols_image((void *)header, slide, gRebindings, 4);
+}
+
 #pragma mark - Install
 
 static void RSSwizzle(Class cls, SEL selector, IMP replacement, void *store) {
@@ -279,12 +294,17 @@ static void RuStoreCompatInit(void) {
             orig_SecItemUpdate = dlsym(RTLD_DEFAULT, "SecItemUpdate");
             orig_SecItemDelete = dlsym(RTLD_DEFAULT, "SecItemDelete");
             if (orig_SecItemAdd && orig_SecItemCopyMatching && orig_SecItemUpdate && orig_SecItemDelete) {
-                rebind_symbols((struct rebinding[4]){
-                    {"SecItemAdd", (void *)rs_SecItemAdd, (void **)&orig_SecItemAdd},
-                    {"SecItemCopyMatching", (void *)rs_SecItemCopyMatching, (void **)&orig_SecItemCopyMatching},
-                    {"SecItemUpdate", (void *)rs_SecItemUpdate, (void **)&orig_SecItemUpdate},
-                    {"SecItemDelete", (void *)rs_SecItemDelete, (void **)&orig_SecItemDelete},
-                }, 4);
+                // Only the app's own code asks for foreign keychain groups. Hooking every image
+                // (Apple's included) is needless and faults on libraries that cannot be written.
+                NSString *bundlePath = NSBundle.mainBundle.bundlePath;
+                NSRange app = [bundlePath rangeOfString:@".app"];
+                NSString *root = app.location == NSNotFound ? bundlePath : [bundlePath substringToIndex:app.location + app.length];
+                gAppRoot = strdup([root stringByAppendingString:@"/"].fileSystemRepresentation);
+                gRebindings[0] = (struct rebinding){"SecItemAdd", (void *)rs_SecItemAdd, (void **)&orig_SecItemAdd};
+                gRebindings[1] = (struct rebinding){"SecItemCopyMatching", (void *)rs_SecItemCopyMatching, (void **)&orig_SecItemCopyMatching};
+                gRebindings[2] = (struct rebinding){"SecItemUpdate", (void *)rs_SecItemUpdate, (void **)&orig_SecItemUpdate};
+                gRebindings[3] = (struct rebinding){"SecItemDelete", (void *)rs_SecItemDelete, (void **)&orig_SecItemDelete};
+                _dyld_register_func_for_add_image(RSAddImage);
             }
         }
     }
