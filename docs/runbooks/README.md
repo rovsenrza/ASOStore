@@ -9,6 +9,7 @@ from the alert or symptom an operator actually sees, and names the exact screens
 | [Quota reconciliation mismatch](quota-mismatch.md) | Alert `quota.mismatch` |
 | [Signing runner offline](runner-offline.md) | Alert `runner-offline`, installs stuck in «Подготовка» |
 | [Queue workers](queue-workers.md) | Installs stuck in «Подготовка» with the runner online, alert `queue_backlog` |
+| [Quick publish](quick-publish.md) | A file in «Быстрая публикация» stopped (`HELD`), or how the one-step upload works |
 | [Artifact quarantine](artifact-quarantine.md) | Artifact in `QUARANTINED` (malware scan hit) |
 | [Certificate expiry](certificate-expiry.md) | Alert `certificate.expiring`, team `EXPIRING` |
 | [Database restore](database-restore.md) | Data loss or corruption; monthly drill |

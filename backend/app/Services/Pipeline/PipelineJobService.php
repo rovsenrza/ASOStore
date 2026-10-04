@@ -10,6 +10,7 @@ use App\Jobs\CleanArtifactJob;
 use App\Jobs\FetchImportJob;
 use App\Jobs\InspectArtifactJob;
 use App\Jobs\PrepareSigningJob;
+use App\Jobs\QuickPublishJob;
 use App\Jobs\VerifySignatureJob;
 use App\Models\PipelineJob;
 use App\Models\PipelineJobAttempt;
@@ -237,6 +238,7 @@ class PipelineJobService
             InspectArtifactJob::TYPE => InspectArtifactJob::dispatch($job->id)->afterCommit(),
             CleanArtifactJob::TYPE => CleanArtifactJob::dispatch($job->id)->afterCommit(),
             FetchImportJob::TYPE => FetchImportJob::dispatch($job->id)->afterCommit(),
+            QuickPublishJob::TYPE => QuickPublishJob::dispatch($job->id)->afterCommit(),
             PrepareSigningJob::TYPE => PrepareSigningJob::dispatch($job->id)->afterCommit(),
             VerifySignatureJob::TYPE => VerifySignatureJob::dispatch($job->id)->afterCommit(),
             // Runner jobs are picked up by a runner lease; nothing to dispatch.

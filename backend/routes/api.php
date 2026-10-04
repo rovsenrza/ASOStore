@@ -12,6 +12,7 @@ use App\Http\Controllers\Api\V1\Admin\DeviceController as AdminDeviceController;
 use App\Http\Controllers\Api\V1\Admin\InstallationController as AdminInstallationController;
 use App\Http\Controllers\Api\V1\Admin\JobController;
 use App\Http\Controllers\Api\V1\Admin\OperationsController;
+use App\Http\Controllers\Api\V1\Admin\QuickPublishController;
 use App\Http\Controllers\Api\V1\Admin\RunnerController;
 use App\Http\Controllers\Api\V1\Admin\TaxonomyController;
 use App\Http\Controllers\Api\V1\Admin\TeamAssignmentController;
@@ -168,6 +169,12 @@ Route::prefix('admin')->name('api.admin.')->group(function () {
         Route::get('/uploads/{upload}', [UploadController::class, 'show'])->can('artifacts.view')->name('uploads.show');
         Route::put('/uploads/{upload}/chunks/{number}', [UploadController::class, 'chunk'])->can('artifacts.manage')->whereNumber('number')->name('uploads.chunks.store');
         Route::post('/uploads/{upload}/complete', [UploadController::class, 'complete'])->can('artifacts.manage')->name('uploads.complete');
+        // One-step publishing: upload → inspect → clean → listing → approve → publish. Needs both abilities.
+        Route::get('/quick-publish', [QuickPublishController::class, 'index'])->can('artifacts.view')->name('quick-publish.index');
+        Route::post('/quick-publish/uploads', [QuickPublishController::class, 'start'])->can('artifacts.manage')->can('catalog.manage')->name('quick-publish.start');
+        Route::post('/quick-publish/uploads/{upload}/complete', [QuickPublishController::class, 'complete'])->can('artifacts.manage')->can('catalog.manage')->name('quick-publish.complete');
+        Route::get('/quick-publish/{job}', [QuickPublishController::class, 'show'])->can('artifacts.view')->name('quick-publish.show');
+        Route::post('/quick-publish/{job}/resume', [QuickPublishController::class, 'resume'])->can('artifacts.manage')->can('catalog.manage')->name('quick-publish.resume');
         Route::get('/artifacts', [ArtifactController::class, 'index'])->can('artifacts.view')->name('artifacts.index');
         Route::get('/artifacts/{artifact}', [ArtifactController::class, 'show'])->can('artifacts.view')->name('artifacts.show');
         Route::post('/artifacts/{artifact}/review', [ArtifactController::class, 'review'])->can('artifacts.manage')->middleware('idempotent')->name('artifacts.review');

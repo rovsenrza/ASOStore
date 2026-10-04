@@ -16,7 +16,7 @@ const PAGES = [
   '/', '/activate.html', '/install.html', '/account.html', '/login.html', '/register.html',
   '/support.html', '/buy.html', '/pricing.html', '/terms.html', '/privacy.html', '/forgot-password.html', '/reset-password.html',
   '/admin/', '/admin/login.html', '/admin/users.html', '/admin/devices.html', '/admin/home.html', '/admin/apps.html',
-  '/admin/artifacts.html', '/admin/teams.html', '/admin/jobs.html', '/admin/audit.html',
+  '/admin/artifacts.html', '/admin/publish.html', '/admin/teams.html', '/admin/jobs.html', '/admin/audit.html',
 ];
 
 const failures = [];

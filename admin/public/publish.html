@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/brand/ru-app-store-logo-32.png">
+  <link rel="apple-touch-icon" href="assets/brand/ru-app-store-logo-180.png">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Быстрая публикация — Ru App Store Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/admin.css">
+  <script type="module" src="js/pages/publish.js"></script>
+</head>
+<body>
+  <div class="admin-shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html"><img src="assets/brand/ru-app-store-logo-64.png" alt="" width="32" height="32">Ru App Store<small>Операторская панель</small></a>
+      <nav aria-label="Разделы">
+        <a href="index.html">Панель</a>
+        <a href="users.html">Пользователи</a>
+        <a href="devices.html">Устройства</a>
+        <a href="home.html">Главная приложения</a>
+        <a href="apps.html">Приложения</a>
+        <a href="publish.html">Быстрая публикация</a>
+        <a href="artifacts.html">Артефакты</a>
+        <a href="teams.html">Команды Apple</a>
+        <a href="jobs.html">Задачи</a>
+        <a href="audit.html">Аудит</a>
+      </nav>
+      <p class="sidebar-foot">Доступ по ролям. Все действия записываются в журнал аудита.</p>
+    </aside>
+    <div class="main">
+      <header class="topbar"><h1>Быстрая публикация</h1></header>
+      <main class="content" id="main">
+        <form class="card upload-form" id="publish-form" novalidate>
+          <div class="upload-form__intro">
+            <div>
+              <h2>Загрузить IPA в каталог</h2>
+              <p id="publish-intro"></p>
+            </div>
+            <span class="upload-form__step">Один шаг</span>
+          </div>
+
+          <div class="dropzone" id="dropzone" tabindex="0" role="group" aria-labelledby="dropzone-title">
+            <strong id="dropzone-title"></strong>
+            <span class="hint" id="dropzone-hint"></span>
+            <span class="button-row">
+              <button class="button" type="button" id="pick-files"></button>
+              <button class="button" type="button" id="pick-folder"></button>
+            </span>
+            <input type="file" id="input-files" accept=".ipa" multiple hidden>
+            <input type="file" id="input-folder" webkitdirectory multiple hidden>
+          </div>
+
+          <ul class="picked" id="picked" hidden></ul>
+
+          <fieldset class="publish-options">
+            <legend id="options-legend"></legend>
+            <label class="check"><input type="checkbox" name="remove_unknown_libraries" checked><span id="opt-libraries"></span></label>
+            <span class="hint" id="opt-libraries-hint"></span>
+            <label class="check"><input type="checkbox" name="allow_downgrade"><span id="opt-downgrade"></span></label>
+            <label class="check"><input type="checkbox" name="allow_other_sources"><span id="opt-sources"></span></label>
+          </fieldset>
+
+          <div class="upload-form__footer">
+            <label class="check declaration">
+              <input type="checkbox" name="declaration_accepted" required>
+              <span id="declaration-text"></span>
+            </label>
+            <button class="button button--primary" type="submit" id="start" disabled></button>
+          </div>
+          <div class="form-status" role="status" aria-live="polite"></div>
+        </form>
+
+        <div class="card" id="queue-card" hidden>
+          <h2 id="queue-title"></h2>
+          <p class="muted" id="queue-hint"></p>
+          <ol class="upload-queue" id="queue"></ol>
+        </div>
+
+        <div class="card">
+          <h2 id="history-title"></h2>
+          <div id="history"></div>
+        </div>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

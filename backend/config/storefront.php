@@ -136,6 +136,19 @@ return [
         'document_mimes' => ['pdf', 'png', 'jpg', 'jpeg', 'txt'],
     ],
 
+    // One-step admin publishing (admin «Быстрая публикация»): an uploaded IPA is inspected, cleaned of
+    // injected libraries, matched to (or turned into) a catalog listing, approved and published.
+    // It uses the normal review service, so STOREFRONT_INDEPENDENT_REVIEW still makes it stop and wait.
+    'quick_publish' => [
+        'enabled' => (bool) env('STOREFRONT_QUICK_PUBLISH_ENABLED', true),
+        'declaration_version' => '2026-10-quick-publish-v1',
+        // Name, developer, category and icon from Apple's public lookup for a new listing.
+        'lookup_enabled' => (bool) env('STOREFRONT_QUICK_PUBLISH_LOOKUP', true),
+        'lookup_country' => env('STOREFRONT_QUICK_PUBLISH_LOOKUP_COUNTRY', 'ru'),
+        'lookup_timeout' => (int) env('STOREFRONT_QUICK_PUBLISH_LOOKUP_TIMEOUT', 8),
+        'max_bytes' => 5 * 1024 ** 3,
+    ],
+
     'signing' => [
         'warmup_enabled' => (bool) env('STOREFRONT_SIGNING_WARMUP_ENABLED', true),
         // Popularity is measured from actual install requests over the last 30 days.

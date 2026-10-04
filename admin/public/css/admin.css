@@ -374,3 +374,24 @@ ol.home-list .home-row::before { counter-increment: banner; content: counter(ban
 @media (max-width: 640px) { .home-row { flex-wrap: wrap; } }
 .cleaning-list li { padding: 6px 0; }
 .cleaning-list__details { margin-top: 2px; font-size: .78rem; overflow-wrap: anywhere; }
+
+/* Quick publish: drop zone, per-file stage tracker. */
+.dropzone { display: grid; gap: 10px; justify-items: center; text-align: center; padding: 28px 20px; border: 2px dashed #b9c9e4; border-radius: 18px; background: #f6faff; transition: border-color .15s, background .15s; }
+.dropzone:focus-visible, .dropzone--over { border-color: var(--blue, #1b4a8f); background: #eaf2ff; outline: none; }
+.dropzone strong { font-size: 1rem; }
+.dropzone .hint { max-width: 62ch; font-size: .82rem; color: var(--ink-soft); }
+.picked { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.picked li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 11px; background: #fff; font-size: .88rem; }
+.publish-options { display: grid; gap: 8px; margin: 0; padding: 0; border: 0; }
+.publish-options legend { padding: 0; margin-bottom: 6px; font-weight: 700; font-size: .78rem; color: var(--ink-soft); }
+.publish-options .hint { margin: -4px 0 4px 26px; font-size: .78rem; color: #7a7c76; }
+.stages { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; }
+.stages li { padding: 3px 10px; border-radius: 999px; background: #eef2f8; color: #7a7c76; font-size: .72rem; font-weight: 700; }
+.stages li[data-state="done"] { background: #e8f8f1; color: var(--green); }
+.stages li[data-state="active"] { background: #e6efff; color: var(--blue, #1b4a8f); }
+.stages li[data-state="stopped"] { background: #fff6dd; color: #946400; }
+.stages li[data-state="failed"] { background: #ffebef; color: var(--red); }
+.publish-message { margin: 0; font-size: .86rem; color: var(--ink-soft); }
+.publish-facts { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; font-size: .8rem; color: var(--ink-soft); }
+
+.data-table td.wrap { white-space: normal; min-width: 260px; max-width: 520px; }

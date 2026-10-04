@@ -1820,6 +1820,138 @@ paths:
         "422":
           $ref: "#/components/responses/Error"
 
+  /admin/quick-publish:
+    get:
+      tags: [Admin]
+      operationId: adminListQuickPublish
+      summary: Recent one-step publications
+      description: 'Requires artifacts.view. The 40 most recent runs, newest first.'
+      security:
+        - sessionCookie: []
+      responses:
+        "200":
+          description: Recent runs
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: "#/components/schemas/SuccessEnvelope"
+                  - properties:
+                      data:
+                        type: array
+                        items: { $ref: "#/components/schemas/QuickPublishItem" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /admin/quick-publish/uploads:
+    post:
+      tags: [Admin]
+      operationId: adminStartQuickPublishUpload
+      summary: Start a resumable upload for one-step publishing
+      description: 'Requires artifacts.manage and catalog.manage. The file waits in a draft staging listing until its bundle ID says where it belongs. Send the chunks to PUT /admin/uploads/{upload}/chunks/{number}, then call the complete endpoint below.'
+      security:
+        - sessionCookie: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [filename, size_bytes, declaration_accepted]
+              properties:
+                filename: { type: string, maxLength: 255, pattern: '\.ipa$' }
+                size_bytes: { type: integer, minimum: 1 }
+                sha256: { type: string, pattern: '^[a-fA-F0-9]{64}$' }
+                declaration_accepted: { type: boolean, const: true }
+      responses:
+        "201":
+          description: Upload session created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UploadSessionResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /admin/quick-publish/uploads/{upload}/complete:
+    post:
+      tags: [Admin]
+      operationId: adminCompleteQuickPublishUpload
+      summary: Assemble the file and start its publication
+      description: 'Requires artifacts.manage and catalog.manage. Only the operator who started the upload can complete it. The pipeline then runs on the server: inspection, cleaning of injected libraries, matching the listing by bundle ID (or creating one), approval through the ordinary review service, publication.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/UploadId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                options: { $ref: "#/components/schemas/QuickPublishOptions" }
+      responses:
+        "201":
+          description: Publication started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QuickPublishItemResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /admin/quick-publish/{job}:
+    get:
+      tags: [Admin]
+      operationId: adminGetQuickPublish
+      summary: Where one publication stands
+      description: 'Requires artifacts.view.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      responses:
+        "200":
+          description: Current state
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QuickPublishItemResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /admin/quick-publish/{job}/resume:
+    post:
+      tags: [Admin]
+      operationId: adminResumeQuickPublish
+      summary: Continue a held file under different options
+      description: 'Requires artifacts.manage and catalog.manage. Only for a run in stage HELD, e.g. to allow a downgrade. Starts a new run on the same file, which picks up from where the database stands; the held run stays as history.'
+      security:
+        - sessionCookie: []
+      parameters:
+        - $ref: "#/components/parameters/JobId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [options]
+              properties:
+                options: { $ref: "#/components/schemas/QuickPublishOptions" }
+      responses:
+        "202":
+          description: A new run started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QuickPublishItemResponse" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
   /admin/uploads:
     post:
       tags: [Admin]
@@ -4534,6 +4666,63 @@ components:
           oneOf:
             - $ref: "#/components/schemas/PublicId"
             - type: "null"
+
+    QuickPublishOptions:
+      type: object
+      properties:
+        remove_unknown_libraries: { type: boolean, description: 'Remove injected libraries (promotions, hooks) the original app does not have. Default true.' }
+        allow_downgrade: { type: boolean, description: 'Publish a version older than the live one. Default false.' }
+        allow_other_sources: { type: boolean, description: 'Update a listing whose source is not CUSTOMER_PROVIDED. Default false.' }
+
+    QuickPublishItem:
+      type: object
+      required: [id, stage, finished, steps]
+      properties:
+        id: { $ref: "#/components/schemas/PublicId" }
+        filename: { type: [string, "null"] }
+        size_bytes: { type: [integer, "null"] }
+        artifact_id: { type: [string, "null"] }
+        job_status: { type: string }
+        stage:
+          type: string
+          enum: [INSPECTING, CLEANING, PUBLISHING, PUBLISHED, HELD, REJECTED, DUPLICATE, FAILED]
+          description: 'PUBLISHED, HELD, REJECTED, DUPLICATE and FAILED are final. HELD needs a person: the message says why, hold_code says what can continue it.'
+        finished: { type: boolean }
+        message: { type: [string, "null"] }
+        hold_code:
+          type: [string, "null"]
+          enum: [DOWNGRADE, OTHER_SOURCE, REVIEW, CLEANING, LISTING_EXISTS, null]
+        options: { $ref: "#/components/schemas/QuickPublishOptions" }
+        cleaning: { type: array, items: { type: string } }
+        steps:
+          type: array
+          items:
+            type: object
+            properties:
+              at: { type: string, format: date-time }
+              stage: { type: string }
+              text: { type: string }
+        result:
+          type: [object, "null"]
+          properties:
+            app_id: { $ref: "#/components/schemas/PublicId" }
+            name: { type: string }
+            artifact_id: { $ref: "#/components/schemas/PublicId" }
+            version: { type: [string, "null"] }
+            build_number: { type: [string, "null"] }
+            action: { type: string, enum: [created, updated] }
+            category: { type: [string, "null"] }
+            superseded: { type: array, items: { type: string } }
+            removed_libraries: { type: array, items: { type: string } }
+            visibility: { type: string }
+        created_at: { type: [string, "null"], format: date-time }
+        finished_at: { type: [string, "null"], format: date-time }
+
+    QuickPublishItemResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data: { $ref: "#/components/schemas/QuickPublishItem" }
 
     UploadSessionResponse:
       allOf:
