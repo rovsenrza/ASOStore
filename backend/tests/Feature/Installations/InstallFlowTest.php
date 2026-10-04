@@ -349,7 +349,9 @@ it('adds the compatibility shim to the lease only for apps that share through gr
     $lease = worker('POST', '/api/worker/v1/leases', '{}')->json('data');
     expect($lease['inject_dylibs'])->toHaveCount(1)
         ->and($lease['inject_dylibs'][0]['name'])->toBe('RuStoreCompat.dylib')
-        ->and(base64_decode($lease['inject_dylibs'][0]['content']))->toBe(file_get_contents($shim));
+        ->and(base64_decode($lease['inject_dylibs'][0]['content']))->toBe(file_get_contents($shim))
+        // The vendor's team ID rides along, so the runner can re-prefix Info.plist values built from it.
+        ->and($lease['original_team_identifier'])->toBe('ABCDE12345');
     @unlink($shim);
 });
 

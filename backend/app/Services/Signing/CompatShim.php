@@ -43,6 +43,24 @@ class CompatShim
     }
 
     /**
+     * The team ID the vendor built the app with (the prefix of its original application-identifier),
+     * when it differs from the signing team. The runner re-prefixes Info.plist values that start with
+     * it, so a keychain group the app reads from its own Info.plist falls under our `<TEAM>.*` access.
+     */
+    public function originalTeamFor(AppArtifact $artifact, string $signingTeam): ?string
+    {
+        if (! (bool) config('storefront.signing.rewrite_team_prefix', true)) {
+            return null;
+        }
+        $applicationIdentifier = $artifact->inspection['entitlements']['application-identifier'] ?? null;
+        if (! is_string($applicationIdentifier) || preg_match('/^([A-Z0-9]{10})\./', $applicationIdentifier, $match) !== 1) {
+            return null;
+        }
+
+        return $match[1] === $signingTeam ? null : $match[1];
+    }
+
+    /**
      * Apps signed exactly as supplied, without the shim (storefront.signing.compat_shim
      * .skip_bundle_ids), e.g. a package that already carries its own sideload fix.
      */

@@ -93,3 +93,19 @@ it('keeps the vendor bundle ID only for listed apps that are signed under anothe
     config(['storefront.signing.compat_shim.keep_bundle_ids' => []]);
     expect(app(CompatShim::class)->originalBundleFor($listed))->toBeNull();
 });
+
+it('names the vendor team only when it is not the signing team, and can be switched off', function () {
+    $shim = app(CompatShim::class);
+    $claude = AppArtifact::factory()->make(['inspection' => ['entitlements' => ['application-identifier' => 'Q6L2SF6YDW.com.anthropic.claude']]]);
+
+    expect($shim->originalTeamFor($claude, '5CV985HSCG'))->toBe('Q6L2SF6YDW')
+        // Already ours: nothing to re-prefix.
+        ->and($shim->originalTeamFor($claude, 'Q6L2SF6YDW'))->toBeNull()
+        // No usable original identifier: no claim about a team.
+        ->and($shim->originalTeamFor(artifactWith(null), '5CV985HSCG'))->toBeNull()
+        ->and($shim->originalTeamFor(artifactWith(['application-identifier' => 'not-a-team.app']), '5CV985HSCG'))->toBeNull()
+        ->and($shim->originalTeamFor(artifactWith(['application-identifier' => 'q6l2sf6ydw.app']), '5CV985HSCG'))->toBeNull();
+
+    config(['storefront.signing.rewrite_team_prefix' => false]);
+    expect(app(CompatShim::class)->originalTeamFor($claude, '5CV985HSCG'))->toBeNull();
+});

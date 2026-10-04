@@ -150,6 +150,9 @@ return [
     ],
 
     'signing' => [
+        // Re-prefix Info.plist values built from the vendor's team ID (e.g. a KeychainAccessGroup the app
+        // uses as-is) with the signing team's, so they fall under its `<TEAM>.*` keychain access.
+        'rewrite_team_prefix' => (bool) env('STOREFRONT_SIGNING_REWRITE_TEAM_PREFIX', true),
         'warmup_enabled' => (bool) env('STOREFRONT_SIGNING_WARMUP_ENABLED', true),
         // Popularity is measured from actual install requests over the last 30 days.
         'warmup_popular_limit' => (int) env('STOREFRONT_SIGNING_WARMUP_POPULAR_LIMIT', 3),

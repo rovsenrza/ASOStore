@@ -254,6 +254,10 @@ class SigningService
         if (($original = app(CompatShim::class)->originalBundleFor($artifact)) !== null) {
             $lease['original_bundle_identifier'] = $original;
         }
+        // The vendor's team ID, so Info.plist values built from it are re-prefixed with ours.
+        if (($team = app(CompatShim::class)->originalTeamFor($artifact, (string) $profile->team->apple_team_id)) !== null) {
+            $lease['original_team_identifier'] = $team;
+        }
 
         return $lease;
     }

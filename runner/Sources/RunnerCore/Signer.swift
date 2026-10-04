@@ -49,6 +49,7 @@ public struct Signer: Sendable {
         // is never reused for another (each has a different claim; most storefront signs are fresh).
         let cacheKey = injected.map(\.key) + (job.bootstrapClaim.map { ["bootstrap:" + RequestSigner.sha256(Data($0.utf8))] } ?? [])
             + (job.originalBundleIdentifier.map { ["original:" + $0] } ?? [])
+            + (job.originalTeamIdentifier.map { ["team:" + $0] } ?? [])
 
         let workspace: RunnerCache.Workspace?
         if let cache {
@@ -78,6 +79,17 @@ public struct Signer: Sendable {
                 throw RunnerError.job(code: "INFO_PLIST_INVALID", message: "Refusing original bundle ID \(original)", retryable: false)
             }
             try Self.setInfoValue(original, forKey: "RuStoreOriginalBundleIdentifier", bundle: app)
+        }
+        // Values the app took from its build's team ID name groups our signature does not own.
+        var teamPrefixRewrites = 0
+        if let originalTeam = job.originalTeamIdentifier {
+            guard Self.isTeamIdentifier(originalTeam) else {
+                throw RunnerError.job(code: "INFO_PLIST_INVALID", message: "Refusing original team ID \(originalTeam)", retryable: false)
+            }
+            teamPrefixRewrites += try Self.rewriteTeamPrefix(from: originalTeam, to: job.teamIdentifier, bundle: app)
+            for nested in job.nested {
+                teamPrefixRewrites += try Self.rewriteTeamPrefix(from: originalTeam, to: job.teamIdentifier, bundle: app.appendingPathComponent(nested.path))
+            }
         }
         // Embed the one-time login code (storefront app only) so first launch signs the customer in.
         if let claim = job.bootstrapClaim {
@@ -150,6 +162,7 @@ public struct Signer: Sendable {
             "verification_seconds": String(format: "%.1f", verificationSeconds),
             "injected_dylibs": injected.map(\.name).sorted().joined(separator: ","),
             "bootstrap_embedded": job.bootstrapClaim == nil ? "no" : "yes",
+            "team_prefix_rewrites": String(teamPrefixRewrites),
         ])
     }
 
@@ -313,6 +326,44 @@ public struct Signer: Sendable {
         guard info[key] as? String != value else { return }
         info[key] = value
         try PropertyListSerialization.data(fromPropertyList: info, format: format, options: 0).write(to: file)
+    }
+
+    static func isTeamIdentifier(_ value: String) -> Bool {
+        value.range(of: #"^[A-Z0-9]{10}$"#, options: .regularExpression) != nil
+    }
+
+    /// Re-prefixes Info.plist string values that start with `original + "."` (the team ID the vendor
+    /// built the app with) by `team + "."`. An app that builds a keychain access group from its
+    /// build-time team ID (Info.plist `KeychainAccessGroup = Q6L2SF6YDW.com.example.shared`) would
+    /// otherwise ask for a group this signature does not own; under our team it falls inside the
+    /// profile's `<TEAM>.*`. Returns how many values changed; keys and other values stay as they are.
+    @discardableResult
+    static func rewriteTeamPrefix(from original: String, to team: String, bundle: URL) throws -> Int {
+        guard isTeamIdentifier(original), original != team else { return 0 }
+        let file = bundle.appendingPathComponent("Info.plist")
+        var format = PropertyListSerialization.PropertyListFormat.xml
+        guard let info = try PropertyListSerialization.propertyList(from: Data(contentsOf: file), options: [], format: &format) as? [String: Any] else {
+            throw RunnerError.job(code: "INFO_PLIST_INVALID", message: "\(bundle.lastPathComponent)/Info.plist is not a dictionary", retryable: false)
+        }
+        let prefix = original + "."
+        var changed = 0
+        func rewrite(_ value: Any) -> Any {
+            switch value {
+            case let string as String where string.hasPrefix(prefix):
+                changed += 1
+                return team + "." + string.dropFirst(prefix.count)
+            case let dictionary as [String: Any]:
+                return dictionary.mapValues(rewrite)
+            case let array as [Any]:
+                return array.map(rewrite)
+            default:
+                return value
+            }
+        }
+        let updated = rewrite(info)
+        guard changed > 0, let result = updated as? [String: Any] else { return 0 }
+        try PropertyListSerialization.data(fromPropertyList: result, format: format, options: 0).write(to: file)
+        return changed
     }
 
     static func decodeProfile(_ profile: SigningJob.Profile) throws -> Data {

@@ -643,4 +643,65 @@ struct SigningSetup {
         let original = try JSONDecoder().decode(SigningJob.self, from: Data(json.replacingOccurrences(of: "\"bootstrap_claim\":\"one-time-code\",", with: "\"original_bundle_identifier\":\"ru.yandex.mobile.music\",").utf8))
         #expect(original.originalBundleIdentifier == "ru.yandex.mobile.music")
     }
+
+    @Test func decodesTheOriginalTeamFromTheLeaseJSON() throws {
+        let json = """
+        {"job_id":"j","signed_build_id":"b","bundle_identifier":"com.ruappstore.tgx","team_identifier":"TEAM123456",
+         "certificate_sha1":"AAAA","profile":{"uuid":"U","content":""},"original_team_identifier":"Q6L2SF6YDW",
+         "source":{"sha256":"0","size_bytes":1,"path":"x"},"upload_path":"u","result_path":"r"}
+        """
+        let job = try JSONDecoder().decode(SigningJob.self, from: Data(json.utf8))
+        #expect(job.originalTeamIdentifier == "Q6L2SF6YDW")
+
+        // A lease from a backend that predates the field decodes to nil.
+        let plain = try JSONDecoder().decode(SigningJob.self, from: Data(json.replacingOccurrences(of: "\"original_team_identifier\":\"Q6L2SF6YDW\",", with: "").utf8))
+        #expect(plain.originalTeamIdentifier == nil)
+    }
+
+    @Test func reprefixesInfoPlistValuesBuiltWithTheOriginalTeamID() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("team-prefix-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("Info.plist")
+        let original: [String: Any] = [
+            "CFBundleIdentifier": "com.anthropic.claude",
+            "KeychainAccessGroup": "Q6L2SF6YDW.com.anthropic.claude.shared",
+            "Nested": ["Groups": ["Q6L2SF6YDW.com.anthropic.claude", "group.com.anthropic.claude"]],
+            // Not the original team's prefix: left alone, as is a value that merely contains it.
+            "OtherTeam": "ABCDEFGHIJ.com.other.shared",
+            "Mention": "see Q6L2SF6YDW.com.example",
+            "Flag": true,
+        ]
+        try PropertyListSerialization.data(fromPropertyList: original, format: .binary, options: 0).write(to: file)
+
+        let changed = try Signer.rewriteTeamPrefix(from: "Q6L2SF6YDW", to: "5CV985HSCG", bundle: folder)
+
+        let info = try #require(try PropertyListSerialization.propertyList(from: Data(contentsOf: file), format: nil) as? [String: Any])
+        #expect(changed == 2)
+        #expect(info["KeychainAccessGroup"] as? String == "5CV985HSCG.com.anthropic.claude.shared")
+        #expect((info["Nested"] as? [String: Any])?["Groups"] as? [String] == ["5CV985HSCG.com.anthropic.claude", "group.com.anthropic.claude"])
+        #expect(info["OtherTeam"] as? String == "ABCDEFGHIJ.com.other.shared")
+        #expect(info["Mention"] as? String == "see Q6L2SF6YDW.com.example")
+        #expect(info["Flag"] as? Bool == true)
+        #expect(info["CFBundleIdentifier"] as? String == "com.anthropic.claude")
+        // The format the vendor shipped (binary) is kept, and a second pass changes nothing.
+        #expect(try Data(contentsOf: file).starts(with: Data("bplist".utf8)))
+        #expect(try Signer.rewriteTeamPrefix(from: "Q6L2SF6YDW", to: "5CV985HSCG", bundle: folder) == 0)
+    }
+
+    @Test func leavesInfoPlistAloneWhenTheTeamIsOursOrMalformed() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("team-prefix-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("Info.plist")
+        try PropertyListSerialization.data(fromPropertyList: ["Group": "5CV985HSCG.com.example.shared"], format: .xml, options: 0).write(to: file)
+        let before = try Data(contentsOf: file)
+
+        #expect(try Signer.rewriteTeamPrefix(from: "5CV985HSCG", to: "5CV985HSCG", bundle: folder) == 0)
+        #expect(try Signer.rewriteTeamPrefix(from: "not-a-team", to: "5CV985HSCG", bundle: folder) == 0)
+        #expect(try Data(contentsOf: file) == before)
+        #expect(Signer.isTeamIdentifier("Q6L2SF6YDW"))
+        #expect(!Signer.isTeamIdentifier("q6l2sf6ydw"))
+        #expect(!Signer.isTeamIdentifier("Q6L2SF6YDW.com"))
+    }
 }
