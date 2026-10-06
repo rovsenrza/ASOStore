@@ -114,7 +114,7 @@ static id rs_initWithSuite(id self, SEL _cmd, NSString *suite) {
 // errSecMissingEntitlement. Drop every group we do not literally hold, so the item
 // lands in our default group.
 static CFDictionaryRef RSRewriteQuery(CFDictionaryRef query) {
-    if (query == NULL) return NULL;
+    if (query == NULL || gKeychainGroups == nil) return NULL;
     NSDictionary *q = (__bridge NSDictionary *)query;
     id group = q[(__bridge id)kSecAttrAccessGroup];
     if (![group isKindOfClass:NSString.class]) return NULL;
@@ -125,10 +125,13 @@ static CFDictionaryRef RSRewriteQuery(CFDictionaryRef query) {
     return (CFDictionaryRef)CFBridgingRetain(rewritten);
 }
 
-static OSStatus (*orig_SecItemAdd)(CFDictionaryRef, CFTypeRef *);
-static OSStatus (*orig_SecItemCopyMatching)(CFDictionaryRef, CFTypeRef *);
-static OSStatus (*orig_SecItemUpdate)(CFDictionaryRef, CFDictionaryRef);
-static OSStatus (*orig_SecItemDelete)(CFDictionaryRef);
+// The real functions, bound in this image (dyld never interposes the interposer itself).
+static OSStatus (*orig_SecItemAdd)(CFDictionaryRef, CFTypeRef *) = SecItemAdd;
+static OSStatus (*orig_SecItemCopyMatching)(CFDictionaryRef, CFTypeRef *) = SecItemCopyMatching;
+static OSStatus (*orig_SecItemUpdate)(CFDictionaryRef, CFDictionaryRef) = SecItemUpdate;
+static OSStatus (*orig_SecItemDelete)(CFDictionaryRef) = SecItemDelete;
+// fishhook reports what it replaced here; the values are never used (they may already be interposed).
+static void *gRebindUnused[4];
 
 // Two groups the app keeps apart now share our default one, so a second add of
 // the same item reports a duplicate. The app means to store it: replace the old one.
@@ -185,6 +188,16 @@ static OSStatus rs_SecItemDelete(CFDictionaryRef query) {
     if (r) CFRelease(r);
     return status;
 }
+
+// Images linked with chained fixups keep their import table in read-only memory on newer
+// iOS, which fishhook cannot patch. dyld interposing covers every image in the process.
+#define RS_INTERPOSE(replacement, replacee) \
+    __attribute__((used)) static const struct { const void *new_fn; const void *old_fn; } _rs_interpose_##replacee \
+    __attribute__((section("__DATA,__interpose"))) = { (const void *)(unsigned long)&replacement, (const void *)(unsigned long)&replacee }
+RS_INTERPOSE(rs_SecItemAdd, SecItemAdd);
+RS_INTERPOSE(rs_SecItemCopyMatching, SecItemCopyMatching);
+RS_INTERPOSE(rs_SecItemUpdate, SecItemUpdate);
+RS_INTERPOSE(rs_SecItemDelete, SecItemDelete);
 
 #pragma mark - Original bundle ID
 
@@ -270,6 +283,39 @@ static void RSInstallInertCloudKit(void) {
     RSSwizzle(object_getClass(container), @selector(containerWithIdentifier:), (IMP)rs_containerWithIdentifier, &unusedB);
 }
 
+#pragma mark - Roblox forced-upgrade prompt
+
+// Roblox asks its servers whether this client version is still allowed and, when it
+// is not, shows a blocking "please upgrade" dialog from handleForceUpgrade:weakSelf:.
+// A copy that cannot be updated through the App Store only needs the dialog gone.
+static void rs_ignoreForceUpgrade(id self, SEL _cmd, id first, id second) {}
+static BOOL rs_refuseForceUpdate(id self, SEL _cmd) { return NO; }
+
+static void RSSuppressForceUpgrade(void) {
+    const char *image = _dyld_get_image_name(0);
+    if (image == NULL) return;
+    unsigned int count = 0;
+    const char **names = objc_copyClassNamesForImage(image, &count);
+    SEL handle = sel_registerName("handleForceUpgrade:weakSelf:");
+    SEL allow = sel_registerName("shouldAllowForceUpdate");
+    for (unsigned int i = 0; i < count; i++) {
+        Class cls = objc_getClass(names[i]);
+        if (cls == Nil) continue;
+        Method method = class_getInstanceMethod(cls, handle);
+        if (method != NULL && class_getSuperclass(cls) != Nil
+            && class_getInstanceMethod(class_getSuperclass(cls), handle) != method) {
+            method_setImplementation(method, (IMP)rs_ignoreForceUpgrade);
+            RSLog(@"force upgrade dialog disabled in %s", names[i]);
+        }
+        method = class_getInstanceMethod(cls, allow);
+        if (method != NULL && class_getSuperclass(cls) != Nil
+            && class_getInstanceMethod(class_getSuperclass(cls), allow) != method) {
+            method_setImplementation(method, (IMP)rs_refuseForceUpdate);
+        }
+    }
+    free(names);
+}
+
 #pragma mark - Keychain hooks
 
 static const char *gAppRoot;
@@ -326,6 +372,10 @@ static void RuStoreCompatInit(void) {
             RSSwizzle(object_getClass(NSBundle.class), @selector(bundleWithIdentifier:), (IMP)rs_bundleWithIdentifier, &orig_bundleWithIdentifier);
         }
 
+        if ([gOriginalBundleID isEqualToString:@"com.roblox.robloxmobile"]) {
+            RSSuppressForceUpgrade();
+        }
+
         id icloudServices = RSEntitlement(@"com.apple.developer.icloud-services");
         id icloudContainers = RSEntitlement(@"com.apple.developer.icloud-container-identifiers");
         if (icloudServices == nil || ![icloudContainers isKindOfClass:NSArray.class] || [icloudContainers count] == 0) {
@@ -340,21 +390,17 @@ static void RuStoreCompatInit(void) {
         }
 
         if (gTeamPrefix != nil) {
-            orig_SecItemAdd = dlsym(RTLD_DEFAULT, "SecItemAdd");
-            orig_SecItemCopyMatching = dlsym(RTLD_DEFAULT, "SecItemCopyMatching");
-            orig_SecItemUpdate = dlsym(RTLD_DEFAULT, "SecItemUpdate");
-            orig_SecItemDelete = dlsym(RTLD_DEFAULT, "SecItemDelete");
-            if (orig_SecItemAdd && orig_SecItemCopyMatching && orig_SecItemUpdate && orig_SecItemDelete) {
+            {
                 // Only the app's own code asks for foreign keychain groups. Hooking every image
                 // (Apple's included) is needless and faults on libraries that cannot be written.
                 NSString *bundlePath = NSBundle.mainBundle.bundlePath;
                 NSRange app = [bundlePath rangeOfString:@".app"];
                 NSString *root = app.location == NSNotFound ? bundlePath : [bundlePath substringToIndex:app.location + app.length];
                 gAppRoot = strdup([root stringByAppendingString:@"/"].fileSystemRepresentation);
-                gRebindings[0] = (struct rebinding){"SecItemAdd", (void *)rs_SecItemAdd, (void **)&orig_SecItemAdd};
-                gRebindings[1] = (struct rebinding){"SecItemCopyMatching", (void *)rs_SecItemCopyMatching, (void **)&orig_SecItemCopyMatching};
-                gRebindings[2] = (struct rebinding){"SecItemUpdate", (void *)rs_SecItemUpdate, (void **)&orig_SecItemUpdate};
-                gRebindings[3] = (struct rebinding){"SecItemDelete", (void *)rs_SecItemDelete, (void **)&orig_SecItemDelete};
+                gRebindings[0] = (struct rebinding){"SecItemAdd", (void *)rs_SecItemAdd, (void **)&gRebindUnused[0]};
+                gRebindings[1] = (struct rebinding){"SecItemCopyMatching", (void *)rs_SecItemCopyMatching, (void **)&gRebindUnused[1]};
+                gRebindings[2] = (struct rebinding){"SecItemUpdate", (void *)rs_SecItemUpdate, (void **)&gRebindUnused[2]};
+                gRebindings[3] = (struct rebinding){"SecItemDelete", (void *)rs_SecItemDelete, (void **)&gRebindUnused[3]};
                 _dyld_register_func_for_add_image(RSAddImage);
             }
         }
