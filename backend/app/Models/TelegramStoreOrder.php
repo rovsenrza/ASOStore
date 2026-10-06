@@ -10,7 +10,18 @@ use Illuminate\Support\Carbon;
  * PENDING → REVIEW (customer says they paid) → PAID, or CANCELLED / EXPIRED /
  * REJECTED. Balance held by an order goes back when it does not complete.
  *
+ * Bot orders carry the Telegram chat; website orders (Platega) carry user_id
+ * instead, and the paid access goes straight onto that account.
+ *
  * @property string $public_id
+ * @property int|null $user_id
+ * @property int|null $telegram_user_id
+ * @property int|null $chat_id
+ * @property string|null $payment_provider
+ * @property string|null $payment_reference
+ * @property string|null $payment_url
+ * @property int|null $payment_amount_rub
+ * @property Carbon|null $payment_expires_at
  * @property int $price_rub
  * @property int $discount_rub
  * @property int $balance_used_rub
@@ -36,7 +47,7 @@ class TelegramStoreOrder extends Model
 
     protected $guarded = ['id'];
 
-    protected $hidden = ['activation_code'];
+    protected $hidden = ['activation_code', 'payment_url'];
 
     protected function casts(): array
     {
@@ -51,8 +62,11 @@ class TelegramStoreOrder extends Model
             'amount_due_rub' => 'integer',
             'referral_bonus_rub' => 'integer',
             'reviewed_by' => 'integer',
+            'user_id' => 'integer',
+            'payment_amount_rub' => 'integer',
             'expires_at' => 'datetime',
             'paid_at' => 'datetime',
+            'payment_expires_at' => 'datetime',
         ];
     }
 
@@ -60,6 +74,18 @@ class TelegramStoreOrder extends Model
     public function customer(): BelongsTo
     {
         return $this->belongsTo(TelegramStoreCustomer::class, 'customer_id');
+    }
+
+    /** @return BelongsTo<User, $this> */
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    /** Bought on the website: no Telegram chat to message. */
+    public function isWeb(): bool
+    {
+        return $this->user_id !== null && $this->chat_id === null;
     }
 
     /** @return BelongsTo<TelegramStorePromoCode, $this> */

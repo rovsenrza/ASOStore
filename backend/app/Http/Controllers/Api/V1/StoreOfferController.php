@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
+use App\Services\TelegramStore\Payments\PlategaClient;
 use App\Services\TelegramStore\StoreSettings;
 use App\Services\TelegramStore\TelegramApi;
 use Illuminate\Http\JsonResponse;
@@ -11,8 +12,9 @@ use Throwable;
 
 /**
  * What the website's purchase page sells: the Telegram store's plans at their current
- * prices (admins change them in the bot). Payment happens in the bot; every plan carries
- * the deep link that opens its order there, and the code from the bot is redeemed here.
+ * prices (admins change them in the bot). With Platega connected (`online_payment`), the
+ * page's «Оплатить» opens a payment for the signed-in account (POST /store/checkout);
+ * every plan also carries the deep link that opens its order in the bot.
  */
 class StoreOfferController extends Controller
 {
@@ -35,6 +37,7 @@ class StoreOfferController extends Controller
 
         return ApiResponse::ok([
             'currency' => 'RUB',
+            'online_payment' => PlategaClient::configured(),
             'plans' => $plans,
             'referral_percent' => $settings->referralPercent(),
             'telegram' => [

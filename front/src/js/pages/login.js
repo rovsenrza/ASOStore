@@ -1,7 +1,8 @@
 import { boot } from '../app.js';
-import { bindForm, safeNext } from '../forms.js';
+import { bindForm, keepNextOnLinks, safeNext } from '../forms.js';
 
 const { api, t } = boot();
+keepNextOnLinks();
 
 bindForm(document.querySelector('#login-form'), t, {
   submit: (data) => api.post('/auth/login', { email: data.get('email'), password: data.get('password') }),

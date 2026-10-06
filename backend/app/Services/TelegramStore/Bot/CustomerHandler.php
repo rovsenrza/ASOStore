@@ -7,6 +7,8 @@ use App\Services\TelegramStore\CompletedOrder;
 use App\Services\TelegramStore\OrderService;
 use App\Services\TelegramStore\Payments\GatewayResolver;
 use App\Services\TelegramStore\Payments\MockGateway;
+use App\Services\TelegramStore\Payments\PlategaException;
+use App\Services\TelegramStore\Payments\PlategaPayments;
 use App\Services\TelegramStore\PromoService;
 use Illuminate\Support\Facades\Cache;
 
@@ -22,6 +24,7 @@ class CustomerHandler
         private readonly AdminHandler $admin,
         private readonly PromoService $promos,
         private readonly ChannelGate $gate,
+        private readonly PlategaPayments $platega,
     ) {}
 
     public function message(Context $ctx, string $text): void
@@ -263,19 +266,33 @@ class CustomerHandler
 
             return;
         }
-        $this->messenger->answer($ctx);
         $this->orders->selectMethod($order, $method, $gateway->name());
-        $this->messenger->show($ctx, $this->screens->checkout($order, $gateway->checkout($order, $method)));
+        try {
+            $checkout = $gateway->checkout($order, $method);
+        } catch (PlategaException $exception) {
+            report($exception);
+            $this->messenger->answer($ctx, 'Платёжная система не ответила. Попробуйте ещё раз через минуту.', true);
+
+            return;
+        }
+        $this->messenger->answer($ctx);
+        $this->messenger->show($ctx, $this->screens->checkout($order, $checkout));
     }
 
     private function reportPaid(Context $ctx, TelegramStoreOrder $order): void
     {
+        // Platega: ask it now instead of waiting for the callback.
+        if ($order->payment_provider === PlategaPayments::PROVIDER && $order->payment_reference) {
+            $this->checkPayment($ctx, $order);
+
+            return;
+        }
         if ($order->status === TelegramStoreOrder::REVIEW) {
             $this->messenger->answer($ctx, 'Уже проверяем — код придёт сюда.');
 
             return;
         }
-        if (config('telegram_store.mock_payments') || ! $this->orders->markForReview($order)) {
+        if (GatewayResolver::mock() || ! $this->orders->markForReview($order)) {
             $this->showOrder($ctx, $order);
 
             return;
@@ -287,7 +304,7 @@ class CustomerHandler
 
     private function simulatePayment(Context $ctx, TelegramStoreOrder $order): void
     {
-        if (! config('telegram_store.mock_payments') || ! MockGateway::isTester($ctx->userId())) {
+        if (! GatewayResolver::mock() || ! MockGateway::isTester($ctx->userId())) {
             $this->messenger->answer($ctx, 'Тестовая оплата недоступна.', true);
 
             return;
@@ -301,6 +318,27 @@ class CustomerHandler
         $this->messenger->answer($ctx, 'Тестовая оплата прошла ✅');
         $this->messenger->show($ctx, $this->screens->paidPlaceholder($order));
         $this->messenger->orderCompleted($completed);
+    }
+
+    private function checkPayment(Context $ctx, TelegramStoreOrder $order): void
+    {
+        if ($order->status === TelegramStoreOrder::PAID) {
+            $this->messenger->answer($ctx, 'Заказ уже оплачен — код в сообщении выше.', true);
+
+            return;
+        }
+        // Settling delivers the code itself, so only the placeholder is shown here.
+        $completed = $this->platega->check($order);
+        if ($completed) {
+            $this->messenger->answer($ctx, 'Оплата получена ✅');
+            $this->messenger->show($ctx, $this->screens->paidPlaceholder($completed->order));
+
+            return;
+        }
+        $order->refresh();
+        $this->messenger->answer($ctx, $order->status === TelegramStoreOrder::PAID
+            ? 'Заказ уже оплачен — код в сообщении выше.'
+            : 'Оплата пока не поступила. Если вы уже оплатили, код придёт сюда автоматически в течение пары минут.', true);
     }
 
     private function cancel(Context $ctx, TelegramStoreOrder $order): void

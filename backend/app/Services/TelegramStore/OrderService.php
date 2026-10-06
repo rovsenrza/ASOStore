@@ -54,6 +54,34 @@ class OrderService
         ]);
     }
 
+    /**
+     * Opens a website order for a plan, paid online and delivered to the account.
+     * Older unpaid website orders of the account are cancelled, as in the bot.
+     */
+    public function createForUser(User $user, string $planKey): TelegramStoreOrder
+    {
+        $plan = $this->settings->plan($planKey) ?? throw new InvalidArgumentException("Unknown plan {$planKey}.");
+
+        TelegramStoreOrder::query()
+            ->where('user_id', $user->id)
+            ->whereNull('chat_id')
+            ->where('status', TelegramStoreOrder::PENDING)
+            ->get()
+            ->each(fn (TelegramStoreOrder $order) => $this->close($order, TelegramStoreOrder::CANCELLED));
+
+        return TelegramStoreOrder::create([
+            'public_id' => strtolower((string) Str::ulid()),
+            'user_id' => $user->id,
+            'plan' => 'standard',
+            'plan_key' => $planKey,
+            'duration_days' => $plan['days'],
+            'price_rub' => $plan['price'],
+            'amount_due_rub' => $plan['price'],
+            'status' => TelegramStoreOrder::PENDING,
+            'expires_at' => now()->addMinutes((int) config('telegram_store.order_ttl_minutes', 30)),
+        ]);
+    }
+
     public function find(string $reference, ?int $telegramUserId = null): ?TelegramStoreOrder
     {
         return TelegramStoreOrder::query()
@@ -108,6 +136,21 @@ class OrderService
     }
 
     /**
+     * A closed order whose payment arrived anyway goes back to the admins: it
+     * held balance that closing returned, so only they can settle it.
+     */
+    public function reopenForReview(TelegramStoreOrder $order): bool
+    {
+        $reopened = DB::table('telegram_store_orders')
+            ->where('id', $order->id)
+            ->whereIn('status', [TelegramStoreOrder::EXPIRED, TelegramStoreOrder::CANCELLED])
+            ->update(['status' => TelegramStoreOrder::REVIEW, 'updated_at' => now()]) === 1;
+        $order->refresh();
+
+        return $reopened;
+    }
+
+    /**
      * Cancels, expires or rejects an order that has not been paid, returning held balance.
      */
     public function close(TelegramStoreOrder $order, string $status): bool
@@ -155,14 +198,20 @@ class OrderService
      *
      * An admin may confirm an order that is under review or still pending,
      * even after the payment window: the customer may have paid in time.
+     * A payment the provider has $settled completes the same way, and also an
+     * order closed meanwhile (new order opened, window passed) as long as it
+     * held no balance, which closing has already given back.
      */
-    public function complete(TelegramStoreOrder $order, string $provider, ?int $adminTelegramId = null): ?CompletedOrder
+    public function complete(TelegramStoreOrder $order, string $provider, ?int $adminTelegramId = null, bool $settled = false, ?string $reference = null): ?CompletedOrder
     {
-        $result = DB::transaction(function () use ($order, $provider, $adminTelegramId) {
+        $result = DB::transaction(function () use ($order, $provider, $adminTelegramId, $settled, $reference) {
             $locked = TelegramStoreOrder::query()->lockForUpdate()->findOrFail($order->id);
-            $payable = $adminTelegramId !== null
-                ? in_array($locked->status, [TelegramStoreOrder::PENDING, TelegramStoreOrder::REVIEW], true)
-                : $locked->isPayable();
+            $payable = match (true) {
+                $adminTelegramId !== null => in_array($locked->status, [TelegramStoreOrder::PENDING, TelegramStoreOrder::REVIEW], true),
+                $settled => in_array($locked->status, [TelegramStoreOrder::PENDING, TelegramStoreOrder::REVIEW], true)
+                    || (in_array($locked->status, [TelegramStoreOrder::EXPIRED, TelegramStoreOrder::CANCELLED], true) && $locked->balance_used_rub === 0),
+                default => $locked->isPayable(),
+            };
             if (! $payable) {
                 return null;
             }
@@ -189,6 +238,7 @@ class OrderService
                 'status' => TelegramStoreOrder::PAID,
                 'paid_at' => now(),
                 'payment_provider' => $provider,
+                'payment_reference' => $reference ?? $locked->payment_reference,
                 'reviewed_by' => $adminTelegramId,
                 'referral_bonus_rub' => $bonus,
                 'activation_code' => Crypt::encryptString($code),

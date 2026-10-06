@@ -243,6 +243,19 @@ button.text-link:disabled { color: var(--ink-2); cursor: default; }
 
 .offer__stub[hidden] { display: none; }
 .offer__stub a { color: var(--blue); font-weight: 600; text-underline-offset: 3px; }
+.offer__cta[aria-busy="true"] { opacity: .7; cursor: progress; }
+
+/* Payment result page (Platega sends the payer back here) */
+.payment-result { max-width: 640px; display: grid; gap: var(--s5); }
+.payment-result #payment-state { display: grid; gap: var(--s4); }
+.payment-result__actions { display: flex; flex-wrap: wrap; gap: var(--s3); }
+.payment-result__actions:empty { display: none; }
+.payment-result__help { margin: 0; font-size: var(--text-sm); color: var(--ink-2); }
+.payment-result__help a { color: var(--blue); font-weight: 600; text-underline-offset: 3px; }
+
+@media (width <= 560px) {
+  .payment-result__actions .btn { width: 100%; }
+}
 
 /* The payment note is a sentence with links, not a row of chips. */
 .offer__pay:has(a) { display: block; line-height: 1.6; }

@@ -53,15 +53,124 @@ paths:
       summary: Plans for the website's purchase page
       description: >-
         The Telegram store's plans at their current prices (admins change them in the bot).
-        Payment happens in the bot: buy_url opens the order for that plan there
-        (t.me/<bot>?start=buy_<id>); the activation code from the bot is redeemed with
-        POST /activation/redeem. URLs are null when no bot is configured. Cacheable for five minutes.
+        With online_payment, «Оплатить» on the site opens a Platega payment for the signed-in
+        account (POST /store/checkout). buy_url opens the order for that plan in the bot
+        (t.me/<bot>?start=buy_<id>), whose activation code is redeemed with POST /activation/redeem.
+        URLs are null when no bot is configured. Cacheable for five minutes.
       responses:
         "200":
           description: Success
           content:
             application/json:
               schema: { $ref: "#/components/schemas/StoreOfferResponse" }
+
+  /store/checkout:
+    post:
+      tags: [Storefront]
+      operationId: storeCheckout
+      summary: Pay for a plan on the website
+      description: >-
+        Opens a store order for the signed-in account (older unpaid website orders of the
+        account are cancelled) and returns the Platega payment page to send the payer to.
+        Platega sends the payer back to /payment.html?order=<id> (with &failed=1 when the
+        payment failed). Once Platega confirms the payment, the access is switched on for the
+        account directly; no activation code needs to be entered. 503 SERVICE_UNAVAILABLE when
+        online payment is not connected or Platega does not answer.
+      security:
+        - sessionCookie: []
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan]
+              properties:
+                plan: { type: string, examples: [month6] }
+      responses:
+        "201":
+          description: Order opened
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StoreCheckoutResponse" }
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+
+  /store/orders/{order}:
+    get:
+      tags: [Storefront]
+      operationId: getStoreOrder
+      summary: State of a store order (payment result page)
+      description: >-
+        For website and bot orders. Public: the payer may return in a browser without the
+        session, and the 26-character order ID is the credential. While the payment has not
+        arrived, the server asks Platega (at most every few seconds) before answering.
+      parameters:
+        - name: order
+          in: path
+          required: true
+          schema: { type: string, pattern: '^[0-9a-zA-Z]{26}$' }
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/StoreOrderResponse" }
+        "404":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+
+  /payments/platega/callback:
+    post:
+      tags: [Storefront]
+      operationId: plategaCallback
+      summary: Platega transaction callback
+      description: >-
+        Set as the Callback URL in Platega's dashboard (Настройки → Callback URLs). Platega sends
+        X-MerchantId and X-Secret (our own credentials; anything else is 401) and the transaction
+        ID; the transaction's state is then read from Platega's API, never from the body.
+        CONFIRMED completes the order (repeats are ignored), CANCELED retires its payment page,
+        CHARGEBACKED and payments that do not match the order are reported to the store admins.
+        503 when Platega's API cannot be read, so Platega retries; a sweep every two minutes
+        catches callbacks that never arrive.
+      parameters:
+        - { name: X-MerchantId, in: header, required: true, schema: { type: string } }
+        - { name: X-Secret, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, status]
+              properties:
+                id: { type: string, format: uuid }
+                amount: { type: number }
+                currency: { type: string }
+                status: { type: string, enum: [CONFIRMED, CANCELED, CHARGEBACKED] }
+                paymentMethod: { type: integer }
+                payload: { type: string }
+      responses:
+        "200":
+          description: Received
+        "401":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
 
   /storefront/feed:
     get:
@@ -3521,9 +3630,10 @@ components:
 
     StoreOffer:
       type: object
-      required: [currency, plans, referral_percent, telegram]
+      required: [currency, online_payment, plans, referral_percent, telegram]
       properties:
         currency: { type: string, enum: [RUB] }
+        online_payment: { type: boolean, description: 'Card / SBP payment on the website (Platega) is connected' }
         plans:
           type: array
           items:
@@ -3546,6 +3656,47 @@ components:
             bot_url: { type: [string, "null"], format: uri }
             news_url: { type: [string, "null"], format: uri }
             support_url: { type: [string, "null"], format: uri }
+
+    StoreOrder:
+      type: object
+      required: [id, reference, status, channel, plan, term, duration_days, amount, currency, expires_at, paid_at, bot_url]
+      properties:
+        id: { type: string, pattern: '^[0-9a-z]{26}$' }
+        reference: { type: string, description: 'Last 8 characters, as the bot and support show it' }
+        status: { type: string, enum: [PENDING, REVIEW, PAID, CANCELLED, EXPIRED, REJECTED] }
+        channel: { type: string, enum: [web, telegram], description: 'web: access goes onto the account; telegram: the code arrives in the bot' }
+        plan: { type: [string, "null"], examples: [month6] }
+        term: { type: string, examples: [180 дней] }
+        duration_days: { type: integer, minimum: 1 }
+        amount: { type: integer, minimum: 0, description: 'Roubles to pay with money' }
+        currency: { type: string, enum: [RUB] }
+        expires_at: { $ref: "#/components/schemas/Timestamp" }
+        paid_at:
+          oneOf:
+            - $ref: "#/components/schemas/Timestamp"
+            - type: "null"
+        bot_url: { type: [string, "null"], format: uri, description: 'Telegram orders only' }
+
+    StoreOrderResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: object
+              required: [order]
+              properties:
+                order: { $ref: "#/components/schemas/StoreOrder" }
+
+    StoreCheckoutResponse:
+      allOf:
+        - $ref: "#/components/schemas/SuccessEnvelope"
+        - properties:
+            data:
+              type: object
+              required: [order, payment_url]
+              properties:
+                order: { $ref: "#/components/schemas/StoreOrder" }
+                payment_url: { type: string, format: uri }
 
     SuccessEnvelope:
       type: object

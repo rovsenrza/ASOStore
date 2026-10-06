@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Services\TelegramStore\Bot\Messenger;
 use App\Services\TelegramStore\Bot\UpdateRouter;
 use App\Services\TelegramStore\OrderService;
+use App\Services\TelegramStore\Payments\GatewayResolver;
 use App\Services\TelegramStore\TelegramApi;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
@@ -37,7 +38,7 @@ class TelegramStoreBot extends Command
 
         try {
             $api->setCommands();
-            $this->info('Bot @'.$api->botUsername().' started'.(config('telegram_store.mock_payments') ? ' in MOCK payment mode.' : '.'));
+            $this->info('Bot @'.$api->botUsername().' started'.(GatewayResolver::mock() ? ' in MOCK payment mode.' : '.'));
         } catch (Throwable $exception) {
             report($exception);
         }

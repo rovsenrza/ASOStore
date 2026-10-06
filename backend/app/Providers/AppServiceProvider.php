@@ -78,6 +78,9 @@ class AppServiceProvider extends ServiceProvider
         ]);
         RateLimiter::for('password-reset', fn (Request $request) => Limit::perMinute(5)->by('reset:'.$request->ip()));
         RateLimiter::for('activation', fn (Request $request) => Limit::perHour(10)->by('activation:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+        RateLimiter::for('store-checkout', fn (Request $request) => Limit::perHour(20)->by('store-checkout:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+        RateLimiter::for('store-order', fn (Request $request) => Limit::perMinute(60)->by('store-order:'.$request->ip()));
+        RateLimiter::for('payment-callback', fn (Request $request) => Limit::perMinute(300)->by('payment-callback:'.$request->ip()));
         RateLimiter::for('enrollment', fn (Request $request) => Limit::perHour(20)->by('enrollment:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
         RateLimiter::for('enrollment-callback', fn (Request $request) => Limit::perMinute(10)->by('enrollment-callback:'.$request->ip()));
         RateLimiter::for('claims', fn (Request $request) => Limit::perMinute(10)->by('claims:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));

@@ -35,6 +35,7 @@ use App\Http\Controllers\Api\V1\Customer\SupportController;
 use App\Http\Controllers\Api\V1\Customer\TokenController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\StoreOfferController;
+use App\Http\Controllers\Api\V1\StoreOrderController;
 use App\Http\Middleware\RejectStaleBearerToken;
 use Illuminate\Support\Facades\Route;
 
@@ -46,8 +47,12 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/health', HealthController::class)->name('api.health');
 
-// Plans and Telegram links for the website's purchase page; payment happens in the bot.
+// Plans, prices and payment options for the website's purchase page.
 Route::get('/store/offer', StoreOfferController::class)->name('api.store.offer');
+// Order state for the payment result page (website and bot orders); the ULID is the credential.
+Route::get('/store/orders/{order}', [StoreOrderController::class, 'show'])->middleware('throttle:store-order')->name('api.store.orders.show');
+// Called by Platega, authenticated by the merchant ID and secret it sends back.
+Route::post('/payments/platega/callback', [StoreOrderController::class, 'callback'])->middleware('throttle:payment-callback')->name('api.payments.platega.callback');
 
 // Customer authentication
 Route::prefix('auth')->name('api.auth.')->group(function () {
@@ -70,6 +75,10 @@ Route::middleware(['auth:sanctum', 'active', 'verified.web'])->group(function ()
     Route::post('/activation/redeem', [ActivationController::class, 'redeem'])
         ->middleware(['throttle:activation', 'idempotent'])
         ->name('api.activation.redeem');
+    // «Оплатить» on the website: a store order for this account, paid on Platega's page.
+    Route::post('/store/checkout', [StoreOrderController::class, 'checkout'])
+        ->middleware(['throttle:store-checkout', 'idempotent'])
+        ->name('api.store.checkout');
 
     Route::get('/devices/me', [DeviceController::class, 'index'])->name('api.devices.me');
     Route::get('/devices/enrollment-profile', [EnrollmentController::class, 'profile'])

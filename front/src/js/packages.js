@@ -1,8 +1,10 @@
 /**
- * The packages block (homepage, purchase page): the chosen term drives the offer card and
- * the «Купить» link into the Telegram bot, where the order for that term opens.
+ * The packages block (homepage, purchase page): the chosen term drives the offer card,
+ * the «Оплатить» button and the link into the Telegram bot, where the order for that term opens.
  * The HTML already shows the default term and prices, so the page reads correctly before
  * this runs and when the live prices (GET /store/offer) cannot be loaded.
+ * With online payment connected (offer.online_payment), «Оплатить» opens Platega's page for
+ * the signed-in account (POST /store/checkout); otherwise it shows the «unavailable» notice.
  */
 const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const rub = (value) => `${value.toLocaleString('ru-RU')} ₽`;
@@ -42,7 +44,7 @@ function monthlyLabel(node, input, saving) {
   }
 }
 
-export function setupPackages(root = document) {
+export function setupPackages(root = document, { api = null } = {}) {
   const block = root.querySelector('[data-packages]');
   if (!block) return null;
   const field = (name) => block.querySelector(`[data-offer-${name}]`);
@@ -67,7 +69,8 @@ export function setupPackages(root = document) {
     const cta = field('cta');
     cta.href = input.dataset.buyUrl;
     field('cta-label').textContent = `Или заказать ${input.dataset.term} в Telegram`;
-    field('pay-label').textContent = `Оплатить ${rub(total)}`;
+    payLabel = `Оплатить ${rub(total)}`;
+    if (!payButton?.disabled) field('pay-label').textContent = payLabel;
     block.dispatchEvent(new CustomEvent('plan-change', { bubbles: true, detail: { value: input.value, term: input.dataset.term, total, buyUrl: input.dataset.buyUrl } }));
   };
 
@@ -75,14 +78,81 @@ export function setupPackages(root = document) {
     if (event.target.name === 'plan') apply(event.target);
   });
 
-  // Card/SBP payment on the site is not connected yet: the button answers with a notice.
-  // When the payment system is live, create the payment for the chosen plan here and
-  // send the customer to its page instead of showing the notice.
   const payButton = field('pay');
   const payNotice = field('pay-notice');
-  payButton?.addEventListener('click', () => {
+  const unavailableNotice = payNotice?.innerHTML ?? '';
+  // null until the offer says: a click before that (slow network) still tries to pay,
+  // and the server answers SERVICE_UNAVAILABLE when online payment is off.
+  let online = null;
+  let payLabel = '';
+
+  /** The «unavailable» text from the HTML, or a failure with a link to support. */
+  const showNotice = (title = null, text = '') => {
+    if (!payNotice) return;
+    if (title) {
+      const heading = document.createElement('b');
+      heading.textContent = title;
+      const body = document.createElement('p');
+      const support = document.createElement('a');
+      support.href = '/support.html#contact-title';
+      support.textContent = 'Написать в поддержку';
+      body.append(`${text} `, support);
+      payNotice.replaceChildren(heading, body);
+    } else {
+      payNotice.innerHTML = unavailableNotice;
+    }
     payNotice.hidden = false;
     payNotice.scrollIntoView({ block: 'nearest', behavior: reduceMotion() ? 'auto' : 'smooth' });
+  };
+
+  const setBusy = (busy) => {
+    if (!payButton) return;
+    payButton.disabled = busy;
+    if (busy) payButton.setAttribute('aria-busy', 'true');
+    else payButton.removeAttribute('aria-busy');
+    field('pay-label').textContent = busy ? 'Открываем оплату…' : payLabel;
+  };
+
+  /** Opens the order and goes to Platega; signs in or confirms the email first when needed. */
+  const checkout = async () => {
+    const plan = block.querySelector('input[name="plan"]:checked')?.value;
+    if (!plan) return;
+    const back = `/buy.html?plan=${encodeURIComponent(plan)}#pricing`;
+    setBusy(true);
+    try {
+      const { data } = await api.post('/store/checkout', { plan }, {
+        idempotencyKey: `checkout-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`,
+      });
+      location.assign(data.payment_url);
+      return;
+    } catch (error) {
+      if (error?.code === 'UNAUTHENTICATED' || error?.code === 'SESSION_EXPIRED') {
+        location.assign(`/register.html?next=${encodeURIComponent(back)}`);
+        return;
+      }
+      if (error?.code === 'EMAIL_NOT_VERIFIED') {
+        location.assign(`/verify-email.html?next=${encodeURIComponent(back)}`);
+        return;
+      }
+      setBusy(false);
+      const readable = error?.message && !['INTERNAL', 'NETWORK_ERROR', 'OFFLINE'].includes(error.code);
+      showNotice('Не удалось открыть оплату', error?.code === 'RATE_LIMITED'
+        ? 'Слишком много попыток подряд. Подождите немного и попробуйте снова.'
+        : `${readable ? error.message : 'Нет связи с сервером.'} Попробуйте ещё раз через минуту.`);
+    }
+  };
+
+  payButton?.addEventListener('click', () => {
+    if (online !== false && api) {
+      if (payNotice) payNotice.hidden = true;
+      checkout();
+    } else {
+      showNotice();
+    }
+  });
+  // Back from Platega's page with the browser's back button: the button works again.
+  window.addEventListener('pageshow', (event) => {
+    if (event.persisted) setBusy(false);
   });
 
   // ?plan=month12 (or the older 12m) chooses the term.
@@ -94,6 +164,7 @@ export function setupPackages(root = document) {
 
   /** Live prices and links from the store; terms the store no longer sells are hidden. */
   block.applyOffer = (offer) => {
+    if (typeof offer?.online_payment === 'boolean') online = offer.online_payment;
     if (!offer?.plans?.length) return;
     const plans = new Map(offer.plans.map((plan) => [plan.id, plan]));
     for (const input of block.querySelectorAll('input[name="plan"]')) {

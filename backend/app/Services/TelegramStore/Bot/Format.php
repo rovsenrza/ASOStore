@@ -35,6 +35,11 @@ final class Format
         return $months.' '.self::plural($months, 'месяц', 'месяца', 'месяцев');
     }
 
+    public static function days(int $days): string
+    {
+        return $days.' '.self::plural($days, 'день', 'дня', 'дней');
+    }
+
     public static function rub(int $amount): string
     {
         return number_format($amount, 0, '', ' ').'₽';

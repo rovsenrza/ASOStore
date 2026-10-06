@@ -13,7 +13,7 @@ const { api, t } = boot();
 // Works without the motion layer: packages, steps, filters, dock, live catalog size.
 // setupDock listens for the plan the packages block announces, so it comes first.
 setupDock();
-const packages = setupPackages();
+const packages = setupPackages(document, { api });
 setupSteps();
 setupRail();
 showCatalogCount(api);

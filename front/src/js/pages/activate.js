@@ -79,7 +79,8 @@ function renderActivationForm() {
         maxlength="32" aria-describedby="activation-code-hint" required>
       <p class="field-hint" id="activation-code-hint"></p>
     </div>
-    <button class="primary-button" type="submit"><span></span> <span aria-hidden="true">→</span></button>`;
+    <button class="primary-button" type="submit"><span></span> <span aria-hidden="true">→</span></button>
+    <p class="form-footer">Нет кода? <a href="/buy.html#pricing">Купить доступ</a> — после оплаты на сайте доступ включится сам, код вводить не нужно.</p>`;
   form.querySelector('label').textContent = t('activate.codeLabel');
   form.querySelector('input').placeholder = t('activate.codePlaceholder');
   form.querySelector('.field-hint').textContent = t('activate.codeHint');

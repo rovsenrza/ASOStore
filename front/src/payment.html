@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Оплата заказа — Ru App Store</title>
+  <meta name="description" content="Статус оплаты заказа Ru App Store.">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#0b45e6">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/ru-app-store-logo-32.png">
+  <link rel="apple-touch-icon" href="/assets/brand/ru-app-store-logo-180.png">
+  <link rel="stylesheet" href="/css/site.css">
+  <script type="module" src="/js/pages/payment.js"></script>
+</head>
+<body>
+  <!--#header-->
+
+  <main id="main">
+    <section class="page-hero" aria-labelledby="page-title">
+      <h1 id="page-title">Оплата заказа</h1>
+      <p id="payment-lead">Проверяем статус оплаты.</p>
+    </section>
+
+    <div class="page-body">
+      <section class="panel payment-result" aria-live="polite" aria-labelledby="page-title">
+        <div id="payment-state">
+          <p class="loading-line"><span class="status-pulse" aria-hidden="true"></span>Загрузка…</p>
+        </div>
+        <div class="payment-result__actions" id="payment-actions"></div>
+        <p class="payment-result__help">Вопросы по оплате — в <a href="/support.html#contact-title">поддержку</a>. Укажите номер заказа, он показан выше.</p>
+      </section>
+    </div>
+  </main>
+
+  <!--#footer-->
+</body>
+</html>

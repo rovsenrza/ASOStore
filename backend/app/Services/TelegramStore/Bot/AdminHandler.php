@@ -9,7 +9,10 @@ use App\Models\TelegramStoreOrder;
 use App\Models\TelegramStorePromoCode;
 use App\Services\TelegramStore\BalanceLedger;
 use App\Services\TelegramStore\CustomerService;
+use App\Services\TelegramStore\OrderFulfillment;
 use App\Services\TelegramStore\OrderService;
+use App\Services\TelegramStore\Payments\GatewayResolver;
+use App\Services\TelegramStore\Payments\PlategaClient;
 use App\Services\TelegramStore\PromoService;
 use App\Services\TelegramStore\StoreSettings;
 use App\Services\TelegramStore\TelegramApi;
@@ -43,6 +46,7 @@ class AdminHandler
         private readonly BalanceLedger $ledger,
         private readonly TelegramApi $api,
         private readonly PromoService $promos,
+        private readonly OrderFulfillment $fulfillment,
     ) {}
 
     /**
@@ -124,10 +128,7 @@ class AdminHandler
     /** Sends every admin the order with confirm / reject buttons. */
     public function notifyReview(TelegramStoreOrder $order): void
     {
-        $screen = $this->orderScreen($order->refresh(), "🔔 <b>Покупатель сообщил об оплате</b>\nПроверьте поступление у платёжного провайдера.\n\n");
-        foreach (config('telegram_store.admin_ids', []) as $adminId) {
-            $this->messenger->notify((int) $adminId, $screen);
-        }
+        $this->messenger->notifyAdmins($this->orderScreen($order->refresh(), "🔔 <b>Покупатель сообщил об оплате</b>\nПроверьте поступление у платёжного провайдера.\n\n"));
     }
 
     public function panel(?string $notice = null): Screen
@@ -135,7 +136,11 @@ class AdminHandler
         $today = Format::dayStart();
         $paidToday = $this->paid($today, real: true);
         $reviews = TelegramStoreOrder::query()->where('status', TelegramStoreOrder::REVIEW)->count();
-        $mode = config('telegram_store.mock_payments') ? '🧪 тестовый (mock)' : '🔗 ссылки + ручная проверка';
+        $mode = match (true) {
+            PlategaClient::configured() => '💳 Platega (подтверждается автоматически)',
+            GatewayResolver::mock() => '🧪 тестовый (mock)',
+            default => '🔗 ссылки + ручная проверка',
+        };
 
         $text = ($notice ? e($notice)."\n\n" : '')
             ."<b>🛠 Админ-панель</b>\n"
@@ -207,7 +212,7 @@ class AdminHandler
             return new Screen("<b>🧾 На проверке</b>\n\nНет заказов, ожидающих проверки. 👌", [[Screen::button('‹ Панель', 'adm:panel')]]);
         }
         $rows = $orders->map(fn (TelegramStoreOrder $order) => [Screen::button(
-            '#'.$order->shortReference().' · '.Format::rub($order->amount_due_rub).' · '.($order->username ? '@'.$order->username : $order->telegram_user_id),
+            '#'.$order->shortReference().' · '.Format::rub($order->amount_due_rub).' · '.$this->buyer($order),
             'adm:ord:'.$order->public_id,
         )])->all();
         $rows[] = [Screen::button('‹ Панель', 'adm:panel')];
@@ -226,15 +231,19 @@ class AdminHandler
         $customer = $order->customer;
         $lines = [
             $prefix."<b>Заказ</b> <code>{$order->reference()}</code>",
-            'Покупатель: '.e($customer?->displayName() ?? ($order->username ? '@'.$order->username : (string) $order->telegram_user_id))
-                ." (<code>{$order->telegram_user_id}</code>)",
+            'Покупатель: '.($order->isWeb()
+                ? 'сайт, '.e($order->user?->email ?? 'аккаунт удалён')
+                : e($customer?->displayName() ?? $this->buyer($order))." (<code>{$order->telegram_user_id}</code>)"),
             'Тариф: '.$this->screens->planName($order).' · '.Format::rub($order->price_rub),
             '<b>К оплате деньгами: '.Format::rub($order->amount_due_rub).'</b>',
         ];
         if ($order->balance_used_rub > 0) {
             $lines[] = 'Оплачено балансом: '.Format::rub($order->balance_used_rub);
         }
-        $lines[] = 'Способ: '.e($order->payment_method ?? '—');
+        $lines[] = 'Способ: '.e($order->payment_method ?? '—').($order->payment_provider ? ' · '.e($order->payment_provider) : '');
+        if ($order->payment_reference) {
+            $lines[] = 'Транзакция: <code>'.e($order->payment_reference).'</code>';
+        }
         $lines[] = 'Создан: '.Format::date($order->created_at).' '.Format::time($order->created_at);
         $lines[] = 'Статус: '.Format::status($order->status);
 
@@ -249,7 +258,7 @@ class AdminHandler
 
     private function confirm(Context $ctx, string $reference): void
     {
-        if (config('telegram_store.mock_payments')) {
+        if (GatewayResolver::mock()) {
             $this->messenger->show($ctx, new Screen('В тестовом режиме оплату подтверждает кнопка «Симулировать оплату» у покупателя.', [[Screen::button('‹ Панель', 'adm:panel')]]));
 
             return;
@@ -261,9 +270,10 @@ class AdminHandler
 
             return;
         }
-        $this->messenger->orderCompleted($completed);
+        $this->fulfillment->deliver($completed);
         $this->messenger->show($ctx, new Screen(
-            "✅ Оплата заказа <code>{$order->reference()}</code> подтверждена, код отправлен покупателю."
+            "✅ Оплата заказа <code>{$order->reference()}</code> подтверждена, "
+            .($order->isWeb() ? 'доступ включён в аккаунте покупателя.' : 'код отправлен покупателю.')
             .($completed->referralBonus > 0 ? "\nПригласившему начислено ".Format::rub($completed->referralBonus).'.' : ''),
             [[Screen::button('🧾 На проверке', 'adm:reviews'), Screen::button('‹ Панель', 'adm:panel')]],
         ));
@@ -547,6 +557,15 @@ class AdminHandler
             ->where('status', TelegramStoreOrder::PAID)
             ->when($since, fn ($q) => $q->where('paid_at', '>=', $since))
             ->when($real, fn ($q) => $q->where(fn ($q) => $q->whereNull('payment_provider')->orWhere('payment_provider', '!=', 'mock')));
+    }
+
+    private function buyer(TelegramStoreOrder $order): string
+    {
+        return match (true) {
+            $order->isWeb() => 'сайт',
+            (bool) $order->username => '@'.$order->username,
+            default => (string) $order->telegram_user_id,
+        };
     }
 
     private function stateKey(Context $ctx): string

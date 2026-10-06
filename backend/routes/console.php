@@ -9,6 +9,7 @@ use App\Services\Operations\RetentionService;
 use App\Services\Quotas\QuotaReconciler;
 use App\Services\Quotas\QuotaService;
 use App\Services\Signing\SigningService;
+use App\Services\TelegramStore\Payments\PlategaPayments;
 use Illuminate\Support\Facades\Schedule;
 
 /*
@@ -50,6 +51,10 @@ Schedule::call(fn () => app(AlertEvaluator::class)->run())
     ->name('alerts:evaluate')->everyFiveMinutes()->withoutOverlapping();
 Schedule::call(fn () => app(RetentionService::class)->run())
     ->name('retention:apply')->dailyAt('04:00')->withoutOverlapping();
+
+// Platega payments whose callback never arrived (store orders on the website and in the bot).
+Schedule::call(fn () => app(PlategaPayments::class)->reconcile())
+    ->name('platega:reconcile')->everyTwoMinutes()->withoutOverlapping();
 
 // The database cache never drops expired keys nobody reads again (worker nonces, throttles).
 Schedule::command('cache:prune-database')->hourly()->withoutOverlapping();

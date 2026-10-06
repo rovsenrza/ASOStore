@@ -3,7 +3,7 @@ import { setupPackages } from '../packages.js';
 import { applyTelegramLinks, loadOffer } from '../store-offer.js';
 
 const { api } = boot();
-const packages = setupPackages();
+const packages = setupPackages(document, { api });
 
 // Prices and links as the bot has them now; the HTML defaults stay if this fails.
 loadOffer(api).then((offer) => {

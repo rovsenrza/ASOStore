@@ -165,6 +165,20 @@ class CustomerScreens
             );
         }
 
+        if (! $checkout->needsConfirmation) {
+            return new Screen(
+                "<b>💳 Оплата заказа #{$order->shortReference()}</b>\n\nСумма: <b>{$amount}</b>\n\n"
+                ."Нажмите «Оплатить» — откроется защищённая страница платёжного сервиса Platega, там можно оплатить картой или через СБП.\n\n"
+                .'Код активации придёт в этот чат автоматически, как только платёж подтвердится. Если код не пришёл за пару минут, нажмите «Проверить оплату».',
+                [
+                    [Screen::link("💳 Оплатить {$amount}", (string) $checkout->url)],
+                    [Screen::button('🔄 Проверить оплату', 'paid:'.$order->public_id)],
+                    $this->legalRow(),
+                    [Screen::button('‹ К заказу', 'order:'.$order->public_id)],
+                ],
+            );
+        }
+
         return new Screen(
             "<b>💳 Оплата заказа #{$order->shortReference()}</b>\n\nСумма: <b>{$amount}</b>\n\n"
             ."1. Нажмите «Перейти к оплате» и оплатите ровно {$amount}.\n"

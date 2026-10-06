@@ -100,25 +100,40 @@ class Messenger
         $this->send($chatId, $this->screens->menu());
     }
 
+    /** Sends the screen to every admin of the store. */
+    public function notifyAdmins(Screen $screen): void
+    {
+        foreach (config('telegram_store.admin_ids', []) as $adminId) {
+            $this->notify((int) $adminId, $screen);
+        }
+    }
+
     /** Tells the buyer (code) and the referrer (bonus) about a completed order. */
     public function orderCompleted(CompletedOrder $completed): void
     {
         $order = $completed->order;
-        $this->notify($order->chat_id, $this->screens->paid($order, $completed->code));
+        if ($order->chat_id !== null) {
+            $this->notify($order->chat_id, $this->screens->paid($order, $completed->code));
+        }
 
         if ($completed->referrer && $completed->referralBonus > 0) {
             $this->notify($completed->referrer->chat_id, $this->screens->referralBonus($completed->referralBonus, $completed->referrer->balance_rub));
         }
     }
 
+    /** Website orders have no chat; the payment page shows their state. */
     public function orderExpired(TelegramStoreOrder $order): void
     {
-        $this->notify($order->chat_id, $this->screens->expired($order));
+        if ($order->chat_id !== null) {
+            $this->notify($order->chat_id, $this->screens->expired($order));
+        }
     }
 
     public function orderRejected(TelegramStoreOrder $order): void
     {
-        $this->notify($order->chat_id, $this->screens->rejected($order));
+        if ($order->chat_id !== null) {
+            $this->notify($order->chat_id, $this->screens->rejected($order));
+        }
     }
 
     public function answer(Context $ctx, ?string $text = null, bool $alert = false): void

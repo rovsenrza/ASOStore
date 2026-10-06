@@ -72,6 +72,15 @@ export function safeNext(fallback) {
   return next && next.startsWith('/') && !next.startsWith('//') ? next : fallback;
 }
 
+/** Sign-in ↔ sign-up links on the page keep the ?next= the visitor arrived with. */
+export function keepNextOnLinks(selector = 'a[href="/login.html"], a[href="/register.html"]') {
+  const next = safeNext(null);
+  if (!next) return;
+  document.querySelectorAll(selector).forEach((link) => {
+    link.href = `${link.getAttribute('href')}?next=${encodeURIComponent(next)}`;
+  });
+}
+
 export function showSuccess(form, title, text) {
   const notice = document.createElement('div');
   notice.className = 'notice notice--ok';
