@@ -245,7 +245,7 @@ it('removes a superseded original after its rollback window, unless the file is 
     $twin = AppArtifact::factory()->create(['app_id' => $this->catalogApp->id, 'status' => ArtifactStatus::Expired->value, 'storage_path' => 'originals/ab/'.str_repeat('ab', 32).'.ipa']);
     Storage::disk('artifacts')->put($twin->storage_path, 'superseded');
 
-    $this->travel(13)->days();
+    $this->travel(12)->hours();
     expect(janitor()->run()['originals_purged'])->toBe(0);
 
     $this->travel(2)->days();

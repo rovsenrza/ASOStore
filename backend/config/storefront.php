@@ -204,8 +204,8 @@ return [
         // kept idle (it serves every device of the team, so it is worth more than a per-device one).
         'warm_builds_per_team' => (int) env('STOREFRONT_WARM_BUILDS_PER_TEAM', 40),
         'shared_idle_hours' => (int) env('STOREFRONT_SHARED_BUILD_IDLE_HOURS', 168),
-        // Originals of superseded versions are kept this long for a rollback, then removed.
-        'superseded_original_days' => (int) env('STOREFRONT_SUPERSEDED_ORIGINAL_DAYS', 14),
+        // Originals of superseded versions go after this many days; a re-upload simply creates a new temporary copy.
+        'superseded_original_days' => (int) env('STOREFRONT_SUPERSEDED_ORIGINAL_DAYS', 1),
         // Local caches and speculative builds stop below this share of free disk space.
         'min_free_disk_ratio' => (float) env('STOREFRONT_MIN_FREE_DISK_RATIO', 0.15),
         // Private temporary copies of IPAs; anything older than the stale age was left by a killed worker.
@@ -227,7 +227,7 @@ return [
     // Defaults until the retention decision (IMPLEMENTATION_PLAN §10 Q8).
     'retention' => [
         'upload_session_hours' => (int) env('STOREFRONT_RETENTION_UPLOAD_HOURS', 24),
-        'rejected_artifact_days' => (int) env('STOREFRONT_RETENTION_REJECTED_ARTIFACT_DAYS', 90),
+        'rejected_artifact_days' => (int) env('STOREFRONT_RETENTION_REJECTED_ARTIFACT_DAYS', 1),
         // Signed builds that can no longer be installed lose their file within the hour
         // (StorageJanitor); this is the fallback for a build it could not reach.
         'signed_build_days' => (int) env('STOREFRONT_RETENTION_SIGNED_BUILD_DAYS', 30),
