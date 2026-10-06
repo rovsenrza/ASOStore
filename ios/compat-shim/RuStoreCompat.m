@@ -225,6 +225,51 @@ static NSBundle *rs_bundleWithIdentifier(id self, SEL _cmd, NSString *identifier
     return orig_bundleWithIdentifier(self, _cmd, identifier);
 }
 
+#pragma mark - CloudKit without an iCloud entitlement
+
+// Apps with their own iCloud sync (VK Video) create a CKContainer while launching.
+// A re-signed copy holds no iCloud container, and CloudKit then traps the process.
+// Such calls get an inert container that reports "no iCloud account" instead.
+static Class gInertContainerClass;
+static void RSSwizzle(Class cls, SEL selector, IMP replacement, void *store);
+
+static id rs_inertContainer(void) {
+    return class_createInstance(gInertContainerClass, 0);
+}
+
+static id rs_defaultContainer(id self, SEL _cmd) { return rs_inertContainer(); }
+static id rs_containerWithIdentifier(id self, SEL _cmd, NSString *identifier) { return rs_inertContainer(); }
+static id rs_inertNil(id self, SEL _cmd) { return nil; }
+static NSString *rs_inertIdentifier(id self, SEL _cmd) { return @""; }
+
+static void rs_inertAccountStatus(id self, SEL _cmd, void (^handler)(NSInteger, NSError *)) {
+    if (handler == nil) return;
+    dispatch_async(dispatch_get_main_queue(), ^{ handler(3 /* CKAccountStatusNoAccount */, nil); });
+}
+
+static void rs_inertFetchUser(id self, SEL _cmd, void (^handler)(id, NSError *)) {
+    if (handler == nil) return;
+    NSError *error = [NSError errorWithDomain:@"CKErrorDomain" code:9 /* CKErrorNotAuthenticated */ userInfo:nil];
+    dispatch_async(dispatch_get_main_queue(), ^{ handler(nil, error); });
+}
+
+static void RSInstallInertCloudKit(void) {
+    Class container = NSClassFromString(@"CKContainer");
+    if (container == Nil) return;
+    gInertContainerClass = objc_allocateClassPair(container, "RSInertContainer", 0);
+    if (gInertContainerClass == Nil) return;
+    class_addMethod(gInertContainerClass, @selector(privateCloudDatabase), (IMP)rs_inertNil, "@@:");
+    class_addMethod(gInertContainerClass, @selector(publicCloudDatabase), (IMP)rs_inertNil, "@@:");
+    class_addMethod(gInertContainerClass, @selector(sharedCloudDatabase), (IMP)rs_inertNil, "@@:");
+    class_addMethod(gInertContainerClass, @selector(containerIdentifier), (IMP)rs_inertIdentifier, "@@:");
+    class_addMethod(gInertContainerClass, @selector(accountStatusWithCompletionHandler:), (IMP)rs_inertAccountStatus, "v@:@?");
+    class_addMethod(gInertContainerClass, @selector(fetchUserRecordIDWithCompletionHandler:), (IMP)rs_inertFetchUser, "v@:@?");
+    objc_registerClassPair(gInertContainerClass);
+    static IMP unusedA, unusedB;
+    RSSwizzle(object_getClass(container), @selector(defaultContainer), (IMP)rs_defaultContainer, &unusedA);
+    RSSwizzle(object_getClass(container), @selector(containerWithIdentifier:), (IMP)rs_containerWithIdentifier, &unusedB);
+}
+
 #pragma mark - Keychain hooks
 
 static const char *gAppRoot;
@@ -279,6 +324,12 @@ static void RuStoreCompatInit(void) {
             RSSwizzle(NSBundle.class, @selector(infoDictionary), (IMP)rs_infoDictionary, &orig_infoDictionary);
             RSSwizzle(NSBundle.class, @selector(objectForInfoDictionaryKey:), (IMP)rs_objectForInfoKey, &orig_objectForInfoKey);
             RSSwizzle(object_getClass(NSBundle.class), @selector(bundleWithIdentifier:), (IMP)rs_bundleWithIdentifier, &orig_bundleWithIdentifier);
+        }
+
+        id icloudServices = RSEntitlement(@"com.apple.developer.icloud-services");
+        id icloudContainers = RSEntitlement(@"com.apple.developer.icloud-container-identifiers");
+        if (icloudServices == nil || ![icloudContainers isKindOfClass:NSArray.class] || [icloudContainers count] == 0) {
+            RSInstallInertCloudKit();
         }
 
         if (gPrimaryGroup != nil) {
