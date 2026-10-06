@@ -9,6 +9,7 @@ use Illuminate\Support\Carbon;
 /**
  * @property Carbon $expires_at
  * @property Carbon|null $used_at
+ * @property int|null $device_id
  */
 class EnrollmentChallenge extends Model
 {

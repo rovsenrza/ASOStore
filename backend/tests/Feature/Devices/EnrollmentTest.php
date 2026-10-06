@@ -64,17 +64,25 @@ describe('device answer', function () {
         expect(json_encode($enrolled->after))->not->toContain('4D5E6F70')->toContain('6F70');
     });
 
-    it('accepts each challenge once', function () {
+    it('accepts each challenge once, answering a repeat from the same device like the first time', function () {
         $challenge = enrollmentChallenge($this->customer);
         postEnrollment($challenge, ['UDID' => TEST_UDID, 'PRODUCT' => 'iPhone15,2', 'VERSION' => '18.6']);
+        $device = Device::sole();
 
+        // iOS posted the same answer again two minutes after the challenge expired.
+        $this->travel(62)->minutes();
         postEnrollment($challenge, ['UDID' => TEST_UDID, 'PRODUCT' => 'iPhone15,2', 'VERSION' => '18.6'])
+            ->assertRedirect('/activate.html?enrolled='.$device->public_id);
+
+        postEnrollment($challenge, ['UDID' => '00008030-00000000000000AA', 'PRODUCT' => 'iPhone16,1', 'VERSION' => '18.6'])
             ->assertRedirect('/activate.html?enrollment_error=ENROLLMENT_CHALLENGE_EXPIRED');
+        expect(Device::count())->toBe(1)
+            ->and(AuditLog::where('action', 'device.enrolled')->count())->toBe(1);
     });
 
     it('rejects expired challenges', function () {
         $challenge = enrollmentChallenge($this->customer);
-        $this->travel(16)->minutes();
+        $this->travel(61)->minutes();
 
         postEnrollment($challenge, ['UDID' => TEST_UDID, 'PRODUCT' => 'iPhone15,2', 'VERSION' => '18.6'])
             ->assertRedirect('/activate.html?enrollment_error=ENROLLMENT_CHALLENGE_EXPIRED');

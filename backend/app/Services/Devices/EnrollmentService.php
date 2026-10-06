@@ -75,6 +75,17 @@ class EnrollmentService
 
         [$device, $registration] = DB::transaction(function () use ($token, $udid, $payload) {
             $challenge = EnrollmentChallenge::query()->where('challenge_hash', hash('sha256', $token))->lockForUpdate()->first();
+
+            // iOS can post the same answer again (Install tapped twice, a retry
+            // after a slow network); the device that used the challenge gets
+            // the same success redirect instead of an error.
+            if ($challenge?->used_at !== null && $challenge->device_id !== null) {
+                $enrolled = Device::query()->find($challenge->device_id);
+                if ($enrolled !== null && hash_equals($enrolled->udid_hash, $this->hasher->hash($udid))) {
+                    return [$enrolled, null];
+                }
+            }
+
             if ($challenge === null || $challenge->used_at !== null || $challenge->expires_at->isPast()) {
                 throw new ApiException(ErrorCode::EnrollmentChallengeExpired);
             }

@@ -955,7 +955,7 @@ paths:
       tags: [Devices]
       operationId: downloadEnrollmentProfile
       summary: Download the enrollment profile (Safari on the iPhone)
-      description: 'Returns an iOS Profile Service .mobileconfig that asks the device for its UDID, model and iOS version and posts them to /devices/enrollment/callback with a single-use challenge (15 minutes). Requires an active subscription. Signed with the site certificate when configured.'
+      description: 'Returns an iOS Profile Service .mobileconfig that asks the device for its UDID, model and iOS version and posts them to /devices/enrollment/callback with a single-use challenge (60 minutes; a repeated post from the device that used it gets the same success redirect). Requires an active subscription. Signed with the site certificate when configured.'
       security:
         - sessionCookie: []
       responses:

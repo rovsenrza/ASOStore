@@ -68,7 +68,9 @@ return [
     ],
 
     'enrollment' => [
-        'challenge_minutes' => 15,
+        // Time between the profile download and Install in Settings; users on slow
+        // networks took 14 minutes, so 15 left no margin.
+        'challenge_minutes' => 60,
         // Reverse-DNS identifier of the enrollment profile; placeholder until the bundle ID prefix is chosen (P0-04).
         'profile_identifier' => env('STOREFRONT_PROFILE_IDENTIFIER', 'invalid.storefront.enrollment'),
         // Sign the .mobileconfig with the site's TLS certificate so iOS shows it as verified (PEM paths).
