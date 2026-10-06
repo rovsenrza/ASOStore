@@ -245,6 +245,19 @@ button.text-link:disabled { color: var(--ink-2); cursor: default; }
 .offer__stub a { color: var(--blue); font-weight: 600; text-underline-offset: 3px; }
 .offer__cta[aria-busy="true"] { opacity: .7; cursor: progress; }
 
+/* «Откройте сайт в Safari»: iPhone visitors outside Safari (Telegram's browser, Chrome) */
+.safari-gate { padding: var(--s4) 0; background: #fff7e6; border-bottom: 1px solid #f3dfb2; }
+.safari-gate__body { display: grid; gap: var(--s2); }
+.safari-gate__body b { font-size: var(--text-md); color: var(--ink); }
+.safari-gate__body p { margin: 0; color: var(--ink-2); line-height: 1.5; }
+.safari-gate__actions { display: flex; flex-wrap: wrap; gap: var(--s3); margin-top: var(--s2); }
+.safari-gate__hint { font-size: var(--text-sm); }
+.notice .safari-gate__actions .btn { min-height: 44px; }
+
+@media (width <= 560px) {
+  .safari-gate__actions .btn { flex: 1 1 100%; }
+}
+
 /* Payment result page (Platega sends the payer back here) */
 .payment-result { max-width: 640px; display: grid; gap: var(--s5); }
 .payment-result #payment-state { display: grid; gap: var(--s4); }

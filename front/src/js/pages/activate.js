@@ -1,5 +1,6 @@
 import { boot, redirectUnverified, renderDevice, renderError, renderLoading, renderStage } from '../app.js';
 import { bindForm } from '../forms.js';
+import { isIos, isSafari, safariPrompt } from '../safari.js';
 
 const { api, t } = boot();
 const STAGE_TO_STEP = {
@@ -22,8 +23,6 @@ let pollDelay = POLL_MIN_MS;
 let pollTimer = null;
 
 const ua = navigator.userAgent;
-const isIos = /iPhone|iPad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-const isSafari = /Safari/.test(ua) && !/CriOS|FxiOS|EdgiOS|OPiOS|YaBrowser|Chrome|Android/.test(ua);
 
 function renderProgress(step) {
   const total = progressItems.length;
@@ -101,8 +100,18 @@ function renderEnrollment() {
   const block = document.createElement('div');
   block.className = 'enrollment-steps';
 
-  if (!isIos || !isSafari) {
+  if (!isIos) {
     block.append(paragraph(t('activate.openOnIphone'), 'notice'));
+    stageState.append(block);
+    return;
+  }
+  if (!isSafari) {
+    const prompt = safariPrompt({
+      title: 'Профиль устанавливается только в Safari',
+      text: 'Нажмите кнопку — эта страница откроется в Safari. Войдите там в аккаунт, если сайт попросит, и нажмите «Установить профиль».',
+    });
+    prompt.classList.add('notice');
+    block.append(prompt);
     stageState.append(block);
     return;
   }

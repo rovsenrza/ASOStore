@@ -1,4 +1,5 @@
 import { boot, redirectUnverified, renderError, renderLoading, renderStage } from '../app.js';
+import { isSafari, safariPrompt } from '../safari.js';
 
 // Storefront installation (IMPLEMENTATION_PLAN P6-WEB-01): prepare → poll → authorize → itms-services.
 const { api, t } = boot();
@@ -10,6 +11,7 @@ const STORAGE_KEY = 'storefront.installation';
 
 // OTA installs only work in Safari on the device itself.
 const onIphone = /iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const inSafari = onIphone && isSafari;
 
 let pollTimer = null;
 
@@ -52,9 +54,18 @@ async function load() {
 
     const ready = data.stage === 'storefront_ready' || data.stage === 'storefront_installed';
     openApp.hidden = !ready;
-    setButton(ready && onIphone);
-    installButton.title = !ready ? t('install.unavailable') : (onIphone ? '' : t('install.notIphone'));
+    setButton(ready && inSafari);
+    installButton.title = !ready ? t('install.unavailable') : (inSafari ? '' : t('install.notIphone'));
     if (ready && !onIphone) message(t('install.unavailable'), t('install.notIphone'));
+    if (ready && onIphone && !inSafari) {
+      const prompt = safariPrompt({
+        title: 'Установка работает только в Safari',
+        text: 'iOS устанавливает приложения только из Safari. Нажмите кнопку — эта страница откроется в Safari, там нажмите «Установить».',
+      });
+      prompt.classList.add('notice');
+      progress.hidden = false;
+      progress.replaceChildren(prompt);
+    }
 
     const resume = remembered();
     if (ready && resume) poll(resume, 0);
@@ -111,13 +122,13 @@ function handle(installation, attempt) {
     case 'AUTHORIZED':
     case 'MANIFEST_FETCHED':
       message(t('install.readyTitle'), t('install.ready'), 'ok');
-      setButton(onIphone);
+      setButton(inSafari);
       installButton.dataset.installation = installation.id;
       break;
     case 'DELIVERED':
       remember(null);
       message(t('install.openingTitle'), t('install.opening'), 'ok');
-      setButton(onIphone);
+      setButton(inSafari);
       break;
     default: {
       remember(null);

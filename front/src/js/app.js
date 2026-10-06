@@ -1,6 +1,7 @@
 import { createRuntime } from '/shared/js/runtime.js';
 import { createTranslator } from '/shared/js/i18n.js';
 import ru from './i18n/ru.js';
+import { guideToSafari } from './safari.js';
 
 /**
  * Shared page shell: API client (live or mock), translator, header state.
@@ -17,6 +18,7 @@ export function boot() {
   });
 
   setupHeader();
+  guideToSafari();
 
   if (mock) {
     const badge = document.createElement('p');
