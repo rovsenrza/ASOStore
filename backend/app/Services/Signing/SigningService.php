@@ -100,14 +100,23 @@ class SigningService
         });
     }
 
+    /**
+     * A customer now wants a build that started as a speculative one: it goes to the front
+     * of the runner queue, and a preparation still waiting on the slow background queue is
+     * also put on the customer queue (whichever worker starts it first does the work).
+     */
     private function promote(SignedBuild $build): void
     {
         $jobs = PipelineJob::query()->where('subject_type', $build->getMorphClass())->where('subject_id', $build->id)
             ->whereIn('type', [PrepareSigningJob::TYPE, self::RUNNER_JOB_TYPE])
-            ->whereIn('status', [PipelineJobStatus::Queued->value, PipelineJobStatus::Running->value])->get();
+            ->whereIn('status', [PipelineJobStatus::Queued->value, PipelineJobStatus::Running->value, PipelineJobStatus::FailedRetryable->value])->get();
         foreach ($jobs as $job) {
-            if (($job->payload['priority'] ?? 0) > 0) {
-                $job->forceFill(['payload' => array_replace($job->payload, ['priority' => 0])])->save();
+            if (($job->payload['priority'] ?? 0) === 0) {
+                continue;
+            }
+            $job->forceFill(['payload' => array_replace($job->payload, ['priority' => 0])])->save();
+            if ($job->type === PrepareSigningJob::TYPE && $job->status !== PipelineJobStatus::Running) {
+                PrepareSigningJob::dispatch($job->id)->onQueue(PrepareSigningJob::QUEUE)->afterCommit();
             }
         }
     }
@@ -157,8 +166,8 @@ class SigningService
         $identities = array_map('strtoupper', array_column($runner->identities ?? [], 'sha1'));
 
         return DB::transaction(function () use ($runner, $identities) {
-            // The runner's parallel lease loops share this row. Allow one speculative
-            // signing job per runner, leaving capacity for an actual install request.
+            // The runner's parallel lease loops share this row. A speculative job only starts
+            // on an idle runner, so a customer's install always finds a free slot.
             Runner::query()->whereKey($runner->id)->lockForUpdate()->firstOrFail();
             $candidates = PipelineJob::query()
                 ->where('type', self::RUNNER_JOB_TYPE)
@@ -194,8 +203,7 @@ class SigningService
 
                 if (($job->payload['priority'] ?? 0) > 0 && PipelineJob::query()
                     ->where('type', self::RUNNER_JOB_TYPE)->where('lease_owner', $runner->key_id)
-                    ->where('status', PipelineJobStatus::Running->value)->where('lease_expires_at', '>', now())
-                    ->whereRaw("COALESCE(JSON_EXTRACT(payload, '$.priority'), 0) > 0")->exists()) {
+                    ->where('status', PipelineJobStatus::Running->value)->where('lease_expires_at', '>', now())->exists()) {
                     continue;
                 }
 

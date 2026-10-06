@@ -804,6 +804,24 @@ it('promotes an unfinished background build when the customer asks to install it
         ->and(PipelineJob::where('type', SigningService::RUNNER_JOB_TYPE)->sole()->payload['priority'])->toBe(0);
 });
 
+it('moves a promoted build\'s waiting preparation from the background queue to the customer queue', function () {
+    runnerHeartbeat()->assertOk();
+    Queue::fake([PrepareSigningJob::class]);
+    app(InstallationService::class)->prewarm($this->device, $this->catalogApp);
+    Queue::assertPushedOn('background', PrepareSigningJob::class);
+
+    app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+    Queue::assertPushedOn(PrepareSigningJob::QUEUE, PrepareSigningJob::class);
+    expect(PipelineJob::where('type', PrepareSigningJob::TYPE)->sole()->payload['priority'])->toBe(0);
+
+    // Whichever copy runs second finds the job taken and does nothing.
+    $job = PipelineJob::where('type', PrepareSigningJob::TYPE)->sole();
+    (new PrepareSigningJob($job->id))->onQueue(PrepareSigningJob::QUEUE)->handle(app(PipelineJobService::class));
+    (new PrepareSigningJob($job->id))->onQueue('background')->handle(app(PipelineJobService::class));
+    expect($job->fresh()->attempt)->toBe(1)
+        ->and(PipelineJob::where('type', SigningService::RUNNER_JOB_TYPE)->count())->toBe(1);
+});
+
 it('warms only a bounded selection and skips incompatible or withdrawn apps', function () {
     runnerHeartbeat()->assertOk();
     config(['storefront.signing.warmup_popular_limit' => 1]);
@@ -839,7 +857,7 @@ it('starts popular builds when Apple registration completes, only once', functio
     Queue::assertPushed(WarmBuildJob::class, fn ($job) => $job->deviceId === $device->id && $job->artifactId === $this->artifact->id);
 });
 
-it('prioritizes customer signing and limits simultaneous speculative jobs per runner', function () {
+it('prioritizes customer signing and starts speculative jobs only on an idle runner', function () {
     runnerHeartbeat()->assertOk();
     config(['storefront.signing.warmup_popular_limit' => 0]);
     $installations = app(InstallationService::class);
@@ -857,7 +875,12 @@ it('prioritizes customer signing and limits simultaneous speculative jobs per ru
     $signing->requestBuild($this->artifact, $builds[0]->device);
     $runner = $this->runner->fresh();
     expect($signing->lease($runner)['signed_build_id'])->toBe($builds[0]->public_id)
-        ->and($signing->lease($runner)['signed_build_id'])->toBe($background->public_id)
+        // A customer build is signing: the second slot stays free for the next install.
+        ->and($signing->lease($runner))->toBeNull();
+
+    // Once that lease has ended, the runner is idle and takes one speculative build.
+    $this->travel(SigningService::LEASE_SECONDS + 1)->seconds();
+    expect($signing->lease($runner)['signed_build_id'])->toBe($background->public_id)
         ->and($signing->lease($runner))->toBeNull();
 });
 
