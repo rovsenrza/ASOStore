@@ -7,6 +7,7 @@ use App\Enums\DeviceRegistrationStatus as Status;
 use App\Models\AppleTeam;
 use App\Models\Device;
 use App\Models\DeviceRegistration;
+use App\Notifications\DeviceReadyNotification;
 use App\Services\Apple\AppleDevice;
 use App\Services\Apple\AppleException;
 use App\Services\Apple\AppleIntegration;
@@ -15,6 +16,7 @@ use App\Services\Audit\Actor;
 use App\Services\Quotas\QuotaService;
 use App\Services\Signing\BuildWarmup;
 use App\StateMachines\StateMachine;
+use Throwable;
 
 /**
  * Registers enrolled devices with an Apple team (IMPLEMENTATION_PLAN P3-BE-02,
@@ -133,6 +135,8 @@ class DeviceRegistrationService
     private function apply(DeviceRegistration $registration, AppleDevice $appleDevice): void
     {
         $becameEligible = $appleDevice->status === AppleDeviceStatus::Enabled && $registration->status !== Status::Eligible;
+        // Apple kept the device processing for a while: the customer may have left the page.
+        $waitedForApple = $registration->status_reason === 'APPLE_PROCESSING';
         $registration->forceFill([
             'apple_device_id' => $appleDevice->id,
             'registered_at' => $registration->registered_at ?? now(),
@@ -149,6 +153,19 @@ class DeviceRegistrationService
 
         if ($becameEligible) {
             app(BuildWarmup::class)->forDevice($registration->device->fresh());
+            if ($waitedForApple) {
+                $this->notifyReady($registration->device);
+            }
+        }
+    }
+
+    /** Tells the owner by email that the iPhone can now be set up; a mail failure never stops registration. */
+    private function notifyReady(Device $device): void
+    {
+        try {
+            $device->user?->notify(new DeviceReadyNotification($device));
+        } catch (Throwable $exception) {
+            report($exception);
         }
     }
 

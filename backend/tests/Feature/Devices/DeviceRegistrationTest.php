@@ -8,10 +8,12 @@ use App\Jobs\SyncDeviceRegistrationsJob;
 use App\Models\AuditLog;
 use App\Models\Device;
 use App\Models\DeviceRegistration;
+use App\Notifications\DeviceReadyNotification;
 use App\Services\Apple\AppleDevice;
 use App\Services\Apple\AppleException;
 use App\Services\Apple\AppleRetryableException;
 use App\Services\Devices\DeviceRegistrationService;
+use Illuminate\Support\Facades\Notification;
 use Tests\Support\ScriptedApple;
 
 beforeEach(function () {
@@ -119,6 +121,7 @@ it('fails permanently on a rejected request and frees the slot', function () {
 });
 
 it('waits while Apple processes the device and finishes on the next sync', function () {
+    Notification::fake();
     $this->apple->onRegister = fn ($udid) => new AppleDevice('APPLE-NEW', $udid, AppleDeviceStatus::Processing);
     $registration = ($this->enrol)(TEST_UDID);
     ($this->register)($registration);
@@ -130,6 +133,27 @@ it('waits while Apple processes the device and finishes on the next sync', funct
 
     expect($registration->fresh()->status)->toBe(Status::Eligible)
         ->and($this->apple->calls)->toContain('get:APPLE-NEW');
+
+    // The owner hears that the iPhone is ready, once, with a link back to the setup page.
+    $owner = $registration->device->user;
+    Notification::assertSentToTimes($owner, DeviceReadyNotification::class, 1);
+    Notification::assertSentTo($owner, DeviceReadyNotification::class, function (DeviceReadyNotification $notification) use ($owner) {
+        $mail = $notification->toMail($owner);
+
+        return str_contains($mail->subject, 'iPhone готов') && str_ends_with((string) $mail->actionUrl, '/activate.html')
+            && ! str_contains(implode(' ', $mail->introLines), TEST_UDID);
+    });
+    app()->call([new SyncDeviceRegistrationsJob, 'handle']);
+    Notification::assertSentToTimes($owner, DeviceReadyNotification::class, 1);
+});
+
+it('sends no email when Apple enables the device at once', function () {
+    Notification::fake();
+    $registration = ($this->enrol)(TEST_UDID);
+    ($this->register)($registration);
+
+    expect($registration->fresh()->status)->toBe(Status::Eligible);
+    Notification::assertNothingSent();
 });
 
 it('waits without calling Apple while the integration is not configured', function () {
