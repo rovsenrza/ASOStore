@@ -108,7 +108,10 @@ class PlategaClient
         try {
             $data = $call($http)->throw()->json();
         } catch (RequestException $exception) {
-            throw new PlategaException('Platega answered HTTP '.$exception->response->status().': '.mb_substr($exception->response->body(), 0, 300), previous: $exception);
+            $status = $exception->response->status();
+
+            // The status code travels as the exception code: 404 means Platega has no such transaction.
+            throw new PlategaException('Platega answered HTTP '.$status.': '.mb_substr($exception->response->body(), 0, 300), $status, $exception);
         } catch (ConnectionException $exception) {
             throw new PlategaException('Platega is unreachable: '.$exception->getMessage(), previous: $exception);
         }

@@ -155,6 +155,15 @@ describe('website checkout', function () {
         expect($order->refresh()->status)->toBe(TelegramStoreOrder::PENDING);
     });
 
+    it('answers the dashboard\'s URL check and transactions Platega does not know with 200, changing nothing', function () {
+        $this->withHeaders(['User-Agent' => 'Platega-CallbackUrlCheck/1.0'])
+            ->postJson('/api/v1/payments/platega/callback', [])
+            ->assertOk();
+
+        ($this->callback)('3fa85f64-5717-4562-b3fc-000000000404')->assertOk();
+        expect(TelegramStoreOrder::count())->toBe(0);
+    });
+
     it('answers with an error when Platega cannot be asked, so the callback is retried', function () {
         ($this->checkout)(userWithRoles(RoleSlug::Customer));
         $order = TelegramStoreOrder::sole();

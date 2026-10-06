@@ -144,7 +144,8 @@ paths:
         CONFIRMED completes the order (repeats are ignored), CANCELED retires its payment page,
         CHARGEBACKED and payments that do not match the order are reported to the store admins.
         503 when Platega's API cannot be read, so Platega retries; a sweep every two minutes
-        catches callbacks that never arrive.
+        catches callbacks that never arrive. The dashboard's URL check (User-Agent
+        Platega-CallbackUrlCheck) and transactions Platega does not know get 200 and change nothing.
       parameters:
         - { name: X-MerchantId, in: header, required: true, schema: { type: string } }
         - { name: X-Secret, in: header, required: true, schema: { type: string } }

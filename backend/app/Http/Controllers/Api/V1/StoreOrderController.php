@@ -17,6 +17,7 @@ use App\Services\TelegramStore\TelegramApi;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
@@ -82,6 +83,19 @@ class StoreOrderController extends Controller
      */
     public function callback(Request $request): JsonResponse
     {
+        // Saving the Callback URL in Platega's dashboard sends this probe; it needs a 200 and
+        // changes nothing here. What it carries is logged (without secrets) to know its format.
+        if (str_starts_with((string) $request->userAgent(), 'Platega-CallbackUrlCheck')) {
+            Log::info('Platega callback URL check.', [
+                'merchant_header' => $request->hasHeader('X-MerchantId'),
+                'secret_header' => $request->hasHeader('X-Secret'),
+                'authentic' => app(PlategaClient::class)->authentic($request->header('X-MerchantId'), $request->header('X-Secret')),
+                'body_keys' => array_keys($request->json()->all()),
+            ]);
+
+            return ApiResponse::ok(['received' => true]);
+        }
+
         if (! app(PlategaClient::class)->authentic($request->header('X-MerchantId'), $request->header('X-Secret'))) {
             throw new ApiException(ErrorCode::Unauthenticated, 'Unknown merchant credentials.');
         }

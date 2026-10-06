@@ -73,7 +73,17 @@ class PlategaPayments
      */
     public function settle(string $transactionId): ?CompletedOrder
     {
-        $transaction = $this->client->transaction($transactionId);
+        try {
+            $transaction = $this->client->transaction($transactionId);
+        } catch (PlategaException $exception) {
+            if (! $exception->notFound()) {
+                throw $exception;
+            }
+            // Asking again will not help: Platega itself has no such transaction.
+            Log::warning('Platega has no such transaction.', ['transaction' => $transactionId]);
+
+            return null;
+        }
         $order = TelegramStoreOrder::query()->where('payment_reference', $transactionId)->first()
             ?? ($transaction['payload'] !== null ? $this->orders->find($transaction['payload']) : null);
         if ($order === null) {
