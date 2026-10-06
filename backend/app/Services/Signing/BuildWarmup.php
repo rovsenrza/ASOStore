@@ -67,7 +67,8 @@ final class BuildWarmup
                     break;
                 }
                 try {
-                    $started += app(InstallationService::class)->prewarm($device, $app)->wasRecentlyCreated ? 1 : 0;
+                    // Only a team build counts: the device's own (older, per-device) build serves no one else.
+                    $started += app(InstallationService::class)->prewarm($device, $app, sharedOnly: true)->wasRecentlyCreated ? 1 : 0;
                 } catch (ApiException) {
                     // Not installable on this device (iOS version, family): the next app.
                 }

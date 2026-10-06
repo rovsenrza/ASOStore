@@ -59,11 +59,13 @@ class SigningService
 
     /**
      * Reuses a live build that serves the device (its own, or one its team shares), preferring
-     * one that is ready; otherwise starts a new one, shared by the device's team.
+     * one that is ready; otherwise starts a new one, shared by the device's team. With
+     * $sharedOnly the device's own builds do not count (team pre-signing: a build for one
+     * device does not serve the rest of the team).
      */
-    public function requestBuild(AppArtifact $artifact, Device $device, int $priority = 0, ?User $bootstrapUser = null): SignedBuild
+    public function requestBuild(AppArtifact $artifact, Device $device, int $priority = 0, ?User $bootstrapUser = null, bool $sharedOnly = false): SignedBuild
     {
-        return DB::transaction(function () use ($artifact, $device, $priority, $bootstrapUser) {
+        return DB::transaction(function () use ($artifact, $device, $priority, $bootstrapUser, $sharedOnly) {
             // The storefront app embeds a one-time login code per build, so it is always signed
             // fresh (never a reused build with a code already redeemed on an earlier install).
             $bootstrap = $bootstrapUser !== null && $artifact->app->is_storefront;
@@ -78,7 +80,8 @@ class SigningService
             if (! $bootstrap) {
                 $candidates = SignedBuild::query()
                     ->where('artifact_id', $artifact->id)
-                    ->where(fn ($query) => $query->where('device_id', $device->id)
+                    ->where(fn ($query) => $query
+                        ->when(! $sharedOnly || $teamId === null, fn ($query) => $query->orWhere('device_id', $device->id))
                         ->when($teamId !== null, fn ($query) => $query->orWhere(fn ($query) => $query->whereNull('device_id')->where('apple_team_id', $teamId))))
                     ->whereIn('status', array_map(fn (SignedBuildStatus $status) => $status->value, self::LIVE))
                     ->with(['profile', 'certificate'])

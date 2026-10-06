@@ -1172,6 +1172,11 @@ describe('builds shared by the Apple team', function () {
     it('keeps the most installed apps signed for every current device of the team', function () {
         runnerHeartbeat()->assertOk();
         $warmup = app(BuildWarmup::class);
+        // A ready build of the device's own (signed before sharing) does not serve the team.
+        config(['storefront.signing.shared_builds' => false]);
+        app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+        expect(signNextLease()->isShared())->toBeFalse();
+        config(['storefront.signing.shared_builds' => true]);
 
         expect($warmup->forTeams())->toBe(1)
             // Already on its way for this device set: nothing new.

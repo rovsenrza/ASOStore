@@ -107,9 +107,9 @@ class InstallationService
     }
 
     /** Prepare a reusable build without an installation, authorization or download event. */
-    public function prewarm(Device $device, CatalogApp $app): SignedBuild
+    public function prewarm(Device $device, CatalogApp $app, bool $sharedOnly = false): SignedBuild
     {
-        return $this->signing->requestBuild($this->eligibleArtifact($device, $app), $device, priority: 10);
+        return $this->signing->requestBuild($this->eligibleArtifact($device, $app), $device, priority: 10, sharedOnly: $sharedOnly);
     }
 
     private function eligibleArtifact(Device $device, CatalogApp $app): AppArtifact
