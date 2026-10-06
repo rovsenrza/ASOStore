@@ -10,12 +10,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Carbon;
 
 /**
- * An original artifact re-signed for one device profile (IMPLEMENTATION_PLAN G6).
+ * An original artifact re-signed for one device profile (IMPLEMENTATION_PLAN G6), or
+ * shared by an Apple team (device_id null): signed once with a profile listing the
+ * team's devices, it serves every device that profile lists.
  *
  * @property SignedBuildStatus $status
  * @property string|null $status_reason
  * @property int $artifact_id
- * @property int $device_id
+ * @property int|null $device_id
+ * @property int|null $apple_team_id
  * @property int|null $signing_profile_id
  * @property int|null $certificate_id
  * @property string|null $sha256
@@ -36,7 +39,7 @@ class SignedBuild extends Model
     protected $attributes = ['status' => 'SIGNING_PENDING'];
 
     protected $fillable = [
-        'artifact_id', 'device_id', 'signing_profile_id', 'certificate_id', 'status', 'status_reason',
+        'artifact_id', 'device_id', 'apple_team_id', 'signing_profile_id', 'certificate_id', 'status', 'status_reason',
         'sha256', 'size_bytes', 'storage_path', 'signing_report', 'signed_at', 'verified_at', 'expires_at', 'last_used_at',
         'bootstrap_claim_encrypted',
     ];
@@ -92,6 +95,28 @@ class SignedBuild extends Model
             : $certificate->status === 'ACTIVE' && ($certificate->expires_at === null || $certificate->expires_at->isFuture());
     }
 
+    public function isShared(): bool
+    {
+        return $this->device_id === null;
+    }
+
+    /**
+     * Whether this build can be installed on the device. A shared build still waiting for
+     * its profile serves every device of its team: the profile is made for the devices
+     * eligible when preparation runs.
+     */
+    public function serves(Device $device): bool
+    {
+        if (! $this->isShared()) {
+            return $this->device_id === $device->id;
+        }
+        if ($this->signing_profile_id === null) {
+            return $this->apple_team_id !== null && $device->latestRegistration?->apple_team_id === $this->apple_team_id;
+        }
+
+        return $this->profile?->covers($device) ?? false;
+    }
+
     /** Marks the build as wanted, so it is not reclaimed as idle (StorageJanitor). At most once a minute. */
     public function markUsed(): void
     {
@@ -122,6 +147,14 @@ class SignedBuild extends Model
     public function device(): BelongsTo
     {
         return $this->belongsTo(Device::class);
+    }
+
+    /**
+     * @return BelongsTo<AppleTeam, $this>
+     */
+    public function team(): BelongsTo
+    {
+        return $this->belongsTo(AppleTeam::class, 'apple_team_id');
     }
 
     /**

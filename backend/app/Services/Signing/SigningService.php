@@ -2,6 +2,7 @@
 
 namespace App\Services\Signing;
 
+use App\Enums\DeviceRegistrationStatus;
 use App\Enums\ErrorCode;
 use App\Enums\PipelineJobStatus;
 use App\Enums\SignedBuildStatus;
@@ -9,6 +10,7 @@ use App\Exceptions\ApiException;
 use App\Jobs\PrepareSigningJob;
 use App\Jobs\VerifySignatureJob;
 use App\Models\AppArtifact;
+use App\Models\AppleTeam;
 use App\Models\Certificate;
 use App\Models\Device;
 use App\Models\PipelineJob;
@@ -28,10 +30,14 @@ use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 
 /**
- * Per-device signing (IMPLEMENTATION_PLAN §5.6, P6-BE-02/03):
- * PrepareSigningJob provisions the profile, a runner leases SignArtifactJob
- * and re-signs, VerifySignatureJob checks the result before it becomes
- * DELIVERABLE.
+ * Signing (IMPLEMENTATION_PLAN §5.6, P6-BE-02/03): PrepareSigningJob provisions the
+ * profile, a runner leases SignArtifactJob and re-signs, VerifySignatureJob checks the
+ * result before it becomes DELIVERABLE.
+ *
+ * Builds are shared by an Apple team (storefront.signing.shared_builds): one build of an
+ * artifact, signed with a profile listing the team's devices, serves each of them, so a
+ * later install of the same app starts at once. The storefront app stays per device: it
+ * carries the customer's one-time login code.
  */
 class SigningService
 {
@@ -52,7 +58,8 @@ class SigningService
     ) {}
 
     /**
-     * Reuses a live build for (artifact, device), or starts a new one.
+     * Reuses a live build that serves the device (its own, or one its team shares), preferring
+     * one that is ready; otherwise starts a new one, shared by the device's team.
      */
     public function requestBuild(AppArtifact $artifact, Device $device, int $priority = 0, ?User $bootstrapUser = null): SignedBuild
     {
@@ -63,14 +70,23 @@ class SigningService
 
             // Also locks the first build: locking an empty build query cannot prevent duplicate inserts.
             Device::query()->whereKey($device->id)->lockForUpdate()->firstOrFail();
+            $teamId = $this->sharedTeamFor($artifact, $device, $bootstrap);
+            if ($teamId !== null) {
+                // Devices of one team ask for the same shared build: one maker per team.
+                AppleTeam::query()->whereKey($teamId)->lockForUpdate()->firstOrFail();
+            }
             if (! $bootstrap) {
-                $existing = SignedBuild::query()
-                    ->where(['artifact_id' => $artifact->id, 'device_id' => $device->id])
+                $candidates = SignedBuild::query()
+                    ->where('artifact_id', $artifact->id)
+                    ->where(fn ($query) => $query->where('device_id', $device->id)
+                        ->when($teamId !== null, fn ($query) => $query->orWhere(fn ($query) => $query->whereNull('device_id')->where('apple_team_id', $teamId))))
                     ->whereIn('status', array_map(fn (SignedBuildStatus $status) => $status->value, self::LIVE))
+                    ->with(['profile', 'certificate'])
                     ->latest('id')
                     ->lockForUpdate()
                     ->get()
-                    ->first(fn (SignedBuild $build) => $build->status !== SignedBuildStatus::Deliverable || $build->isDeliverable());
+                    ->filter(fn (SignedBuild $build) => ($build->status !== SignedBuildStatus::Deliverable || $build->isDeliverable()) && $build->serves($device));
+                $existing = $candidates->first(fn (SignedBuild $build) => $build->status === SignedBuildStatus::Deliverable) ?? $candidates->first();
                 if ($existing !== null) {
                     if ($priority === 0) {
                         $this->promote($existing);
@@ -82,7 +98,8 @@ class SigningService
                 }
             }
 
-            $attributes = ['artifact_id' => $artifact->id, 'device_id' => $device->id, 'last_used_at' => now()];
+            $attributes = ['artifact_id' => $artifact->id, 'last_used_at' => now()]
+                + ($teamId !== null ? ['device_id' => null, 'apple_team_id' => $teamId] : ['device_id' => $device->id]);
             if ($bootstrap) {
                 $attributes['bootstrap_claim_encrypted'] = app(ClaimService::class)
                     ->mint($bootstrapUser, $device, (int) config('storefront.claims.bootstrap_ttl_minutes', 60));
@@ -92,12 +109,30 @@ class SigningService
                 'signed_build_id' => $build->public_id,
                 'artifact_id' => $artifact->public_id,
                 'device_id' => $device->public_id,
+                'shared' => $teamId !== null,
                 'priority' => $priority,
             ], Actor::system('signing'));
             PrepareSigningJob::dispatch($job->id)->onQueue($priority > 0 ? 'background' : PrepareSigningJob::QUEUE)->afterCommit();
 
             return $build;
         });
+    }
+
+    /**
+     * The team whose shared build this device should use, or null for a build of its own:
+     * the storefront app (one-time login code), or sharing switched off, or no eligible team
+     * (preparation then fails with DEVICE_NOT_ELIGIBLE, as before).
+     */
+    private function sharedTeamFor(AppArtifact $artifact, Device $device, bool $bootstrap): ?int
+    {
+        if ($bootstrap || $artifact->app?->is_storefront || ! config('storefront.signing.shared_builds', true)) {
+            return null;
+        }
+        $registration = $device->latestRegistration()->first();
+
+        return $registration?->status === DeviceRegistrationStatus::Eligible && $registration->apple_device_id !== null
+            ? $registration->apple_team_id
+            : null;
     }
 
     /**
@@ -131,7 +166,9 @@ class SigningService
         }
 
         try {
-            $profile = $this->profiles->ensure($build->artifact, $build->device);
+            $profile = $build->isShared()
+                ? $this->profiles->ensureShared($build->artifact, $build->team)
+                : $this->profiles->ensure($build->artifact, $build->device);
         } catch (SigningUnavailable $unavailable) {
             $this->failBuild($build, $unavailable->reason, $unavailable->getMessage());
 
@@ -139,7 +176,9 @@ class SigningService
         }
 
         DB::transaction(function () use ($build, $profile) {
-            Device::query()->whereKey($build->device_id)->lockForUpdate()->firstOrFail();
+            $build->isShared()
+                ? AppleTeam::query()->whereKey($build->apple_team_id)->lockForUpdate()->firstOrFail()
+                : Device::query()->whereKey($build->device_id)->lockForUpdate()->firstOrFail();
             $priority = PipelineJob::query()->where('subject_type', $build->getMorphClass())->where('subject_id', $build->id)
                 ->where('type', PrepareSigningJob::TYPE)->value('payload')['priority'] ?? 0;
             $build->forceFill(['signing_profile_id' => $profile->id, 'certificate_id' => $profile->certificate_id])->save();

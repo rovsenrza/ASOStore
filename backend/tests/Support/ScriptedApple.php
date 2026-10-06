@@ -87,14 +87,16 @@ final class ScriptedApple implements AppleIntegration
         }
     }
 
-    public function createAdHocProfile(AppleTeam $team, string $name, string $bundleIdResource, string $certificateId, string $appleDeviceId): AppleProfile
+    public function createAdHocProfile(AppleTeam $team, string $name, string $bundleIdResource, string $certificateId, string|array $appleDeviceIds): AppleProfile
     {
+        $ids = array_values((array) $appleDeviceIds);
+        $appleDeviceId = implode(',', $ids);
         $this->calls[] = "profile:{$bundleIdResource}:{$appleDeviceId}";
         if ($this->onCreateProfile !== null) {
             return ($this->onCreateProfile)($team, $bundleIdResource, $appleDeviceId);
         }
 
-        $udids = array_values(array_map(fn (AppleDevice $device) => $device->udid, array_filter($this->known, fn (AppleDevice $device) => $device->id === $appleDeviceId)));
+        $udids = array_values(array_map(fn (AppleDevice $device) => $device->udid, array_filter($this->known, fn (AppleDevice $device) => in_array($device->id, $ids, true))));
         $uuid = 'UUID-'.substr(md5($bundleIdResource.$appleDeviceId.count($this->calls)), 0, 12);
 
         return new AppleProfile(

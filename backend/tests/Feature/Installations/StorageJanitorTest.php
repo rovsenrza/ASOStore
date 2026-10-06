@@ -197,6 +197,7 @@ it('removes files that cannot be installed, objects nothing refers to and stale 
 });
 
 it('stops speculative builds at the per-device limit and near the budget', function () {
+    config(['storefront.signing.shared_builds' => false]);
     expect(janitor()->allowsWarmup($this->device))->toBeTrue();
 
     config(['storefront.build_storage.warm_builds_per_device' => 1]);
@@ -209,6 +210,33 @@ it('stops speculative builds at the per-device limit and near the budget', funct
     // A disk with less free space than required stops them too.
     config(['storefront.build_storage.budget_bytes' => 10 * 1024 ** 3, 'storefront.build_storage.min_free_disk_ratio' => 1.01]);
     expect(janitor()->allowsWarmup($this->device))->toBeFalse();
+});
+
+it('counts speculative shared builds against the team, and keeps installed ones longer', function () {
+    $teamId = $this->device->latestRegistration->apple_team_id;
+    $shared = function (?InstallationStatus $installation = null) use ($teamId) {
+        $build = storedBuild($this, $installation);
+        $build->forceFill(['device_id' => null, 'apple_team_id' => $teamId])->save();
+
+        return $build;
+    };
+
+    config(['storefront.build_storage.warm_builds_per_team' => 1]);
+    // A per-device build of this device does not count towards the team's.
+    storedBuild($this);
+    expect(janitor()->allowsWarmup($this->device))->toBeTrue();
+    $shared();
+    expect(janitor()->allowsWarmup($this->device))->toBeFalse();
+
+    // An installed shared build outlives the per-device delivered window.
+    $installed = $shared(InstallationStatus::Delivered);
+    $this->travel(config('storefront.build_storage.delivered_idle_hours') + 1)->hours();
+    janitor()->run();
+    expect($installed->refresh()->status)->toBe(SignedBuildStatus::Deliverable);
+
+    $this->travel(config('storefront.build_storage.shared_idle_hours'))->hours();
+    janitor()->run();
+    expect($installed->refresh()->status)->not->toBe(SignedBuildStatus::Deliverable);
 });
 
 it('removes a superseded original after its rollback window, unless the file is shared', function () {

@@ -3,6 +3,7 @@
 namespace App\Services\Signing;
 
 use App\Enums\SignedBuildStatus;
+use App\Models\Device;
 use App\Models\SignedBuild;
 use App\Services\Artifacts\ArtifactFileCache;
 use App\Services\Artifacts\LocalArtifactFile;
@@ -120,11 +121,20 @@ class SignatureVerifier
             return 'TEAM_MISMATCH';
         }
 
-        // Compare UDIDs in memory only; they are never written anywhere.
-        $udid = UdidHasher::normalize((string) $build->device->udid_encrypted);
+        // Compare UDIDs in memory only; they are never written anywhere. A shared build must list
+        // every device its profile was made for (UDIDs removed by retention cannot be checked).
         $listed = array_map(fn (string $device) => UdidHasher::normalize($device), $embedded['devices']);
-        if (! in_array($udid, $listed, true)) {
+        $devices = $build->isShared()
+            ? Device::query()->whereKey($expected->device_ids ?? [])->get()
+            : collect([$build->device]);
+        if ($build->isShared() && count($listed) < count($expected->device_ids ?? [])) {
             return 'DEVICE_NOT_IN_PROFILE';
+        }
+        foreach ($devices as $device) {
+            $udid = $device?->udid_encrypted === null ? null : UdidHasher::normalize((string) $device->udid_encrypted);
+            if (($udid === null && ! $build->isShared()) || ($udid !== null && ! in_array($udid, $listed, true))) {
+                return 'DEVICE_NOT_IN_PROFILE';
+            }
         }
 
         $applicationId = $result->report['entitlements']['application-identifier'] ?? null;

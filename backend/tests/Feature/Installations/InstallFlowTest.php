@@ -168,10 +168,13 @@ it('installs a published app on a registered iPhone through the whole flow', fun
 
     $this->getJson("/api/v1/apps/{$this->catalogApp->public_id}")->assertJsonPath('data.install_state.status', 'preparing');
 
-    // PrepareSigningJob provisioned an ad hoc profile for (team, bundle, device) and queued the runner job.
+    // PrepareSigningJob provisioned an ad hoc profile for (team, bundle) listing the team's devices
+    // and queued the runner job; the build is the team's, not this device's alone.
     $profile = SigningProfile::sole();
     expect($profile->bundle_identifier)->toBe('com.example.demo')
-        ->and($profile->device_id)->toBe($this->device->id)
+        ->and($profile->isShared())->toBeTrue()
+        ->and($profile->covers($this->device))->toBeTrue()
+        ->and(SignedBuild::sole()->isShared())->toBeTrue()
         // Unique per creation: Apple refuses a duplicate name, even one this database never saw.
         ->and($profile->name)->toMatch('/ \d{12} com\.example\.demo$/')
         ->and(PipelineJob::where('type', SigningService::RUNNER_JOB_TYPE)->sole()->status)->toBe(PipelineJobStatus::Queued);
@@ -858,6 +861,8 @@ it('starts popular builds when Apple registration completes, only once', functio
 });
 
 it('prioritizes customer signing and starts speculative jobs only on an idle runner', function () {
+    // Per-device builds, so each device has a build of its own to lease.
+    config(['storefront.signing.shared_builds' => false]);
     runnerHeartbeat()->assertOk();
     config(['storefront.signing.warmup_popular_limit' => 0]);
     $installations = app(InstallationService::class);
@@ -1076,4 +1081,122 @@ it('deletes an import, frees its file and its slot, but still counts it toward t
     $this->deleteJson('/api/v1/imports/'.CatalogApp::where('imported_by_user_id', $this->customer->id)->sole()->public_id)->assertOk();
     $this->postJson('/api/v1/imports', ['filename' => 'C.ipa', 'size_bytes' => 10, 'declaration_accepted' => true])
         ->assertStatus(409)->assertJsonPath('error.code', 'QUOTA_EXHAUSTED');
+});
+
+describe('builds shared by the Apple team', function () {
+    /** Another iPhone of the customer, registered with the team. */
+    function teamDevice(object $test, string $udid): Device
+    {
+        $device = Device::factory()->make(['user_id' => $test->customer->id, 'device_family' => DeviceFamily::Iphone]);
+        $device->setUdid($udid);
+        $device->save();
+        $service = app(DeviceRegistrationService::class);
+        $service->register($service->request($device));
+
+        return $device->fresh();
+    }
+
+    /** The runner signs whatever it leases next, embedding that build's own profile. */
+    function signNextLease(): SignedBuild
+    {
+        $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+        expect($lease)->not->toBeNull();
+        $build = SignedBuild::where('public_id', $lease['signed_build_id'])->sole();
+        $signed = signedIpa($build->profile);
+        worker('PUT', $lease['upload_path'], $signed)->assertCreated();
+        worker('POST', $lease['result_path'], json_encode(['status' => 'succeeded', 'sha256' => hash('sha256', $signed), 'report' => ['codesign' => 'valid']]))->assertOk();
+
+        return $build->fresh();
+    }
+
+    it('serves a second device of the team at once from the build signed for the first', function () {
+        runnerHeartbeat()->assertOk();
+        $second = teamDevice($this, '00008140-000000000000002D');
+        $installations = app(InstallationService::class);
+
+        $first = $installations->prepare($this->customer, $this->device, $this->catalogApp);
+        $build = signNextLease();
+        expect($first->fresh()->status)->toBe(InstallationStatus::ReadyToInstall)
+            ->and($build->isShared())->toBeTrue()
+            ->and($build->profile->covers($second))->toBeTrue();
+
+        // No new profile, no new signing: the second iPhone is ready immediately.
+        $again = $installations->prepare($this->customer, $second, $this->catalogApp);
+        expect($again->status)->toBe(InstallationStatus::ReadyToInstall)
+            ->and($again->signed_build_id)->toBe($build->id)
+            ->and(SignedBuild::count())->toBe(1)
+            ->and(SigningProfile::count())->toBe(1)
+            ->and($installations->authorize($again, $second, null)['install_url'])->toStartWith('itms-services://');
+    });
+
+    it('signs again for a device that joined later, and the older build keeps serving its devices', function () {
+        runnerHeartbeat()->assertOk();
+        $installations = app(InstallationService::class);
+        $installations->prepare($this->customer, $this->device, $this->catalogApp);
+        $older = signNextLease();
+
+        $late = teamDevice($this, '00008140-000000000000003E');
+        expect($older->serves($late))->toBeFalse();
+        $installation = $installations->prepare($this->customer, $late, $this->catalogApp);
+        expect($installation->status)->toBe(InstallationStatus::Preparing);
+        $newer = signNextLease();
+
+        expect($installation->fresh()->status)->toBe(InstallationStatus::ReadyToInstall)
+            ->and($newer->id)->not->toBe($older->id)
+            ->and($newer->profile->covers($late))->toBeTrue()
+            ->and($newer->profile->covers($this->device))->toBeTrue()
+            // Both device sets keep their profile; the older build is still installable.
+            ->and(SigningProfile::count())->toBe(2)
+            ->and($older->fresh()->isDeliverable())->toBeTrue()
+            ->and($older->fresh()->serves($this->device))->toBeTrue();
+    });
+
+    it('rejects a shared build whose profile does not list every device it was made for', function () {
+        runnerHeartbeat()->assertOk();
+        $other = teamDevice($this, '00008140-000000000000004F');
+        app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+        $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+        $build = SignedBuild::where('public_id', $lease['signed_build_id'])->sole();
+        $signed = signedIpa($build->profile);
+        // The profile row now claims a device the embedded profile does not list.
+        $stranger = teamDevice($this, '00008140-000000000000005A');
+        $build->profile->forceFill(['device_ids' => [...$build->profile->device_ids, $stranger->id]])->save();
+        worker('PUT', $lease['upload_path'], $signed)->assertCreated();
+        worker('POST', $lease['result_path'], json_encode(['status' => 'succeeded', 'sha256' => hash('sha256', $signed), 'report' => ['codesign' => 'valid']]))->assertOk();
+
+        expect($build->fresh()->status)->toBe(SignedBuildStatus::ValidationFailed)
+            ->and($build->fresh()->status_reason)->toBe('DEVICE_NOT_IN_PROFILE')
+            ->and($build->profile->covers($other))->toBeTrue();
+    });
+
+    it('keeps the most installed apps signed for every current device of the team', function () {
+        runnerHeartbeat()->assertOk();
+        $warmup = app(BuildWarmup::class);
+
+        expect($warmup->forTeams())->toBe(1)
+            // Already on its way for this device set: nothing new.
+            ->and($warmup->forTeams())->toBe(0);
+        $build = signNextLease();
+        expect($build->isShared())->toBeTrue()
+            ->and($build->installations()->exists())->toBeFalse()
+            ->and($warmup->forTeams())->toBe(0);
+
+        // A device joins (its own registration warm-up held back): the build does not list it,
+        // so the app is signed again for the new device set.
+        Queue::fake([WarmBuildJob::class]);
+        teamDevice($this, '00008140-000000000000006B');
+        expect($warmup->forTeams())->toBe(1);
+
+        config(['storefront.signing.team_presign_limit' => 0]);
+        expect($warmup->forTeams())->toBe(0);
+    });
+
+    it('signs for each device alone when sharing is switched off', function () {
+        config(['storefront.signing.shared_builds' => false]);
+        runnerHeartbeat()->assertOk();
+        $installation = app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+
+        expect($installation->signedBuild->device_id)->toBe($this->device->id)
+            ->and(SigningProfile::sole()->device_id)->toBe($this->device->id);
+    });
 });

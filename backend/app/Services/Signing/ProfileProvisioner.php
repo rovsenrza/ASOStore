@@ -7,7 +7,6 @@ use App\Models\AppArtifact;
 use App\Models\AppleTeam;
 use App\Models\Certificate;
 use App\Models\Device;
-use App\Models\DeviceRegistration;
 use App\Models\SigningProfile;
 use App\Models\TeamAppEligibility;
 use App\Services\Apple\AppGroupProvisioner;
@@ -32,9 +31,10 @@ use Throwable;
 
 /**
  * Ensures an ad hoc profile exists for (team, bundle ID, device)
- * (IMPLEMENTATION_PLAN D10, P6-BE-01). Profiles are recreated, never edited.
- * The team is the one the device is registered with; the certificate is one
- * a runner has reported holding.
+ * (IMPLEMENTATION_PLAN D10, P6-BE-01), or for (team, bundle ID) listing every
+ * eligible device of the team (ensureShared, for builds shared by the team).
+ * Profiles are recreated, never edited. The team is the one the device is
+ * registered with; the certificate is one a runner has reported holding.
  */
 class ProfileProvisioner
 {
@@ -61,18 +61,43 @@ class ProfileProvisioner
         }
         $certificate = $this->certificate($team->id);
 
-        // The page warm-up (WarmProfilesJob) and the install may ask at once: one maker per (device, app).
+        // The page warm-up and the install may ask at once: one maker per (device, app).
+        return $this->locked("signing-profiles:{$device->id}:{$bundle}",
+            fn () => $this->makeProfiles($artifact, ProfileTarget::forDevice($registration, $device), $certificate, $bundle));
+    }
+
+    /**
+     * Profiles listing every eligible device of the team, for a build the whole team shares.
+     * A profile made for the same device set is reused; a changed set gets new profiles, and
+     * the older ones stay valid for the builds that embed them.
+     */
+    public function ensureShared(AppArtifact $artifact, AppleTeam $team): SigningProfile
+    {
+        $bundle = $artifact->signingBundleIdentifier();
+        if (config('storefront.artifacts.require_team_eligibility') && ! TeamAppEligibility::allows($team->id, $bundle)) {
+            throw new SigningUnavailable('TEAM_NOT_ELIGIBLE', "Team {$team->apple_team_id} is not approved for {$bundle}.");
+        }
+        $certificate = $this->certificate($team->id);
+
+        return $this->locked("signing-profiles:team:{$team->id}:{$bundle}",
+            fn () => $this->makeProfiles($artifact, ProfileTarget::forTeam($team), $certificate, $bundle));
+    }
+
+    /**
+     * @param  Closure(): SigningProfile  $make
+     */
+    private function locked(string $key, Closure $make): SigningProfile
+    {
         try {
-            return Cache::lock("signing-profiles:{$device->id}:{$bundle}", 300)
-                ->block(120, fn () => $this->makeProfiles($artifact, $registration, $device, $certificate, $bundle));
+            return Cache::lock($key, 300)->block(120, $make);
         } catch (LockTimeoutException) {
             throw new RetryLater('Profiles for this app are still being made.', 15);
         }
     }
 
-    private function makeProfiles(AppArtifact $artifact, DeviceRegistration $registration, Device $device, Certificate $certificate, string $bundle): SigningProfile
+    private function makeProfiles(AppArtifact $artifact, ProfileTarget $target, Certificate $certificate, string $bundle): SigningProfile
     {
-        $team = $registration->team;
+        $team = $target->team;
         $name = (string) $artifact->app?->name;
 
         $capabilities = Capabilities::fromEntitlements($artifact->inspection['entitlements'] ?? []);
@@ -82,12 +107,12 @@ class ProfileProvisioner
         $group = $needsGroup ? 'group.'.$bundle : null;
 
         // The app first: it creates the App Group its extensions join.
-        $main = $this->ensureOne($registration, $device, $certificate, $bundle, $name, $capabilities, $group);
+        $main = $this->ensureOne($target, $certificate, $bundle, $name, $capabilities, $group);
 
         $pending = array_values(array_filter($extensions, fn (array $extension) => ! $this->hasCurrentProfile(
-            $team, $device, $certificate, $extension['bundle_identifier'], self::extensionGroup($extension, $group))));
+            $target, $certificate, $extension['bundle_identifier'], self::extensionGroup($extension, $group))));
         // Each new profile is several Apple calls in a row; extensions are independent, so they run side by side.
-        $ids = [$registration->id, $device->id, $certificate->id];
+        $ids = [$target->toArray(), $certificate->id];
         $results = count($pending) > 1
             ? self::runSideBySide(array_map(fn (array $extension) => self::extensionTask($ids, $extension, $name, $group), $pending))
             : array_map(fn (array $extension) => $this->ensureExtension(...$ids, extension: $extension, name: $name, group: $group), $pending);
@@ -141,7 +166,7 @@ class ProfileProvisioner
     /**
      * Its own method: the closure is serialized from its source, which must hold no other closure on the line.
      *
-     * @param  array{int, int, int}  $ids
+     * @param  array{array<string, mixed>, int}  $ids  the target (ProfileTarget::toArray) and the certificate ID
      * @param  array{bundle_identifier: string, path: string, capabilities: list<string>}  $extension
      */
     private static function extensionTask(array $ids, array $extension, string $name, ?string $group): Closure
@@ -156,11 +181,10 @@ class ProfileProvisioner
      * @param  array{bundle_identifier: string, path: string, capabilities: list<string>}  $extension
      * @return array{error?: 'retry'|'unavailable', reason?: string, message?: string, seconds?: int}
      */
-    public function ensureExtension(int $registrationId, int $deviceId, int $certificateId, array $extension, string $name, ?string $group): array
+    public function ensureExtension(array $target, int $certificateId, array $extension, string $name, ?string $group): array
     {
         try {
-            $this->ensureOne(DeviceRegistration::query()->findOrFail($registrationId), Device::query()->findOrFail($deviceId),
-                Certificate::query()->findOrFail($certificateId), $extension['bundle_identifier'],
+            $this->ensureOne(ProfileTarget::fromArray($target), Certificate::query()->findOrFail($certificateId), $extension['bundle_identifier'],
                 $name.' '.basename($extension['path'], '.appex'), $extension['capabilities'], self::extensionGroup($extension, $group));
 
             return [];
@@ -182,11 +206,9 @@ class ProfileProvisioner
     /**
      * True when ensureOne() would keep the existing profile without calling Apple.
      */
-    private function hasCurrentProfile(AppleTeam $team, Device $device, Certificate $certificate, string $bundle, ?string $group): bool
+    private function hasCurrentProfile(ProfileTarget $target, Certificate $certificate, string $bundle, ?string $group): bool
     {
-        $profile = SigningProfile::query()
-            ->where(['apple_team_id' => $team->id, 'bundle_identifier' => $bundle, 'device_id' => $device->id])
-            ->first();
+        $profile = $target->scope(SigningProfile::query())->where('bundle_identifier', $bundle)->first();
 
         return $profile !== null && $profile->isUsable() && $profile->certificate_id === $certificate->id
             && ($group === null || self::carriesGroup($profile, $group));
@@ -201,8 +223,12 @@ class ProfileProvisioner
     {
         $profiles = [];
         foreach ($artifact->signingExtensions() as $extension) {
+            // Made with the app's profile: the same device, or the same device set.
             $profile = SigningProfile::query()
-                ->where(['apple_team_id' => $main->apple_team_id, 'bundle_identifier' => $extension['bundle_identifier'], 'device_id' => $main->device_id])
+                ->where(['apple_team_id' => $main->apple_team_id, 'bundle_identifier' => $extension['bundle_identifier']])
+                ->when($main->isShared(),
+                    fn ($query) => $query->whereNull('device_id')->where('cohort', $main->cohort),
+                    fn ($query) => $query->where('device_id', $main->device_id))
                 ->first() ?? throw new SigningUnavailable('EXTENSION_PROFILE_MISSING', "No profile for {$extension['bundle_identifier']}.");
             $profiles[] = ['path' => $extension['path'], 'bundle_identifier' => $extension['bundle_identifier'], 'profile' => $profile];
         }
@@ -213,12 +239,10 @@ class ProfileProvisioner
     /**
      * @param  list<string>  $capabilities
      */
-    private function ensureOne(DeviceRegistration $registration, Device $device, Certificate $certificate, string $bundle, string $name, array $capabilities, ?string $group = null): SigningProfile
+    private function ensureOne(ProfileTarget $target, Certificate $certificate, string $bundle, string $name, array $capabilities, ?string $group = null): SigningProfile
     {
-        $team = $registration->team;
-        $profile = SigningProfile::query()
-            ->where(['apple_team_id' => $team->id, 'bundle_identifier' => $bundle, 'device_id' => $device->id])
-            ->first();
+        $team = $target->team;
+        $profile = $target->scope(SigningProfile::query())->where('bundle_identifier', $bundle)->first();
         if ($profile !== null && $profile->isUsable() && $profile->certificate_id === $certificate->id) {
             // A profile made before its App Group existed lacks it: replace it once the group is assigned,
             // otherwise keep using it (no new profile per install while the portal is unavailable).
@@ -254,10 +278,10 @@ class ProfileProvisioner
             // database), so every name is unique. The bundle ID goes last: Apple keeps 100 characters.
             $created = $this->apple->createAdHocProfile(
                 $team,
-                sprintf('%s %s %s %s', config('storefront.brand'), $device->udid_hint, now()->format('ymdHis'), $bundle),
+                sprintf('%s %s %s %s', config('storefront.brand'), $target->label, now()->format('ymdHis'), $bundle),
                 $bundleResource,
                 $certificate->apple_certificate_id,
-                $registration->apple_device_id,
+                $target->appleDeviceIds,
             );
         } catch (AppleRetryableException $e) {
             throw new RetryLater($e->getMessage(), $e->retryAfterSeconds);
@@ -267,7 +291,7 @@ class ProfileProvisioner
             throw new SigningUnavailable($e->reason === 'APPLE_NOT_CONNECTED' ? 'APPLE_NOT_CONNECTED' : 'PROFILE_CREATION_FAILED', $e->getMessage());
         }
 
-        $profile ??= new SigningProfile(['apple_team_id' => $team->id, 'bundle_identifier' => $bundle, 'device_id' => $device->id]);
+        $profile ??= new SigningProfile($target->attributes($bundle));
         $profile->fill([
             'certificate_id' => $certificate->id,
             'apple_profile_id' => $created->id,
@@ -281,10 +305,12 @@ class ProfileProvisioner
         $this->audit->record('signing.profile_created', $profile, after: [
             'team' => $team->apple_team_id,
             'bundle_identifier' => $bundle,
-            'device_id' => $device->public_id,
-            'uuid' => $created->uuid,
-            'expires_at' => $created->expiresAt?->format(DATE_ATOM),
-        ], actor: Actor::system('signing'));
+        ] + ($target->isShared()
+            ? ['cohort' => $target->cohort, 'devices' => count($target->deviceIds)]
+            : ['device_id' => Device::query()->whereKey($target->deviceId)->value('public_id')]) + [
+                'uuid' => $created->uuid,
+                'expires_at' => $created->expiresAt?->format(DATE_ATOM),
+            ], actor: Actor::system('signing'));
 
         return $profile;
     }

@@ -15,7 +15,7 @@ Monorepo for the customer web portal, the native iOS Storefront, the operator ad
 | [admin/public/](admin/public/) | Operator panel: static HTML/CSS/vanilla JS |
 | [shared/js/](shared/js/) | API client, mock transport, i18n used by both web apps |
 | [ios/](ios/) | Native SwiftUI Storefront (`Storefront.xcodeproj`) |
-| [runner/](runner/) | Signing runner (Swift, Linux/Docker, zsign): leases signing jobs, re-signs per device — see its README |
+| [runner/](runner/) | Signing runner (Swift, Linux/Docker, zsign): leases signing jobs, re-signs for a team's devices (or one device) — see its README |
 | [docs/runbooks/](docs/runbooks/) | Operational runbooks; [docs/RELEASE_CHECKLIST.md](docs/RELEASE_CHECKLIST.md); [docs/security/](docs/security/) |
 | [scripts/](scripts/) | `deploy.sh` production deploy; `backup.sh` / `restore-drill.sh` encrypted backups and the restore drill; `dev.sh` runs everything locally; `build-public.sh` publishes the completed Vite build and admin into Laravel's docroot; `web-smoke.mjs` checks them; `e2e.sh` runs the browser suite; `generate-api-examples.sh` rebuilds the API examples; `device-payload.php` signs a fake iPhone enrollment answer for tests |
 | [tests/e2e/](tests/e2e/) | Playwright browser journeys across portal and admin |
@@ -85,6 +85,10 @@ Cron on the server: `* * * * * cd backend && php artisan schedule:run` — runs 
 ### IPA storage
 
 IPAs (`originals/`, `signed/`) live on the `artifacts` disk. `ARTIFACTS_DRIVER=local` keeps them in `storage/app/artifacts`; `ARTIFACTS_DRIVER=s3` uses the bucket in `AWS_*` (Contabo Object Storage in production, endpoint `https://eu2.contabostorage.com`). Rows always say `storage_disk = artifacts` (the column is immutable), so moving storage means copying the files with the same paths (`rclone copy`) and then switching the driver. From object storage, IPA downloads are relayed with HTTP Range support, and inspection and signature checks work on a temporary local copy (`LocalArtifactFile`).
+
+### Signing: builds shared by an Apple team
+
+A catalog app is signed once per Apple team, not once per device (`STOREFRONT_SIGNING_SHARED_BUILDS`, on by default). The ad hoc profile lists every eligible device of the team at the time (`signing_profiles.cohort` names that device set, `device_ids` lists them), and the build (`signed_builds.apple_team_id`, no `device_id`) serves each device the profile lists, so a second device installing the same app gets it ready at once. A device that joins later gets a new build for the new device set on its first install; profiles and builds of older sets stay valid for their devices. Every 15 minutes `BuildWarmup::forTeams` keeps the `STOREFRONT_SIGNING_TEAM_PRESIGN_LIMIT` (10) most installed apps signed for each team's newest device, on idle runners only. The storefront app is still signed per device (it carries the customer's one-time login code). Trade-off, stated in the privacy policy: each shared IPA embeds the UDIDs of the team's devices (up to 100). `STOREFRONT_SIGNING_SHARED_BUILDS=false` returns to one build per device; existing builds of either kind stay usable.
 
 ### Email confirmation
 

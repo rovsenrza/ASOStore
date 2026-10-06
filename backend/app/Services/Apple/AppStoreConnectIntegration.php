@@ -166,7 +166,7 @@ class AppStoreConnectIntegration implements AppleIntegration
         }
     }
 
-    public function createAdHocProfile(AppleTeam $team, string $name, string $bundleIdResource, string $certificateId, string $appleDeviceId): AppleProfile
+    public function createAdHocProfile(AppleTeam $team, string $name, string $bundleIdResource, string $certificateId, string|array $appleDeviceIds): AppleProfile
     {
         $response = $this->send($team, fn (PendingRequest $http) => $http->post('/profiles', [
             'data' => [
@@ -175,7 +175,7 @@ class AppStoreConnectIntegration implements AppleIntegration
                 'relationships' => [
                     'bundleId' => ['data' => ['type' => 'bundleIds', 'id' => $bundleIdResource]],
                     'certificates' => ['data' => [['type' => 'certificates', 'id' => $certificateId]]],
-                    'devices' => ['data' => [['type' => 'devices', 'id' => $appleDeviceId]]],
+                    'devices' => ['data' => array_map(fn (string $id) => ['type' => 'devices', 'id' => $id], array_values((array) $appleDeviceIds))],
                 ],
             ],
         ]));

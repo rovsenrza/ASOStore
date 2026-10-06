@@ -155,9 +155,16 @@ return [
         // Re-prefix Info.plist values built from the vendor's team ID (e.g. a KeychainAccessGroup the app
         // uses as-is) with the signing team's, so they fall under its `<TEAM>.*` keychain access.
         'rewrite_team_prefix' => (bool) env('STOREFRONT_SIGNING_REWRITE_TEAM_PREFIX', true),
+        // One build per app and Apple team, signed with a profile listing all of the team's eligible
+        // devices, serves each of them: a later install of the same app starts at once. Every such IPA
+        // lists the team's device UDIDs. Off: each device gets its own build (the storefront app always does).
+        'shared_builds' => (bool) env('STOREFRONT_SIGNING_SHARED_BUILDS', true),
         'warmup_enabled' => (bool) env('STOREFRONT_SIGNING_WARMUP_ENABLED', true),
         // Popularity is measured from actual install requests over the last 30 days.
         'warmup_popular_limit' => (int) env('STOREFRONT_SIGNING_WARMUP_POPULAR_LIMIT', 3),
+        // Shared builds: this many of the most installed apps are kept signed for each team's current
+        // devices (BuildWarmup::forTeams, every 15 minutes, on idle runners). 0 turns it off.
+        'team_presign_limit' => (int) env('STOREFRONT_SIGNING_TEAM_PRESIGN_LIMIT', 10),
 
         // Launch-compatibility shim injected into re-signed apps that share through an
         // App Group or keychain group (ios/compat-shim). Without it such apps quit on
@@ -193,6 +200,10 @@ return [
         // Speculative builds stop above this share of the budget, or past this many per device.
         'warmup_budget_ratio' => 0.7,
         'warm_builds_per_device' => (int) env('STOREFRONT_WARM_BUILDS_PER_DEVICE', 5),
+        // Shared team builds: unused (warm) ones a team may hold, and how long an installed one is
+        // kept idle (it serves every device of the team, so it is worth more than a per-device one).
+        'warm_builds_per_team' => (int) env('STOREFRONT_WARM_BUILDS_PER_TEAM', 40),
+        'shared_idle_hours' => (int) env('STOREFRONT_SHARED_BUILD_IDLE_HOURS', 168),
         // Originals of superseded versions are kept this long for a rollback, then removed.
         'superseded_original_days' => (int) env('STOREFRONT_SUPERSEDED_ORIGINAL_DAYS', 14),
         // Local caches and speculative builds stop below this share of free disk space.

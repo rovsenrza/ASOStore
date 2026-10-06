@@ -8,6 +8,7 @@ use App\Services\Operations\MetricsCollector;
 use App\Services\Operations\RetentionService;
 use App\Services\Quotas\QuotaReconciler;
 use App\Services\Quotas\QuotaService;
+use App\Services\Signing\BuildWarmup;
 use App\Services\Signing\SigningService;
 use App\Services\TelegramStore\Payments\PlategaPayments;
 use Illuminate\Support\Facades\Schedule;
@@ -51,6 +52,10 @@ Schedule::call(fn () => app(AlertEvaluator::class)->run())
     ->name('alerts:evaluate')->everyFiveMinutes()->withoutOverlapping();
 Schedule::call(fn () => app(RetentionService::class)->run())
     ->name('retention:apply')->dailyAt('04:00')->withoutOverlapping();
+
+// Shared team builds: the most installed apps stay signed for every current device of each team.
+Schedule::call(fn () => app(BuildWarmup::class)->forTeams())
+    ->name('signing:presign-teams')->everyFifteenMinutes()->withoutOverlapping();
 
 // Platega payments whose callback never arrived (store orders on the website and in the bot).
 Schedule::call(fn () => app(PlategaPayments::class)->reconcile())

@@ -111,15 +111,19 @@ final class StorageJanitor
         if (! ArtifactFileCache::diskHasRoom(storage_path('app'), 0)) {
             return false;
         }
+        // Shared builds count against the device's team, per-device ones against the device.
+        $teamId = config('storefront.signing.shared_builds', true) ? $device->latestRegistration?->apple_team_id : null;
         $unused = SignedBuild::query()
-            ->where('device_id', $device->id)
+            ->when($teamId !== null,
+                fn ($query) => $query->whereNull('device_id')->where('apple_team_id', $teamId),
+                fn ($query) => $query->where('device_id', $device->id))
             ->whereIn('status', [SignedBuildStatus::SigningPending->value, SignedBuildStatus::Signing->value, SignedBuildStatus::Signed->value,
                 SignedBuildStatus::SignatureVerified->value, SignedBuildStatus::Deliverable->value])
             ->whereNull('purged_at')
             ->whereDoesntHave('installations')
             ->count();
 
-        return $unused < $settings['warm_builds_per_device'];
+        return $unused < ($teamId !== null ? $settings['warm_builds_per_team'] : $settings['warm_builds_per_device']);
     }
 
     /** Bytes held by signed builds whose file still exists. */
@@ -169,7 +173,10 @@ final class StorageJanitor
             'ready' => (int) config('storefront.build_storage.ready_idle_hours'),
         ];
         foreach ($this->deliverable() as $build) {
-            if ($this->lastUsed($build)->lt(now()->subHours($hours[$this->kind($build)])) && $this->reclaim($build, 'IDLE')) {
+            $kind = $this->kind($build);
+            // A shared build someone installed serves the whole team: it stays longer.
+            $idle = $build->isShared() && $kind !== 'warm' ? (int) config('storefront.build_storage.shared_idle_hours', 168) : $hours[$kind];
+            if ($this->lastUsed($build)->lt(now()->subHours($idle)) && $this->reclaim($build, 'IDLE')) {
                 $this->summary['idle_builds']++;
             }
         }

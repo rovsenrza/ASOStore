@@ -9,11 +9,16 @@ use Illuminate\Support\Carbon;
 
 /**
  * An ad hoc provisioning profile for one (team, bundle ID, device)
- * (IMPLEMENTATION_PLAN D10). Profiles are recreated, never edited.
+ * (IMPLEMENTATION_PLAN D10), or a shared one listing every eligible device of the
+ * team at the time (device_id null, `cohort` names that device set). Profiles are
+ * recreated, never edited; a shared profile for an older cohort stays valid for the
+ * builds that embed it.
  *
  * @property int $apple_team_id
  * @property int $certificate_id
- * @property int $device_id
+ * @property int|null $device_id
+ * @property string|null $cohort
+ * @property list<int>|null $device_ids
  * @property string $bundle_identifier
  * @property string $apple_profile_id
  * @property string $uuid
@@ -27,7 +32,7 @@ class SigningProfile extends Model
     use HasPublicId;
 
     protected $fillable = [
-        'apple_team_id', 'certificate_id', 'device_id', 'bundle_identifier', 'apple_profile_id',
+        'apple_team_id', 'certificate_id', 'device_id', 'cohort', 'device_ids', 'bundle_identifier', 'apple_profile_id',
         'uuid', 'name', 'status', 'expires_at', 'content_encrypted',
     ];
 
@@ -35,7 +40,20 @@ class SigningProfile extends Model
 
     protected function casts(): array
     {
-        return ['expires_at' => 'datetime', 'content_encrypted' => 'encrypted'];
+        return ['expires_at' => 'datetime', 'content_encrypted' => 'encrypted', 'device_ids' => 'array'];
+    }
+
+    public function isShared(): bool
+    {
+        return $this->device_id === null;
+    }
+
+    /** Whether the device is listed in this profile, so a build embedding it installs there. */
+    public function covers(Device $device): bool
+    {
+        return $this->isShared()
+            ? in_array($device->id, array_map('intval', $this->device_ids ?? []), true)
+            : $this->device_id === $device->id;
     }
 
     public function isUsable(): bool

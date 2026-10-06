@@ -393,7 +393,7 @@ class InstallationService
 
         return $installation->artifact->status === ArtifactStatus::Published
             && $installation->device->latestRegistration?->status === DeviceRegistrationStatus::Eligible
-            && ($build === null || ! $build->isDeliverable() || $build->device_id !== $installation->device_id);
+            && ($build === null || ! $build->isDeliverable() || ! $build->serves($installation->device));
     }
 
     private function markReady(Installation $installation): void
@@ -447,7 +447,7 @@ class InstallationService
             throw new ApiException(ErrorCode::ArtifactNotInstallable);
         }
         $build = $installation->signedBuild;
-        if ($build === null || ! $build->isDeliverable() || $build->device_id !== $installation->device_id) {
+        if ($build === null || ! $build->isDeliverable() || ! $build->serves($installation->device)) {
             throw new ApiException(ErrorCode::ArtifactNotInstallable);
         }
     }

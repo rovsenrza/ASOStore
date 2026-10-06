@@ -92,11 +92,15 @@ class FakeAppleIntegration implements AppleIntegration
      * A structurally real .mobileprovision payload (CMS envelope simulated)
      * listing the device, so signature verification can be exercised locally.
      */
-    public function createAdHocProfile(AppleTeam $team, string $name, string $bundleIdResource, string $certificateId, string $appleDeviceId): AppleProfile
+    public function createAdHocProfile(AppleTeam $team, string $name, string $bundleIdResource, string $certificateId, string|array $appleDeviceIds): AppleProfile
     {
-        $device = $this->cache->get($this->key($team, 'id:'.$appleDeviceId));
-        if (! is_array($device)) {
-            throw new AppleException("Unknown fake device {$appleDeviceId}.", 'APPLE_DEVICE_NOT_FOUND');
+        $udids = [];
+        foreach ((array) $appleDeviceIds as $appleDeviceId) {
+            $device = $this->cache->get($this->key($team, 'id:'.$appleDeviceId));
+            if (! is_array($device)) {
+                throw new AppleException("Unknown fake device {$appleDeviceId}.", 'APPLE_DEVICE_NOT_FOUND');
+            }
+            $udids[] = $device['udid'];
         }
 
         $bundle = $this->cache->get($this->key($team, 'bundle:'.$bundleIdResource), $bundleIdResource);
@@ -109,7 +113,7 @@ class FakeAppleIntegration implements AppleIntegration
             'Name' => $name,
             'UUID' => $uuid,
             'TeamIdentifier' => [$team->apple_team_id],
-            'ProvisionedDevices' => [$device['udid']],
+            'ProvisionedDevices' => $udids,
             'CreationDate' => new \DateTime,
             'ExpirationDate' => \DateTime::createFromImmutable($expires),
             'Entitlements' => [

@@ -64,11 +64,13 @@ interface AppleIntegration
     public function ensureCapabilities(AppleTeam $team, string $bundleIdResource, array $capabilityTypes): void;
 
     /**
-     * Creates an ad hoc profile for one certificate and one device.
+     * Creates an ad hoc profile for one certificate and one or more devices.
+     *
+     * @param  string|list<string>  $appleDeviceIds
      *
      * @throws AppleException
      */
-    public function createAdHocProfile(AppleTeam $team, string $name, string $bundleIdResource, string $certificateId, string $appleDeviceId): AppleProfile;
+    public function createAdHocProfile(AppleTeam $team, string $name, string $bundleIdResource, string $certificateId, string|array $appleDeviceIds): AppleProfile;
 
     /**
      * @throws AppleException
