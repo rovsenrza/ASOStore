@@ -2,6 +2,7 @@
 
 use App\Models\AppArtifact;
 use App\Services\Signing\CompatShim;
+use App\Services\Signing\KeptBundleIds;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 // The artifact factory creates its app and version rows, so this needs a migrated database.
@@ -108,4 +109,17 @@ it('names the vendor team only when it is not the signing team, and can be switc
 
     config(['storefront.signing.rewrite_team_prefix' => false]);
     expect(app(CompatShim::class)->originalTeamFor($claude, '5CV985HSCG'))->toBeNull();
+});
+
+it('also keeps the vendor bundle ID for apps in the tool-managed list file', function () {
+    $file = sys_get_temp_dir().'/keep-'.bin2hex(random_bytes(4)).'.txt';
+    config(['storefront.signing.compat_shim.keep_bundle_ids' => [], 'storefront.signing.compat_shim.keep_bundle_ids_file' => $file]);
+    $artifact = AppArtifact::factory()->create(['bundle_identifier' => 'com.vendor.game', 'inspection' => []]);
+    $artifact->app->forceFill(['bundle_identifier' => 'com.ruappstore.tggame'])->save();
+    $shim = app(CompatShim::class);
+
+    expect($shim->originalBundleFor($artifact->refresh()))->toBeNull();
+    app(KeptBundleIds::class)->add('com.vendor.game');
+    expect($shim->originalBundleFor($artifact))->toBe('com.vendor.game');
+    @unlink($file);
 });

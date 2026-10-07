@@ -1,0 +1,11 @@
+{
+  "ssh": "root@169.58.14.168",
+  "artisan": "cd /var/www/storefront/app/backend && sudo -u storefront php artisan catalog:device-test",
+  "device_udid": "00008140-00145D163C69801C",
+  "device_id": 1,
+  "user_id": 1,
+  "categories": ["games-arcade", "games-action"],
+  "window": ["00:30", "08:00"],
+  "watch_seconds": 60,
+  "sign_timeout_minutes": 60
+}

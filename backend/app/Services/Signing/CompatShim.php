@@ -92,9 +92,9 @@ class CompatShim
     }
 
     /**
-     * The IPA's own bundle ID, when the app must keep seeing it (storefront.signing.compat_shim
-     * .keep_bundle_ids) and signing gives it another one. The runner records it in Info.plist and
-     * the shim answers the app's bundle-ID lookups with it.
+     * The IPA's own bundle ID, when the app must keep seeing it (KeptBundleIds) and signing
+     * gives it another one. The runner records it in Info.plist and the shim answers the
+     * app's bundle-ID lookups with it.
      */
     public function originalBundleFor(AppArtifact $artifact): ?string
     {
@@ -102,13 +102,8 @@ class CompatShim
         if (! $this->enabled() || ! is_string($original) || $original === $artifact->signingBundleIdentifier()) {
             return null;
         }
-        foreach ((array) config('storefront.signing.compat_shim.keep_bundle_ids', []) as $pattern) {
-            if (is_string($pattern) && $pattern !== '' && fnmatch($pattern, $original)) {
-                return $original;
-            }
-        }
 
-        return null;
+        return app(KeptBundleIds::class)->matches($original) ? $original : null;
     }
 
     private function encoded(): ?string

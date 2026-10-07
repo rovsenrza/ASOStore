@@ -3,20 +3,16 @@
 namespace App\Console\Commands;
 
 use App\Enums\ArtifactStatus;
-use App\Enums\PipelineJobStatus;
 use App\Models\AppArtifact;
-use App\Models\PipelineJob;
 use App\Models\User;
-use App\Services\Artifacts\ArtifactCleaningService;
 use App\Services\Artifacts\ArtifactReviewService;
-use App\Services\Artifacts\IpaCleaner;
-use App\Services\Artifacts\LocalArtifactFile;
+use App\Services\Artifacts\CleanedCopyBuilder;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use App\Services\TelegramStore\Bot\Messenger;
 use App\Services\TelegramStore\Bot\Screen;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Collection;
 use Throwable;
 
 /**
@@ -43,9 +39,9 @@ class CleanCatalogBatch extends Command
 
     protected $description = 'Clean, inspect, approve and publish cleaned copies of many published IPAs in one unattended run';
 
-    public function handle(ArtifactCleaningService $cleaning, ArtifactReviewService $review, IpaCleaner $cleaner, AuditService $audit): int
+    public function handle(CleanedCopyBuilder $builder, ArtifactReviewService $review, AuditService $audit): int
     {
-        if (! $cleaner->enabled()) {
+        if (! $builder->available()) {
             $this->error('The IPA cleaner is not installed (storefront.ipa_cleaner).');
 
             return self::FAILURE;
@@ -72,7 +68,7 @@ class CleanCatalogBatch extends Command
         foreach ($artifacts as $artifact) {
             $row = ['artifact' => $artifact->public_id, 'id' => $artifact->id, 'app' => $artifact->app?->name];
             try {
-                $row += $this->handleOne($artifact, $user, $cleaning, $review, $cleaner, $audit, $plan);
+                $row += $this->handleOne($artifact, $user, $builder, $review, $audit, $plan);
             } catch (Throwable $exception) {
                 report($exception);
                 $row += ['result' => 'ERROR', 'detail' => mb_substr(get_class($exception).': '.$exception->getMessage(), 0, 400)];
@@ -92,94 +88,36 @@ class CleanCatalogBatch extends Command
     }
 
     /** @return array<string, mixed> */
-    private function handleOne(AppArtifact $artifact, User $user, ArtifactCleaningService $cleaning, ArtifactReviewService $review, IpaCleaner $cleaner, AuditService $audit, bool $plan): array
+    private function handleOne(AppArtifact $artifact, User $user, CleanedCopyBuilder $builder, ArtifactReviewService $review, AuditService $audit, bool $plan): array
     {
-        $analysis = $this->analysis($artifact, $cleaner, $audit, $plan);
-        if ($analysis === null || isset($analysis['error'])) {
-            return ['result' => 'NO_ANALYSIS', 'detail' => (string) ($analysis['error'] ?? 'analysis unavailable')];
-        }
-        $selection = self::select($analysis, config('storefront.catalog_clean'));
-        if ($selection['remove'] === []) {
-            return ['result' => 'NOTHING_TO_REMOVE', 'detail' => 'modules: '.implode(',', array_map('basename', array_column($analysis['modules'] ?? [], 'path')))];
-        }
-        $names = array_map('basename', $selection['remove']);
         if ($plan) {
-            return ['result' => 'WOULD_CLEAN', 'detail' => 'remove: '.implode(',', $names)];
+            $analysis = $builder->analysis($artifact, store: false);
+            if ($analysis === null || isset($analysis['error'])) {
+                return ['result' => 'NO_ANALYSIS', 'detail' => (string) ($analysis['error'] ?? 'analysis unavailable')];
+            }
+            $selection = CleanedCopyBuilder::select($analysis, config('storefront.catalog_clean'));
+            if ($selection['remove'] === []) {
+                return ['result' => 'NOTHING_TO_REMOVE', 'detail' => 'modules: '.implode(',', array_map('basename', array_column($analysis['modules'] ?? [], 'path')))];
+            }
+
+            return ['result' => 'WOULD_CLEAN', 'detail' => 'remove: '.implode(',', array_map('basename', $selection['remove']))];
         }
 
-        $reason = 'Catalog batch: remove '.implode(', ', $names);
-        $job = $cleaning->request($artifact, $user, $selection, $reason, null);
-        $job = $this->waitFor($job, (int) $this->option('wait'));
-        if ($job->status !== PipelineJobStatus::Succeeded) {
-            return ['result' => 'CLEAN_FAILED', 'detail' => $job->status->value.' '.$job->result_code.' '.mb_substr((string) ($job->error_class ?? ''), 0, 300)];
+        $prepared = $builder->prepare($artifact, $user, 'Catalog batch', (int) $this->option('wait'));
+        if ($prepared['result'] !== 'READY') {
+            return ['result' => $prepared['result'], 'detail' => $prepared['detail']] + ($prepared['copy'] ? ['copy' => $prepared['copy']->public_id] : []);
         }
-        if (in_array($job->result_code, ['NOTHING_TO_CLEAN', 'ALREADY_EXISTS'], true)) {
-            return ['result' => (string) $job->result_code, 'detail' => implode(',', $names)];
-        }
-
-        $copy = AppArtifact::query()->where('derived_from_artifact_id', $artifact->id)->orderByDesc('id')->first();
-        if ($copy === null) {
-            return ['result' => 'NO_COPY', 'detail' => 'cleaner reported '.$job->result_code];
-        }
-        $copy = $this->waitForInspection($copy, (int) $this->option('wait'));
-        if ($copy->status !== ArtifactStatus::ProvenanceReview) {
-            return ['result' => 'COPY_NOT_REVIEWABLE', 'detail' => $copy->status->value.' '.($copy->status_reason ?? ''), 'copy' => $copy->public_id];
-        }
-
-        $review->approve($copy, $user, 'Cleaned copy of a published listing (batch): '.implode(', ', $names), [
-            'source_verified' => true, 'distribution_rights_confirmed' => true, 'inspection_report_reviewed' => true,
-        ], false);
-        $copy->refresh();
-        if ($copy->status !== ArtifactStatus::Ready) {
-            return ['result' => 'NOT_READY', 'detail' => $copy->status->value.' '.($copy->status_reason ?? ''), 'copy' => $copy->public_id];
-        }
+        $copy = $prepared['copy'];
         $review->publish($copy, $user);
         $audit->record('catalog.batch_cleaned', $copy, after: [
             'source_artifact_id' => $artifact->public_id,
-            'removed' => $names,
+            'removed' => $prepared['removed'],
         ], actor: Actor::user($user));
 
-        return ['result' => 'PUBLISHED', 'detail' => implode(',', $names), 'copy' => $copy->public_id, 'copy_id' => $copy->id];
+        return ['result' => 'PUBLISHED', 'detail' => $prepared['detail'], 'copy' => $copy->public_id, 'copy_id' => $copy->id];
     }
 
-    /**
-     * The modules to remove: those whose file name matches `remove`, never a name in `keep`.
-     * A bundled hook runtime (Substrate) goes only when nothing that could still use it stays.
-     *
-     * @param  array<string, mixed>  $analysis
-     * @param  array{remove: list<string>, keep: list<string>, runtime: list<string>}  $rules
-     * @return array{remove: list<string>, remove_extensions: list<string>, fix_metadata: bool}
-     */
-    public static function select(array $analysis, array $rules): array
-    {
-        $matches = fn (string $name, array $patterns) => array_filter($patterns, fn (string $pattern) => fnmatch(strtolower($pattern), strtolower($name))) !== [];
-        $remove = [];
-        $stays = false;
-        foreach ($analysis['modules'] ?? [] as $module) {
-            $name = basename((string) $module['path']);
-            $isRuntime = $matches($name, $rules['runtime'] ?? []);
-            if ($isRuntime) {
-                continue;
-            }
-            if (! ($module['removable'] ?? false) || $matches($name, $rules['keep'] ?? []) || ! $matches($name, $rules['remove'] ?? [])) {
-                $stays = true;
-
-                continue;
-            }
-            $remove[] = (string) $module['path'];
-        }
-        if ($remove !== [] && ! $stays) {
-            foreach ($analysis['modules'] ?? [] as $module) {
-                if ($matches(basename((string) $module['path']), $rules['runtime'] ?? []) && ($module['removable'] ?? false)) {
-                    $remove[] = (string) $module['path'];
-                }
-            }
-        }
-
-        return ['remove' => array_values(array_unique($remove)), 'remove_extensions' => [], 'fix_metadata' => true];
-    }
-
-    /** @return \Illuminate\Support\Collection<int, AppArtifact> */
+    /** @return Collection<int, AppArtifact> */
     private function artifacts()
     {
         $limit = (int) $this->option('limit');
@@ -191,55 +129,6 @@ class CleanCatalogBatch extends Command
             ->with('app')->orderBy('size_bytes')
             ->when($limit > 0, fn ($query) => $query->limit($limit))
             ->get();
-    }
-
-    /** @return array<string, mixed>|null */
-    private function analysis(AppArtifact $artifact, IpaCleaner $cleaner, AuditService $audit, bool $plan): ?array
-    {
-        $existing = $artifact->inspection['cleaning'] ?? null;
-        if (is_array($existing) && ! isset($existing['error'])) {
-            return $existing;
-        }
-        $file = LocalArtifactFile::open(Storage::disk($artifact->storage_disk), $artifact->storage_path);
-        try {
-            $analysis = $cleaner->analyze($file->path);
-        } finally {
-            $file->release();
-        }
-        if ($analysis !== null && ! $plan) {
-            $artifact->forceFill(['inspection' => ['cleaning' => $analysis] + ($artifact->inspection ?? [])])->save();
-            $audit->record('artifact.cleaning_analyzed', $artifact, after: ['modules' => count($analysis['modules'] ?? [])], actor: Actor::system('ipa-cleaner'));
-        }
-
-        return $analysis;
-    }
-
-    private function waitFor(PipelineJob $job, int $seconds): PipelineJob
-    {
-        $until = time() + $seconds;
-        do {
-            $job->refresh();
-            if (in_array($job->status, [PipelineJobStatus::Succeeded, PipelineJobStatus::FailedPermanent, PipelineJobStatus::Cancelled], true)) {
-                return $job;
-            }
-            sleep(5);
-        } while (time() < $until);
-
-        return $job;
-    }
-
-    private function waitForInspection(AppArtifact $copy, int $seconds): AppArtifact
-    {
-        $until = time() + $seconds;
-        do {
-            $copy->refresh();
-            if (! in_array($copy->status, [ArtifactStatus::Uploaded, ArtifactStatus::Hashing, ArtifactStatus::Inspecting], true)) {
-                return $copy;
-            }
-            sleep(5);
-        } while (time() < $until);
-
-        return $copy;
     }
 
     /** @param  array<string, int>  $counts */
