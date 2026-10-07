@@ -144,7 +144,7 @@ class Agent:
                 raise DeviceUnavailable("the iPhone is locked")
             if "not connected" in lowered or "unable to locate" in lowered or "no such device" in lowered:
                 raise DeviceUnavailable("the iPhone is not connected")
-            if "space" in lowered and ("not enough" in lowered or "insufficient" in lowered):
+            if any(phrase in lowered for phrase in ("not enough space", "not enough storage", "insufficient storage", "no space", "out of space", "nospace")):
                 raise DeviceUnavailable("the iPhone is out of storage")
         if json_output:
             data = load_json(output, {})
@@ -269,27 +269,36 @@ class Agent:
                 self.server("keep", app["app_id"])
                 raise StepFailed("build was signed without the original bundle ID")
             self.device_ready()
-            before = self.installed_apps()
-            preexisting = bundle in before
+            self.remove_leftovers()
+            # An app the owner already had keeps its data: it is updated, never uninstalled.
+            preexisting = bundle in self.installed_apps()
+            if not preexisting:
+                self.state.setdefault("installed", []).append(bundle)
+                save_json(STATE, self.state)
             code, _, text = self.devicectl("device", "install", "app", "--device", self.udid, str(ipa), timeout=1800)
             if code != 0:
                 raise StepFailed(f"install failed: {text[-300:]}")
+        except BaseException:
+            self.cleanup()
+            raise
         finally:
             ipa.unlink(missing_ok=True)
 
-        app_url = self.installed_apps().get(bundle, "")
-        folder = EVIDENCE / str(app["app_id"])
-        folder.mkdir(exist_ok=True)
-        stamp = dt.datetime.now().strftime("%m%d-%H%M%S")
-        run = self.watch(bundle, app_url, folder / f"{variant}-{stamp}")
-        verdict, reason = self.judge(run)
-        if verdict == "FAIL" and run["exited_after"] is not None and run["exited_after"] < 15:
-            # The first launch straight after an install sometimes quits once; judge the second.
-            log(f"[{app['app_id']}] quit after {run['exited_after']} s, launching once more")
-            run = self.watch(bundle, app_url, folder / f"{variant}-{stamp}-again")
+        try:
+            app_url = self.installed_apps().get(bundle, "")
+            folder = EVIDENCE / str(app["app_id"])
+            folder.mkdir(exist_ok=True)
+            stamp = dt.datetime.now().strftime("%m%d-%H%M%S")
+            run = self.watch(bundle, app_url, folder / f"{variant}-{stamp}")
             verdict, reason = self.judge(run)
-        if not preexisting:
-            self.devicectl("device", "uninstall", "app", "--device", self.udid, bundle, timeout=300)
+            if verdict == "FAIL" and run["exited_after"] is not None and run["exited_after"] < 15:
+                # The first launch straight after an install sometimes quits once; judge the second.
+                log(f"[{app['app_id']}] quit after {run['exited_after']} s, launching once more")
+                run = self.watch(bundle, app_url, folder / f"{variant}-{stamp}-again")
+                verdict, reason = self.judge(run)
+        finally:
+            # Whatever happened, a tested app leaves the phone so its storage never fills up.
+            self.cleanup()
 
         result = {"at": dt.datetime.now().isoformat(timespec="seconds"), "app_id": app["app_id"], "name": name,
                   "variant": variant, "artifact_id": artifact_id, "build_id": build["build_id"], "bundle": bundle,
@@ -300,6 +309,28 @@ class Agent:
             file.write(json.dumps(result, ensure_ascii=False) + "\n")
         log(f"[{app['app_id']}] {name}: {variant} → {verdict} ({reason})")
         return result
+
+    def cleanup(self):
+        try:
+            self.remove_leftovers()
+        except Exception as error:  # the phone may be gone; the next start removes them
+            log(f"cleanup postponed: {error}")
+
+    def remove_leftovers(self):
+        """Uninstall every app this agent put on the phone (also ones a crash or restart left behind)."""
+        installed = self.state.get("installed", [])
+        if not installed:
+            return
+        present = self.installed_apps()
+        for bundle in list(installed):
+            if bundle in present:
+                code, _, text = self.devicectl("device", "uninstall", "app", "--device", self.udid, bundle, timeout=300)
+                if code != 0:
+                    log(f"uninstall {bundle} failed: {text[-200:]}")
+                    continue
+                log(f"removed {bundle} from the phone")
+            installed.remove(bundle)
+        save_json(STATE, self.state)
 
     def download(self, url, path, size):
         # Generous for ~1 MB/s; curl resumes across retries.
@@ -466,6 +497,7 @@ class Agent:
                         time.sleep(600)
                         continue
                     self.device_ready()
+                    self.remove_leftovers()
                     self.active = True
                     self.notified_unavailable = False
                     self.notify(f"Тест на iPhone начат: осталось {len(self.pending())} из {len(self.state['queue'])}.")
@@ -496,7 +528,12 @@ class Agent:
                 log(f"waiting: {reason}")
                 if not self.notified_unavailable:
                     self.notified_unavailable = True
-                    self.notify(f"Тест на iPhone ждёт: {reason}. Подключите телефон, разблокируйте его и поставьте автоблокировку «Никогда».")
+                    hints = {
+                        "the iPhone is locked": "iPhone заблокирован. Разблокируйте его и поставьте автоблокировку «Никогда».",
+                        "the iPhone is not connected": "iPhone не подключён. Подключите его по USB.",
+                        "the iPhone is out of storage": "на iPhone не хватает места. Освободите место (нужно 3–5 ГБ).",
+                    }
+                    self.notify(f"Тест на iPhone ждёт: {hints.get(str(reason), str(reason))}")
                 time.sleep(300)
             except Exception as error:  # keep the daemon alive; launchd restarts it otherwise
                 log(f"unexpected: {type(error).__name__}: {error}")

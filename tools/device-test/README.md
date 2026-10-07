@@ -7,7 +7,9 @@ Tests catalog apps on the iPhone plugged into this Mac, at night, and repairs wh
 3. If that is not enough, the app is tried once more keeping its original bundle ID (`KeptBundleIds` file list). If that works it stays on the list.
 4. Apps nothing helps are reported as BROKEN (or UNSURE when they run but the screen looks wrong) and left as they are.
 
-Each result goes to the Telegram admins. Apps that were already on the phone are updated, never uninstalled, so their data stays. Every catalog change happens on the server through `php artisan catalog:device-test` (JSON over SSH), with the same services as the admin panel.
+Each result goes to the Telegram admins.
+
+Phone storage: every app the agent installs is uninstalled right after its test, also when the test breaks off, and anything a crash or restart left behind is removed before the next install. So at most one test app (up to ~2.5 GB) is on the phone at a time; the test phone had about 20 GB free. If an install still runs out of space, the run pauses and says so in Telegram. Apps that were already on the phone before are updated, never uninstalled, so their data stays. Every catalog change happens on the server through `php artisan catalog:device-test` (JSON over SSH), with the same services as the admin panel.
 
 ## Running it
 
