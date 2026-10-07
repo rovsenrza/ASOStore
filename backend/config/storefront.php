@@ -214,6 +214,20 @@ return [
     ],
 
     /*
+    | catalog:clean-batch: which injected modules the unattended batch removes. A module goes
+    | only when the analysis marks it removable, its file name matches `remove` and not `keep`.
+    | `runtime` (a bundled Substrate) goes only when nothing else that could use it stays.
+    | Names are fnmatch patterns, case-insensitive.
+    */
+    'catalog_clean' => [
+        // Mod menus, cheat libraries and their sign-in/licence pop-ups: everything injected except `keep`.
+        'remove' => ['*'],
+        // Sideload fixes the game itself may need (checked on a device), and Roblox's Delta runtime.
+        'keep' => ['masterSideloadFix*', 'dark.dylib', 'Sideloadbypass*', 'FixCrash*', 'Fixipa*', 'SatellaJailed*', 'libgloop*'],
+        'runtime' => ['libsubstrate*'],
+    ],
+
+    /*
     | tools/ipa-cleaner: finds modules injected into supplied IPAs (promotional pop-ups,
     | channel gates, tweaks) during inspection, and makes cleaned copies on request.
     */
