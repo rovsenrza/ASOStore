@@ -135,6 +135,62 @@ class TeamSelector
     }
 
     /**
+     * A team where Apple enables a new device at once: a new or recently
+     * renewed membership enables only its first devices on registration and
+     * holds the rest for 24–72 hours. The primary team comes first, then the
+     * configured variants in creation order. Null when every team is past the
+     * limit (or the routing is off); the caller then uses the primary team.
+     */
+    public function instantTeam(string $family, ?int $exclude = null): ?AppleTeam
+    {
+        $limit = (int) config('storefront.apple.instant_device_limit');
+        if ($limit <= 0) {
+            return null;
+        }
+
+        $primary = AppleTeam::primary();
+        $candidates = [];
+        if ($primary !== null && $primary->id !== $exclude
+            && in_array($primary->status, [AppleTeamStatus::Active, AppleTeamStatus::Expiring], true)
+            && $this->apple->isConfigured($primary) && ($year = $primary->currentMembershipYear()) !== null) {
+            $quota = TeamQuota::query()->firstOrCreate(
+                ['apple_team_id' => $primary->id, 'membership_year_id' => $year->id, 'device_family' => $family],
+                ['limit_count' => (int) config('storefront.apple.device_limit_per_family')],
+            );
+            if ($quota->remaining() > 0) {
+                $candidates[] = $primary;
+            }
+        }
+        foreach ($this->automaticTeams($family, exclude: $exclude ?? 0) as $team) {
+            if ($team->id !== $primary?->id) {
+                $candidates[] = $team;
+            }
+        }
+
+        foreach ($candidates as $team) {
+            if ($this->devicesThisYear($team) < $limit) {
+                return $team;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Apple counts iPhones, iPads and iPods together as iOS devices. Apple's own
+     * count also has devices added outside the Storefront.
+     */
+    private function devicesThisYear(AppleTeam $team): int
+    {
+        $quotas = TeamQuota::query()
+            ->where(['apple_team_id' => $team->id, 'membership_year_id' => $team->currentMembershipYear()?->id])
+            ->get();
+        $ours = $quotas->sum(fn (TeamQuota $quota) => $quota->registeredCount() + $quota->reservedCount());
+
+        return max($ours, (int) $quotas->sum('apple_registered_count'));
+    }
+
+    /**
      * Configured variants are ordered by team creation, giving each team its
      * full block before the next is considered.
      *

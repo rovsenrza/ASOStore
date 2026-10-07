@@ -27,7 +27,8 @@ use Tests\Support\OpenApiContract;
 use Tests\Support\ScriptedApple;
 
 beforeEach(function () {
-    config(['storefront.apple.device_limit_per_family' => 1]);
+    // The yearly limit's overflow path; routing to a team under Apple's instant limit is InstantTeamTest.
+    config(['storefront.apple.device_limit_per_family' => 1, 'storefront.apple.instant_device_limit' => 0]);
     $this->apple = ScriptedApple::install();
     $this->primary = connectFakeAppleTeam();
     $this->admin = userWithRoles(RoleSlug::Admin);
