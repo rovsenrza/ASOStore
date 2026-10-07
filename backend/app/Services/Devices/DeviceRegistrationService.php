@@ -5,27 +5,29 @@ namespace App\Services\Devices;
 use App\Enums\AppleDeviceStatus;
 use App\Enums\AppleTeamStatus;
 use App\Enums\DeviceRegistrationStatus as Status;
-use App\Jobs\RegisterDeviceJob;
 use App\Models\AppleTeam;
 use App\Models\Device;
 use App\Models\DeviceRegistration;
+use App\Models\MembershipYear;
 use App\Notifications\DeviceReadyNotification;
 use App\Services\Apple\AppleDevice;
 use App\Services\Apple\AppleException;
 use App\Services\Apple\AppleIntegration;
 use App\Services\Apple\AppleRetryableException;
 use App\Services\Audit\Actor;
-use App\Services\Audit\AuditService;
 use App\Services\Quotas\QuotaService;
 use App\Services\Quotas\TeamSelector;
 use App\Services\Signing\BuildWarmup;
 use App\StateMachines\StateMachine;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
  * Registers enrolled devices with an Apple team (IMPLEMENTATION_PLAN P3-BE-02,
  * P7-BE-02/03). New devices go to the first team where Apple enables them at
- * once (TeamSelector::instantTeam), else to the primary team. A slot is reserved under a
+ * once (TeamSelector::instantTeam), else to the primary team, and stay on that
+ * one team: a device never takes a second team's slot. A slot is reserved under a
  * row lock on the team's quota row (QuotaService), so concurrent registrations
  * can never exceed the per-family limit. At the limit, a fully configured
  * variant on another team can be selected automatically; otherwise the
@@ -43,7 +45,6 @@ class DeviceRegistrationService
         private readonly StateMachine $states,
         private readonly QuotaService $quotas,
         private readonly TeamSelector $selector,
-        private readonly AuditService $audit,
     ) {}
 
     /**
@@ -56,7 +57,7 @@ class DeviceRegistrationService
         $current = DeviceRegistration::query()
             ->where('udid_hash', $device->udid_hash)
             ->whereHas('team', fn ($query) => $query->whereIn('status', [AppleTeamStatus::Active->value, AppleTeamStatus::Expiring->value]))
-            ->whereHas('membershipYear', fn ($query) => $query->where('status', 'ACTIVE')->where('starts_at', '<=', now())->where('ends_at', '>', now()))
+            ->whereHas('membershipYear', fn ($query) => self::current($query))
             ->latest('id')
             ->first();
         if ($current !== null) {
@@ -90,6 +91,22 @@ class DeviceRegistrationService
 
         if (! $this->apple->isConfigured($team) || ! $team->status->canRegisterDevices()) {
             $registration->forceFill(['status_reason' => 'APPLE_NOT_CONNECTED'])->save();
+
+            return;
+        }
+
+        // One paid slot per device: Apple counts a device for the whole membership year,
+        // so a device already registered with another team is never registered again.
+        $elsewhere = DeviceRegistration::query()
+            ->where('udid_hash', $registration->udid_hash)
+            ->where('apple_team_id', '!=', $registration->apple_team_id)
+            ->whereNotNull('apple_device_id')
+            ->whereHas('membershipYear', fn ($query) => self::current($query))
+            ->with('team')
+            ->first();
+        if ($elsewhere !== null) {
+            $this->fail($registration, 'DEVICE_ON_OTHER_TEAM', "The device already holds a slot on team {$elsewhere->team->apple_team_id} this year.");
+            Log::channel('alerts')->alert('device_registration.second_team_refused', ['registration' => $registration->id, 'team' => $team->apple_team_id, 'held_on' => $elsewhere->team->apple_team_id]);
 
             return;
         }
@@ -137,57 +154,6 @@ class DeviceRegistrationService
     }
 
     /**
-     * Gives a device Apple keeps processing a second registration on a team
-     * that enables it at once. The first registration stays as it is: Apple
-     * counts it for the year either way. Null when the registration is not
-     * waiting or no team is under the instant limit.
-     *
-     * @throws AppleException when Apple refuses the device; nothing changes here then.
-     * @throws AppleRetryableException
-     */
-    public function moveToInstantTeam(DeviceRegistration $waiting): ?DeviceRegistration
-    {
-        $waiting->refresh()->load('device');
-        $device = $waiting->device;
-        if ($waiting->status !== Status::ApplePending || $waiting->status_reason !== 'APPLE_PROCESSING'
-            || (int) $device->registrations()->max('id') !== $waiting->id) {
-            return null;
-        }
-
-        $team = $this->selector->instantTeam($waiting->device_family->value, exclude: $waiting->apple_team_id);
-        $year = $team?->currentMembershipYear();
-        if ($team === null || $year === null) {
-            return null;
-        }
-
-        // Apple first: if it refuses, the device keeps its place on the first team.
-        $udid = (string) $device->udid_encrypted;
-        $this->apple->findDevice($team, $udid) ?? $this->apple->registerDevice($team, $udid, $this->appleDeviceName($device));
-
-        $next = DeviceRegistration::query()->firstOrCreate(
-            ['apple_team_id' => $team->id, 'udid_hash' => $waiting->udid_hash, 'membership_year_id' => $year->id],
-            ['device_id' => $device->id, 'device_family' => $waiting->device_family, 'status' => Status::Enrolled],
-        );
-        $this->audit->record('device_registration.moved', $next, before: ['team' => $waiting->team->apple_team_id], after: [
-            'team' => $team->apple_team_id,
-            'device_id' => $device->public_id,
-            'waited_minutes' => (int) $waiting->registered_at?->diffInMinutes(now()),
-        ], reason: 'Apple kept the device processing; moved to a team that enables devices at once.', actor: Actor::system('apple'));
-
-        try {
-            $this->register($next);
-        } catch (AppleRetryableException) {
-            RegisterDeviceJob::dispatch($next->id);
-        }
-        // apply() only emails after a wait on the same team; this customer waited on the first one.
-        if ($next->refresh()->status === Status::Eligible) {
-            $this->notifyReady($device);
-        }
-
-        return $next;
-    }
-
-    /**
      * Gives up on an attempt that kept failing (the job's retries are exhausted).
      */
     public function fail(DeviceRegistration $registration, string $reason, ?string $detail = null): void
@@ -222,7 +188,7 @@ class DeviceRegistrationService
 
         if ($becameEligible) {
             app(BuildWarmup::class)->forDevice($registration->device->fresh());
-            // A device moved to another team was already told when that one finished.
+            // Only the device's current registration tells the owner (devices moved on 2026-10-07 have an older one).
             if ($waitedForApple && (int) $registration->device->registrations()->max('id') === $registration->id) {
                 $this->notifyReady($registration->device);
             }
@@ -237,6 +203,15 @@ class DeviceRegistrationService
         } catch (Throwable $exception) {
             report($exception);
         }
+    }
+
+    /**
+     * @param  Builder<MembershipYear>  $query
+     * @return Builder<MembershipYear>
+     */
+    private static function current(Builder $query): Builder
+    {
+        return $query->where('status', 'ACTIVE')->where('starts_at', '<=', now())->where('ends_at', '>', now());
     }
 
     /**

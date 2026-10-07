@@ -60,11 +60,9 @@ return [
         'device_limit_per_family' => (int) env('STOREFRONT_APPLE_DEVICE_LIMIT', 100),
         // A new or recently renewed membership has Apple enable only its first 10 iOS devices at
         // registration; the rest wait 24–72 hours (developer.apple.com/help/account/reference/device-registration-updates).
-        // New devices go to a team still under this count. 0 turns the routing off.
+        // New devices go to a team still under this count. 0 turns the routing off. A device
+        // already registered stays where it is: a second team would take a second paid slot.
         'instant_device_limit' => (int) env('STOREFRONT_APPLE_INSTANT_DEVICE_LIMIT', 10),
-        // A device Apple keeps processing longer than this moves to a team under the instant
-        // limit (SyncDeviceRegistrationsJob). Instant devices also show PROCESSING for 1–5 minutes. 0 = off.
-        'move_waiting_after_minutes' => (int) env('STOREFRONT_APPLE_MOVE_WAITING_AFTER_MINUTES', 30),
         // Ruby with fastlane, for App Groups through the developer portal (AppGroupProvisioner).
         'portal_ruby' => env('STOREFRONT_APPLE_PORTAL_RUBY', 'ruby'),
     ],

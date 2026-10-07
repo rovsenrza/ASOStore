@@ -8,7 +8,6 @@ use App\Enums\DeviceRegistrationStatus as Status;
 use App\Jobs\SyncDeviceRegistrationsJob;
 use App\Models\AppArtifact;
 use App\Models\AppleTeam;
-use App\Models\AuditLog;
 use App\Models\CatalogApp;
 use App\Models\Device;
 use App\Models\DeviceRegistration;
@@ -16,7 +15,6 @@ use App\Models\MembershipYear;
 use App\Models\TeamQuota;
 use App\Notifications\DeviceReadyNotification;
 use App\Services\Apple\AppleDevice;
-use App\Services\Apple\AppleException;
 use App\Services\Devices\DeviceRegistrationService;
 use Illuminate\Support\Facades\Notification;
 use Tests\Support\ScriptedApple;
@@ -95,66 +93,39 @@ it('keeps the primary team when routing is off or every team is past the limit',
     expect(($this->enrol)('00008030-0000000000000007')->apple_team_id)->toBe($this->primary->id);
 });
 
-it('moves a device Apple keeps processing to an instant team and emails the owner once', function () {
+it('keeps a device Apple is processing on its team, however long it waits', function () {
     Notification::fake();
     config(['storefront.apple.instant_device_limit' => 0]);
     $this->apple->onRegister = fn ($udid) => new AppleDevice('APPLE-SLOW', $udid, AppleDeviceStatus::Processing);
     $waiting = ($this->enrol)(TEST_UDID);
     $this->apple->onGet = fn ($id) => new AppleDevice($id, TEST_UDID, AppleDeviceStatus::Processing);
-    expect($waiting)->status->toBe(Status::ApplePending)->status_reason->toBe('APPLE_PROCESSING');
 
-    // Instant devices also show PROCESSING for a few minutes: not moved yet.
+    // A team with instant slots is free, but moving there would take a second paid slot.
     config(['storefront.apple.instant_device_limit' => 10]);
-    $this->travel(10)->minutes();
+    $this->travel(3)->days();
     app()->call([new SyncDeviceRegistrationsJob, 'handle']);
-    expect($waiting->device->registrations()->count())->toBe(1);
+    expect($waiting->device->registrations()->count())->toBe(1)
+        ->and(array_filter($this->apple->calls, fn (string $call) => str_starts_with($call, 'register:')))->toHaveCount(1);
 
-    // The second team has never seen the device.
-    unset($this->apple->known[TEST_UDID]);
-    $this->apple->onRegister = null;
-    $this->travel(25)->minutes();
-    app()->call([new SyncDeviceRegistrationsJob, 'handle']);
-
-    $moved = $waiting->device->fresh()->latestRegistration;
-    $owner = $waiting->device->user;
-    expect($moved->apple_team_id)->toBe($this->second->id)
-        ->and($moved->status)->toBe(Status::Eligible)
-        // Apple counts the first registration for the year either way.
-        ->and($waiting->fresh()->status)->toBe(Status::ApplePending)
-        ->and(AuditLog::where('action', 'device_registration.moved')->count())->toBe(1);
-    Notification::assertSentToTimes($owner, DeviceReadyNotification::class, 1);
-
-    // Apple later finishes the first team: no second email, the device stays on the second team.
     $this->apple->onGet = fn ($id) => new AppleDevice($id, TEST_UDID, AppleDeviceStatus::Enabled);
     $this->travel(2)->minutes();
     app()->call([new SyncDeviceRegistrationsJob, 'handle']);
-    expect($waiting->fresh()->status)->toBe(Status::Eligible)
-        ->and($waiting->device->fresh()->latestRegistration->id)->toBe($moved->id);
-    Notification::assertSentToTimes($owner, DeviceReadyNotification::class, 1);
+    expect($waiting->fresh()->status)->toBe(Status::Eligible);
+    Notification::assertSentToTimes($waiting->device->user, DeviceReadyNotification::class, 1);
 });
 
-it('leaves the device where it was when Apple refuses it on the new team', function () {
-    config(['storefront.apple.instant_device_limit' => 0]);
-    $this->apple->onRegister = fn ($udid) => new AppleDevice('APPLE-SLOW', $udid, AppleDeviceStatus::Processing);
-    $waiting = ($this->enrol)(TEST_UDID);
+it('never registers a device with a second team in the same membership year', function () {
+    $held = ($this->enrol)(TEST_UDID);
+    expect($held)->status->toBe(Status::Eligible)->apple_team_id->toBe($this->primary->id);
 
-    config(['storefront.apple.instant_device_limit' => 10]);
-    unset($this->apple->known[TEST_UDID]);
-    $this->apple->onRegister = fn () => throw new AppleException('Device rejected', 'APPLE_REQUEST_FAILED');
-    $this->artisan('devices:move-waiting')->assertFailed();
+    $second = DeviceRegistration::create([
+        'device_id' => $held->device_id, 'apple_team_id' => $this->second->id, 'udid_hash' => $held->udid_hash,
+        'membership_year_id' => $this->second->currentMembershipYear()->id, 'device_family' => DeviceFamily::Iphone, 'status' => Status::Enrolled,
+    ]);
+    $this->apple->calls = [];
+    app(DeviceRegistrationService::class)->register($second);
 
-    expect($waiting->device->registrations()->count())->toBe(1)
-        ->and($waiting->fresh()->status)->toBe(Status::ApplePending);
-});
-
-it('lists the moves without making them on a dry run', function () {
-    config(['storefront.apple.instant_device_limit' => 0]);
-    $this->apple->onRegister = fn ($udid) => new AppleDevice('APPLE-SLOW', $udid, AppleDeviceStatus::Processing);
-    $waiting = ($this->enrol)(TEST_UDID);
-    config(['storefront.apple.instant_device_limit' => 10]);
-
-    $this->artisan('devices:move-waiting --dry-run')
-        ->expectsOutputToContain('TEAM000002')
-        ->assertSuccessful();
-    expect($waiting->device->registrations()->count())->toBe(1);
+    expect($second->fresh())->status->toBe(Status::AppleFailed)->status_reason->toBe('DEVICE_ON_OTHER_TEAM')
+        ->and($this->apple->calls)->toBe([])
+        ->and(TeamQuota::where('apple_team_id', $this->second->id)->get()->sum(fn (TeamQuota $quota) => $quota->registeredCount()))->toBe(0);
 });
