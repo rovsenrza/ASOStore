@@ -38,6 +38,7 @@ WORK = HOME / "work"
 EVIDENCE = HOME / "evidence"
 PAUSE = HOME / "PAUSE"
 RUN_NOW = HOME / "RUN_NOW"
+RETEST = HOME / "RETEST"  # listing IDs to test again, one per line; the running loop picks them up
 
 FINAL = ("OK", "REPLACED", "KEPT_ID", "BROKEN", "UNSURE", "ERROR")
 # On-screen text that means the app is not really usable (lower case).
@@ -45,7 +46,10 @@ ALERTS = (
     "jailbreak", "jailbroken", "джейлбрейк", "please update", "update required", "please upgrade", "upgrade required", "new version is required",
     "обновите приложение", "требуется обновление", "необходимо обновить",
     "something went wrong", "что-то пошло не так", "unable to verify", "не удалось проверить",
-    "t.me/", "подпишитесь на канал", "subscribe to our channel", "недостаточно памяти", "no free storage",
+    "недостаточно памяти", "no free storage",
+    # Channel gates and promo pop-ups injected by IPA sites (e.g. iPAFire's "Channel Telegram | Our Channel").
+    "t.me/", "telegram", "телеграм", "our channel", "join channel", "наш канал", "подпишитесь", "subscribe to our",
+    "ipafire", "appbank",
 )
 
 
@@ -502,6 +506,7 @@ class Agent:
                     self.notified_unavailable = False
                     self.notify(f"Тест на iPhone начат: осталось {len(self.pending())} из {len(self.state['queue'])}.")
                 self.device_ready()
+                self.take_retests()
                 apps = self.pending()
                 if not apps:
                     RUN_NOW.unlink(missing_ok=True)
@@ -538,6 +543,17 @@ class Agent:
             except Exception as error:  # keep the daemon alive; launchd restarts it otherwise
                 log(f"unexpected: {type(error).__name__}: {error}")
                 time.sleep(120)
+
+    def take_retests(self):
+        """Apply `agent.py retest` requests here, so the CLI never writes state.json under the loop."""
+        if not RETEST.exists():
+            return
+        requested = {line.strip() for line in RETEST.read_text().splitlines() if line.strip()}
+        RETEST.unlink()
+        for key in requested:
+            self.state["apps"].pop(key, None)
+        save_json(STATE, self.state)
+        log(f"retest requested: {', '.join(sorted(requested))}")
 
     def queue_stale(self):
         loaded = self.state.get("queue_loaded_at")
@@ -604,10 +620,10 @@ def main():
         PAUSE.unlink(missing_ok=True)
         print("resumed")
     elif command == "retest":
-        agent.state["apps"].pop(sys.argv[2], None)
-        save_json(STATE, agent.state)
+        with RETEST.open("a") as file:
+            file.write(sys.argv[2] + "\n")
         PAUSE.unlink(missing_ok=True)
-        print(f"listing {sys.argv[2]} will be tested again")
+        print(f"listing {sys.argv[2]} will be tested again (picked up before the next listing)")
     elif command == "report":
         report(agent)
     else:
