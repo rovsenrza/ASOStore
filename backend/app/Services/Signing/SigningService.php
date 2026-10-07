@@ -281,7 +281,7 @@ class SigningService
             'lease_expires_at' => $job->lease_expires_at?->toIso8601ZuluString(),
             'signed_build_id' => $build->public_id,
             // The runner re-identifies the IPA to these IDs before signing.
-            'bundle_identifier' => $artifact->signingBundleIdentifier(),
+            'bundle_identifier' => $artifact->signingBundleIdentifier($profile->team),
             'team_identifier' => $profile->team->apple_team_id,
             'certificate_sha1' => strtoupper($certificate->sha1_fingerprint),
             'profile' => ['uuid' => $profile->uuid, 'content' => $profile->content_encrypted],

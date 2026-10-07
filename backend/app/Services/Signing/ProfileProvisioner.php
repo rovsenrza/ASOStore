@@ -55,10 +55,8 @@ class ProfileProvisioner
         }
 
         $team = $registration->team;
-        $bundle = $artifact->signingBundleIdentifier();
-        if (config('storefront.artifacts.require_team_eligibility') && ! TeamAppEligibility::allows($team->id, $bundle)) {
-            throw new SigningUnavailable('TEAM_NOT_ELIGIBLE', "Team {$team->apple_team_id} is not approved for {$bundle}.");
-        }
+        $this->assertEligible($artifact, $team);
+        $bundle = $artifact->signingBundleIdentifier($team);
         $certificate = $this->certificate($team->id);
 
         // The page warm-up and the install may ask at once: one maker per (device, app).
@@ -73,14 +71,21 @@ class ProfileProvisioner
      */
     public function ensureShared(AppArtifact $artifact, AppleTeam $team): SigningProfile
     {
-        $bundle = $artifact->signingBundleIdentifier();
-        if (config('storefront.artifacts.require_team_eligibility') && ! TeamAppEligibility::allows($team->id, $bundle)) {
-            throw new SigningUnavailable('TEAM_NOT_ELIGIBLE', "Team {$team->apple_team_id} is not approved for {$bundle}.");
-        }
+        $this->assertEligible($artifact, $team);
+        $bundle = $artifact->signingBundleIdentifier($team);
         $certificate = $this->certificate($team->id);
 
         return $this->locked("signing-profiles:team:{$team->id}:{$bundle}",
             fn () => $this->makeProfiles($artifact, ProfileTarget::forTeam($team), $certificate, $bundle));
+    }
+
+    /** Eligibility is granted for the app's base ID, whatever ID the team signs it with. */
+    private function assertEligible(AppArtifact $artifact, AppleTeam $team): void
+    {
+        $bundle = $artifact->signingBundleIdentifier();
+        if (config('storefront.artifacts.require_team_eligibility') && ! TeamAppEligibility::allows($team->id, $bundle)) {
+            throw new SigningUnavailable('TEAM_NOT_ELIGIBLE', "Team {$team->apple_team_id} is not approved for {$bundle}.");
+        }
     }
 
     /**
@@ -101,7 +106,7 @@ class ProfileProvisioner
         $name = (string) $artifact->app?->name;
 
         $capabilities = Capabilities::fromEntitlements($artifact->inspection['entitlements'] ?? []);
-        $extensions = array_map(fn (array $extension) => $extension + ['capabilities' => Capabilities::fromEntitlements($extension['entitlements'])], $artifact->signingExtensions());
+        $extensions = array_map(fn (array $extension) => $extension + ['capabilities' => Capabilities::fromEntitlements($extension['entitlements'])], $artifact->signingExtensions($team));
         // One App Group per app, shared by the app and its extensions, named after the signing ID.
         $needsGroup = in_array('APP_GROUPS', array_merge($capabilities, ...array_column($extensions, 'capabilities')), true);
         $group = $needsGroup ? 'group.'.$bundle : null;
@@ -222,7 +227,7 @@ class ProfileProvisioner
     public function extensionProfiles(AppArtifact $artifact, SigningProfile $main): array
     {
         $profiles = [];
-        foreach ($artifact->signingExtensions() as $extension) {
+        foreach ($artifact->signingExtensions($main->team) as $extension) {
             // Made with the app's profile: the same device, or the same device set.
             $profile = SigningProfile::query()
                 ->where(['apple_team_id' => $main->apple_team_id, 'bundle_identifier' => $extension['bundle_identifier']])

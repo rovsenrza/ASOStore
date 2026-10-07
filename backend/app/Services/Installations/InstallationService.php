@@ -218,7 +218,7 @@ class InstallationService
                 'items' => [[
                     'assets' => $assets,
                     'metadata' => [
-                        'bundle-identifier' => $artifact->signingBundleIdentifier(),
+                        'bundle-identifier' => $artifact->signingBundleIdentifier($installation->signedBuild?->profile?->team),
                         'bundle-version' => (string) $artifact->version,
                         'kind' => 'software',
                         'title' => $app->name,

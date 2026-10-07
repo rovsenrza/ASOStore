@@ -90,12 +90,13 @@ class SignatureVerifier
         }
 
         $artifact = $build->artifact;
-        $bundleIdentifier = $artifact->signingBundleIdentifier();
+        $team = $build->profile?->team;
+        $bundleIdentifier = $artifact->signingBundleIdentifier($team);
         if ($result->bundleValue('bundle_identifier') !== $bundleIdentifier) {
             return 'BUNDLE_ID_CHANGED';
         }
         // Every extension carries the ID it was provisioned for, and nothing was added.
-        $extensions = array_column($artifact->signingExtensions(), 'bundle_identifier');
+        $extensions = array_column($artifact->signingExtensions($team), 'bundle_identifier');
         $signed = array_values(array_map(
             fn (array $item) => $item['bundle_identifier'] ?? null,
             array_filter($result->report['nested_bundles'] ?? [], fn (array $item) => ($item['type'] ?? null) === 'extension'),

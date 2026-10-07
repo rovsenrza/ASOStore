@@ -222,6 +222,32 @@ it('installs a published app on a registered iPhone through the whole flow', fun
         ->and(Installation::count())->toBe(2);
 });
 
+it('signs for a team other than the primary under that team\'s own bundle ID', function () {
+    // Apple keeps one App ID per identifier across all teams; the primary team holds the base ones.
+    runnerHeartbeat()->assertOk();
+    $this->team->forceFill(['is_primary' => false])->save();
+    $bundle = 'com.example.demo.'.strtolower($this->team->apple_team_id);
+
+    $installation = app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+    $profile = SigningProfile::sole();
+    expect($profile->bundle_identifier)->toBe($bundle);
+
+    $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+    expect($lease['bundle_identifier'])->toBe($bundle);
+    $signed = IpaBuilder::app($bundle)
+        ->withAppFile('embedded.mobileprovision', base64_decode($profile->content_encrypted))
+        ->executable(IpaBuilder::machO(entitlements: ['application-identifier' => $this->team->apple_team_id.'.'.$bundle, 'get-task-allow' => false]))
+        ->build();
+    worker('PUT', $lease['upload_path'], $signed)->assertCreated();
+    worker('POST', $lease['result_path'], json_encode(['status' => 'succeeded', 'sha256' => hash('sha256', $signed), 'report' => ['codesign' => 'valid']]))->assertOk();
+    expect(SignedBuild::sole()->status)->toBe(SignedBuildStatus::Deliverable);
+
+    Sanctum::actingAs($this->customer);
+    $link = $this->postJson("/api/v1/installations/{$installation->public_id}/authorize")->assertOk()->json('data');
+    forgetGuards();
+    expect($this->get($link['manifest_url'])->assertOk()->getContent())->toContain("<string>{$bundle}</string>");
+});
+
 it('delivers object storage IPAs with range support, with and without a cached upload', function (bool $cached) {
     runnerHeartbeat();
     Sanctum::actingAs($this->customer);
@@ -657,6 +683,16 @@ it('signs an app extension with its own profile under the listing bundle ID', fu
     $link = $this->withToken($this->vpnToken)->postJson("/api/v1/installations/{$installation->public_id}/authorize")->assertOk()->json('data');
     forgetGuards();
     expect($this->get($link['manifest_url'])->assertOk()->getContent())->toContain('<string>com.ruappstore.vpn</string>');
+});
+
+it('gives extensions another team\'s ID under the app\'s', function () {
+    $artifact = preparedVpnApp($this)->publishedArtifact;
+    $other = new AppleTeam(['apple_team_id' => 'WU5Y6G68J9']);
+
+    expect($artifact->signingBundleIdentifier($other))->toBe('com.ruappstore.vpn.wu5y6g68j9')
+        ->and(array_column($artifact->signingExtensions($other), 'bundle_identifier'))->toBe(['com.ruappstore.vpn.wu5y6g68j9.tunnel'])
+        // The primary team keeps the base IDs it already holds at Apple.
+        ->and($artifact->signingBundleIdentifier($this->team))->toBe('com.ruappstore.vpn');
 });
 
 it('makes the profiles of several extensions side by side, and reuses them next time', function () {

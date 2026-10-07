@@ -128,12 +128,21 @@ class AppArtifact extends Model
      * The bundle ID signed builds carry: the listing's own when an operator set one
      * (a com.ruappstore.* ID for an app whose original ID belongs to another team),
      * otherwise the IPA's.
+     *
+     * Apple keeps one App ID per identifier across all teams, and the primary team
+     * holds these. A build for another team gets that team's ID appended
+     * (com.ruappstore.vk.wu5y6g68j9). Ru App Store variants are already one per team.
+     * Without a team: the base ID, which team eligibility is granted for.
      */
-    public function signingBundleIdentifier(): string
+    public function signingBundleIdentifier(?AppleTeam $team = null): string
     {
         $listing = CatalogApp::withTrashed()->find($this->app_id);
+        $base = (string) ($listing?->bundle_identifier ?: $this->bundle_identifier);
+        if ($team === null || $team->is_primary || $listing?->is_storefront) {
+            return $base;
+        }
 
-        return (string) ($listing?->bundle_identifier ?: $this->bundle_identifier);
+        return $base.'.'.strtolower($team->apple_team_id);
     }
 
     /**
@@ -143,10 +152,10 @@ class AppArtifact extends Model
      *
      * @return list<array{path: string, source_bundle_identifier: string, bundle_identifier: string, entitlements: array<string, mixed>}>
      */
-    public function signingExtensions(): array
+    public function signingExtensions(?AppleTeam $team = null): array
     {
         $original = (string) $this->bundle_identifier;
-        $target = $this->signingBundleIdentifier();
+        $target = $this->signingBundleIdentifier($team);
         $appPath = rtrim((string) ($this->inspection['bundle']['path'] ?? ''), '/').'/';
 
         $extensions = [];
