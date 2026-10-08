@@ -45,10 +45,21 @@
   <section class="prose" aria-labelledby="about-title">
     <h2 id="about-title">{{ $name }} на iPhone без App&nbsp;Store</h2>
     <p>{{ $intro }}</p>
+@foreach ($about as $paragraph)
+    <p>{{ $paragraph }}</p>
+@endforeach
 @if ($paragraphs !== [])
-    <h3>О приложении {{ $name }}</h3>
+    <h3>{{ $about !== [] ? 'Описание от разработчика' : 'О приложении '.$name }}</h3>
 @foreach (array_slice($paragraphs, 0, 12) as $paragraph)
     <p>{{ $paragraph }}</p>
+@endforeach
+@elseif ($about === [])
+    <p>{{ $categoryIntro }}</p>
+@endif
+@if ($releaseNotes !== [])
+    <h3>Что нового{{ $facts['version'] ? ' в версии '.$facts['version'] : '' }}</h3>
+@foreach (array_slice($releaseNotes, 0, 8) as $note)
+    <p>{{ $note }}</p>
 @endforeach
 @endif
   </section>

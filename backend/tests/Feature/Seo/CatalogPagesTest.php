@@ -165,3 +165,22 @@ it('lets public pages run Yandex.Metrika while the API keeps the strict policy',
         ->assertHeader('Content-Security-Policy', SecurityHeaders::CSP)
         ->assertHeader('X-Frame-Options', 'DENY');
 });
+
+it('shows our own write-up, the vendor text and release notes on the app page', function () {
+    $this->listing->latestVersion?->update(['release_notes' => 'Новый раздел «Накопления».']);
+    $file = tempnam(sys_get_temp_dir(), 'about');
+    file_put_contents($file, json_encode(['sberbank-onlayn' => "Наш обзор Сбера.\n\nВторой абзац.", 'nope' => 'x']));
+
+    $this->artisan('catalog:seo-about', ['file' => $file])->assertSuccessful();
+
+    expect($this->listing->fresh()->seo_about)->toBe("Наш обзор Сбера.\n\nВторой абзац.");
+    $this->get('/apps/sberbank-onlayn')->assertOk()
+        ->assertSeeInOrder(['Наш обзор Сбера.', 'Второй абзац.', 'Описание от разработчика', 'Переводы и платежи.']);
+});
+
+it('falls back to the category introduction when an app has no text at all', function () {
+    $bare = CatalogApp::factory()->create(['name' => 'Пустышка', 'description' => null, 'category_id' => $this->finance->id]);
+    AppArtifact::factory()->for($bare, 'app')->create(['status' => ArtifactStatus::Published]);
+
+    $this->get($bare->fresh()->seoUrl())->assertOk()->assertSee('Мобильные банки, кошельки и инвестиции');
+});

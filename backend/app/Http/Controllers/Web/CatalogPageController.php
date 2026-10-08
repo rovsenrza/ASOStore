@@ -184,6 +184,9 @@ class CatalogPageController extends Controller
             main: view('seo.app', [
                 'app' => $app, 'facts' => $facts, 'price' => $price, 'related' => $related, 'faq' => $faq,
                 'paragraphs' => self::paragraphs($app->description), 'categoryUrl' => $categoryUrl,
+                'about' => self::paragraphs($app->seo_about),
+                'releaseNotes' => self::paragraphs($app->latestVersion?->release_notes),
+                'categoryIntro' => CategoryCopy::intro($app->category, 'Приложения'),
             ])->render(),
             schema: [
                 Schema::organization(),
@@ -289,7 +292,7 @@ class CatalogPageController extends Controller
 
     public static function summary(CatalogApp $app): string
     {
-        $text = $app->subtitle ?: (self::paragraphs($app->description)[0] ?? '');
+        $text = $app->subtitle ?: (self::paragraphs($app->seo_about)[0] ?? self::paragraphs($app->description)[0] ?? '');
 
         return Str::limit(trim($text), 300);
     }
