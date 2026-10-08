@@ -12,6 +12,8 @@ struct CatalogView: View {
     /// The filters stick to the top once the title has scrolled away.
     @State private var filtersPinned = false
     @Namespace private var zoom
+    /// Gates `resumeIfStuck` to re-appearances only: the first appearance is `.task`'s job.
+    @State private var appearedOnce = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -39,6 +41,7 @@ struct CatalogView: View {
             .background(AppPalette.canvas)
             .refreshable { await model.reload(catalog) }
             .toolbarVisibility(.hidden, for: .navigationBar)
+            .swipeBackEnabled()
             .environment(\.zoomNamespace, zoom)
             .storeDestinations()
             .task(id: CatalogReloadKey(filter: model.filter, user: session.user?.id)) { await model.reload(catalog) }
@@ -47,6 +50,10 @@ struct CatalogView: View {
                 guard let id else { return }
                 path.append(AppRoute(.loading(id: id), from: AppRoute.link))
                 router.requestedAppID = nil
+            }
+            .onAppear {
+                if appearedOnce { model.resumeIfStuck(catalog) }
+                appearedOnce = true
             }
         }
     }

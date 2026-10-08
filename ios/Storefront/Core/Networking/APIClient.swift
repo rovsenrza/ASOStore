@@ -180,6 +180,9 @@ actor APIClient {
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         request.setValue("ru", forHTTPHeaderField: "Accept-Language")
         request.setValue("ios-\(UUID().uuidString.lowercased())", forHTTPHeaderField: "X-Request-Id")
+        if let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String {
+            request.setValue(build, forHTTPHeaderField: "X-App-Build")
+        }
         if let body {
             request.httpBody = body
             request.setValue(contentType, forHTTPHeaderField: "Content-Type")

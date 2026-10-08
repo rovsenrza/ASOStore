@@ -28,8 +28,10 @@ struct AppDetailView: View {
                     if app.featureImageURL != nil {
                         StretchyBanner(url: app.featureImageURL, topInset: topInset)
                     } else {
-                        // No banner: keep the header clear of the notch.
-                        Color.clear.frame(height: topInset + 8)
+                        // No banner: keep the header clear of the notch AND of the floating
+                        // back button overlaid at `topInset..topInset + 36` below — otherwise
+                        // the app icon starts high enough to sit right under it.
+                        Color.clear.frame(height: topInset + 44)
                     }
                     VStack(alignment: .leading, spacing: 28) {
                         if isStale {
@@ -69,6 +71,7 @@ struct AppDetailView: View {
             }
             // Full-bleed banner: hide the system bar and float a glass back button over the artwork.
             .toolbar(.hidden, for: .navigationBar)
+            .swipeBackEnabled()
             .overlay(alignment: .topLeading) {
                 Button { dismiss() } label: {
                     Image(systemName: "chevron.backward")

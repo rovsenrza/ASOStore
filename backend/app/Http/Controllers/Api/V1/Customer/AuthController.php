@@ -14,6 +14,7 @@ use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use App\Services\Auth\EmailVerificationService;
 use App\Services\Auth\TokenService;
+use App\Services\Devices\CurrentDevice;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -35,6 +36,7 @@ class AuthController extends Controller
         private readonly AuditService $audit,
         private readonly TokenService $tokens,
         private readonly EmailVerificationService $verification,
+        private readonly CurrentDevice $currentDevice,
     ) {}
 
     public function register(Request $request): JsonResponse
@@ -122,7 +124,31 @@ class AuthController extends Controller
 
     public function me(Request $request): JsonResponse
     {
-        return ApiResponse::ok((new MeResource($request->user()))->resolve($request));
+        return ApiResponse::ok((new MeResource($request->user(), $this->resolveAppUpdate($request)))->resolve($request));
+    }
+
+    /**
+     * A newer storefront build than the one the app sent in `X-App-Build`, scoped to this
+     * device's enrolled Apple team — each team publishes its own storefront variant on its own
+     * schedule (ADR 0001), so a team's device must only ever be told about ITS team's build.
+     *
+     * @return array{version: ?string, build_number: int}|null
+     */
+    private function resolveAppUpdate(Request $request): ?array
+    {
+        $clientBuild = (int) $request->header('X-App-Build');
+        if ($clientBuild <= 0) {
+            return null;
+        }
+
+        $device = $this->currentDevice->resolve($request);
+        $artifact = $device?->latestRegistration?->team?->storefrontApp?->publishedArtifact;
+        $latestBuild = (int) ($artifact?->build_number ?? 0);
+        if ($latestBuild <= $clientBuild) {
+            return null;
+        }
+
+        return ['version' => $artifact?->version, 'build_number' => $latestBuild];
     }
 
     public function forgotPassword(Request $request): JsonResponse

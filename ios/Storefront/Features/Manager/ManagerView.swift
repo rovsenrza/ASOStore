@@ -52,6 +52,7 @@ struct ManagerView: View {
             .background { BrandBackdrop() }
             .background(AppPalette.canvas)
             .toolbarVisibility(.hidden, for: .navigationBar)
+            .swipeBackEnabled()
             .refreshable { await load() }
             .task { await load() }
             .storeDestinations()

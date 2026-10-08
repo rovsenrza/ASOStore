@@ -91,6 +91,7 @@ struct SearchView: View {
             .background { BrandBackdrop() }
             .background(AppPalette.canvas)
             .toolbarVisibility(.hidden, for: .navigationBar)
+            .swipeBackEnabled()
             .refreshable { await model.loadLists(catalog) }
             .task(id: model.query) { await model.search(catalog) }
             .task { await model.loadLists(catalog) }

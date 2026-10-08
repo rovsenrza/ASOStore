@@ -3955,7 +3955,7 @@ components:
 
     Me:
       type: object
-      required: [id, name, email, email_verified, roles, subscription, created_at]
+      required: [id, name, email, email_verified, roles, subscription, created_at, app_update]
       properties:
         id: { $ref: "#/components/schemas/PublicId" }
         name: { type: string }
@@ -3971,6 +3971,18 @@ components:
             - $ref: "#/components/schemas/Subscription"
             - type: "null"
         created_at: { $ref: "#/components/schemas/Timestamp" }
+        app_update:
+          description: 'A newer storefront build than the one the app sent in X-App-Build, for this device''s enrolled Apple team. Null if none applies or the device/team cannot be resolved.'
+          oneOf:
+            - $ref: "#/components/schemas/AppUpdate"
+            - type: "null"
+
+    AppUpdate:
+      type: object
+      required: [build_number]
+      properties:
+        version: { type: [string, "null"] }
+        build_number: { type: integer }
 
     TokenPair:
       type: object

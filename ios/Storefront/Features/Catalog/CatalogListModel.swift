@@ -27,6 +27,16 @@ final class CatalogListModel {
 
     var apps: [StoreApp] { state.value ?? [] }
 
+    /// Retries a load that was cancelled mid-flight without ever producing a result. Pushing
+    /// another screen onto the nav stack cancels this view's own `.task`, and nothing restarts
+    /// it on return since the reload key didn't change — the list is stuck on its loading
+    /// skeleton until a manual pull-to-refresh. Call from `.onAppear` on every appearance
+    /// after the first (the first is `.task`'s job; calling this there too would just race it).
+    func resumeIfStuck(_ catalog: CatalogRepository) {
+        guard case .loading = state else { return }
+        Task { await reload(catalog) }
+    }
+
     func reload(_ catalog: CatalogRepository) async {
         generation += 1
         let current = generation

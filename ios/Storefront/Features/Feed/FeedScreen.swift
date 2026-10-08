@@ -16,6 +16,12 @@ final class FeedModel {
             state = LoadState(error: error)
         }
     }
+
+    /// See `CatalogListModel.resumeIfStuck`: the same cancel-without-recovery gap applies here.
+    func resumeIfStuck(_ catalog: CatalogRepository, kind: CatalogKind) {
+        guard case .loading = state else { return }
+        Task { await load(catalog, kind: kind) }
+    }
 }
 
 /// Главная: editor's picks and shelves first, then every app in one list («Все приложения»),
@@ -28,6 +34,9 @@ struct FeedScreen: View {
     @State private var model = FeedModel()
     @State private var allApps = CatalogListModel()
     @Namespace private var zoom
+    /// Gates `resumeIfStuck` to re-appearances only: the first appearance is `.task`'s job,
+    /// and firing it there too would just race the initial load.
+    @State private var appearedOnce = false
 
     var body: some View {
         NavigationStack {
@@ -53,11 +62,19 @@ struct FeedScreen: View {
             .background(AppPalette.canvas)
             .refreshable { await reloadAll() }
             .toolbarVisibility(.hidden, for: .navigationBar)
+            .swipeBackEnabled()
             .environment(\.zoomNamespace, zoom)
             .storeDestinations()
             // Install buttons depend on who is signed in: reload when that changes.
             .task(id: session.user?.id) { await model.load(catalog, kind: kind) }
             .task(id: CatalogReloadKey(filter: allApps.filter, user: session.user?.id)) { await allApps.reload(catalog) }
+            .onAppear {
+                if appearedOnce {
+                    model.resumeIfStuck(catalog, kind: kind)
+                    allApps.resumeIfStuck(catalog)
+                }
+                appearedOnce = true
+            }
         }
     }
 

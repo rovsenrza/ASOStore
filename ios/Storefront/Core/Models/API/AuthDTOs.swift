@@ -10,6 +10,12 @@ nonisolated struct SubscriptionDTO: Decodable, Hashable, Sendable {
     let endsAt: Date?
 }
 
+/// A newer storefront build than the one this app sent in `X-App-Build`, for the device's team.
+nonisolated struct AppUpdateDTO: Decodable, Hashable, Sendable {
+    let version: String?
+    let buildNumber: Int
+}
+
 nonisolated struct MeDTO: Decodable, Hashable, Sendable, Identifiable {
     let id: String
     let name: String
@@ -17,6 +23,7 @@ nonisolated struct MeDTO: Decodable, Hashable, Sendable, Identifiable {
     let roles: [String]
     let subscription: SubscriptionDTO?
     let createdAt: Date
+    let appUpdate: AppUpdateDTO?
 }
 
 nonisolated struct TokenPairDTO: Decodable, Sendable {
