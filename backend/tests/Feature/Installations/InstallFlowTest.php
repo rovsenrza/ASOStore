@@ -1139,11 +1139,33 @@ it('deletes an import, frees its file and its slot, but still counts it toward t
     Storage::disk('artifacts')->assertMissing($artifact->storage_path);
     expect($artifact->refresh()->purged_at)->not->toBeNull();
 
-    // The total slot is free again; the daily cap (2) still counts the deleted one.
-    $this->postJson('/api/v1/imports', ['filename' => 'B.ipa', 'size_bytes' => 10, 'declaration_accepted' => true])->assertCreated();
-    $this->deleteJson('/api/v1/imports/'.CatalogApp::where('imported_by_user_id', $this->customer->id)->sole()->public_id)->assertOk();
+    // The total slot is free again; the daily cap (2) still counts deleted imports whose file arrived.
+    $second = IpaBuilder::app('com.vendor.deleteme2')->build();
+    $start = $this->postJson('/api/v1/imports', ['filename' => 'B.ipa', 'size_bytes' => strlen($second), 'declaration_accepted' => true])
+        ->assertCreated()->json('data');
+    $this->call('PUT', "/api/v1/imports/{$start['id']}/chunks/0", [], [], [], [
+        'CONTENT_TYPE' => 'application/octet-stream', 'HTTP_ACCEPT' => 'application/json',
+    ], $second)->assertOk();
+    $this->postJson("/api/v1/imports/{$start['id']}/complete")->assertCreated();
+    $this->deleteJson("/api/v1/imports/{$start['import_id']}")->assertOk();
     $this->postJson('/api/v1/imports', ['filename' => 'C.ipa', 'size_bytes' => 10, 'declaration_accepted' => true])
         ->assertStatus(409)->assertJsonPath('error.code', 'QUOTA_EXHAUSTED');
+});
+
+it('frees the daily slot of an upload that never reached the server once it is deleted', function () {
+    config(['storefront.imports.daily_limit' => 1]);
+    Sanctum::actingAs($this->customer);
+
+    // The connection drops mid-upload: the import is open but its file never arrives.
+    $first = $this->postJson('/api/v1/imports', ['filename' => 'Big.ipa', 'size_bytes' => 10, 'declaration_accepted' => true])
+        ->assertCreated()->json('data');
+    // While it is still in progress it holds the day's slot...
+    $this->postJson('/api/v1/imports', ['filename' => 'Big.ipa', 'size_bytes' => 10, 'declaration_accepted' => true])
+        ->assertStatus(409)->assertJsonPath('error.code', 'QUOTA_EXHAUSTED');
+
+    // ...but once the customer deletes it, trying again is allowed.
+    $this->deleteJson("/api/v1/imports/{$first['import_id']}")->assertOk();
+    $this->postJson('/api/v1/imports', ['filename' => 'Big.ipa', 'size_bytes' => 10, 'declaration_accepted' => true])->assertCreated();
 });
 
 describe('builds shared by the Apple team', function () {

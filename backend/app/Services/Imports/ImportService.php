@@ -213,8 +213,14 @@ class ImportService
 
     private function assertWithinLimits(User $user): void
     {
-        // Deleted imports still count toward today, so delete-and-retry cannot get round the daily cap.
-        $today = CatalogApp::withTrashed()->where('imported_by_user_id', $user->id)->where('created_at', '>=', now()->startOfDay())->count();
+        // Deleted imports still count toward today, so delete-and-retry cannot get round the daily cap,
+        // unless their file never reached the server: nothing was stored or signed for an abandoned
+        // or failed upload, and counting it punishes a dropped connection rather than abuse.
+        $today = CatalogApp::withTrashed()
+            ->where('imported_by_user_id', $user->id)
+            ->where('created_at', '>=', now()->startOfDay())
+            ->where(fn ($query) => $query->whereNull('deleted_at')->orWhereHas('artifacts'))
+            ->count();
         $total = CatalogApp::query()->where('imported_by_user_id', $user->id)->count();
         if ($today >= $this->dailyLimit() || $total >= $this->totalLimit()) {
             throw new ApiException(ErrorCode::QuotaExhausted, 'Достигнут предел импортов. Удалите старый импорт или попробуйте позже.');
