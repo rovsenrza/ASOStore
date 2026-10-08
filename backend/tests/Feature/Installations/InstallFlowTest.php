@@ -962,6 +962,33 @@ it('embeds a one-time login code in the storefront build and signs the customer 
         ->assertJsonPath('data.user.email', $this->customer->email);
 });
 
+it('reuses a young storefront installation instead of tearing it down, but not an old one', function () {
+    runnerHeartbeat();
+    $this->catalogApp->forceFill(['is_storefront' => true])->save();
+    $service = app(InstallationService::class);
+
+    // A customer who revisits the install page minutes later (closed Safari, retapped after
+    // itms-services showed nothing) resumes the same installation and build — the one-time
+    // code is still well inside its TTL, and re-fetching the manifest/IPA does not consume it.
+    $first = $service->prepare($this->customer, $this->device, $this->catalogApp->refresh());
+    $this->travel(5)->minutes();
+    $again = $service->prepare($this->customer, $this->device, $this->catalogApp->refresh());
+    expect($again->id)->toBe($first->id)
+        ->and($again->signed_build_id)->toBe($first->signed_build_id)
+        ->and($again->status)->not->toBe(InstallationStatus::Expired);
+
+    // Once the code could plausibly have expired (default TTL 60 min, 5-minute safety margin),
+    // the installation is retired and prepare() mints a fresh one with a fresh code, same as before.
+    $this->travel(56)->minutes();
+    $stale = $service->prepare($this->customer, $this->device, $this->catalogApp->refresh());
+    expect($stale->id)->not->toBe($first->id)
+        ->and($stale->signed_build_id)->not->toBe($first->signed_build_id)
+        // Preparing vs. already ready picks Failed vs. Expired (InstallationService::prepare);
+        // either way the old attempt is retired with the same reason.
+        ->and($first->refresh()->status)->toBeIn([InstallationStatus::Expired, InstallationStatus::Failed])
+        ->and($first->status_reason)->toBe('BUILD_EXPIRED');
+});
+
 it('does not embed a login code for an ordinary app', function () {
     runnerHeartbeat();
     Sanctum::actingAs($this->customer);

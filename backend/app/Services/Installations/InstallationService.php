@@ -67,9 +67,19 @@ class InstallationService
 
                     continue;
                 }
-                // The storefront app is always re-prepared fresh so it carries a new one-time
-                // login code; every other app reuses a build that can still be delivered.
-                if (! $app->is_storefront && $this->resumable($installation)) {
+                // Every app reuses a build that can still be delivered. The storefront app's
+                // embedded one-time login code (ClaimService::mint) is only consumed by an
+                // actual first launch, not by re-fetching the manifest or IPA, so a young
+                // build is just as reusable — only once its code could plausibly have expired
+                // is a fresh one worth the cost of restarting. Without this, a customer who
+                // merely revisits the install page (closed Safari, retapped after the
+                // itms-services handoff showed nothing) had their in-progress install torn
+                // down and restarted from zero every time, which an impatient retry could
+                // never outrun.
+                $freshEnough = ! $app->is_storefront || $installation->created_at->gt(
+                    now()->subMinutes(max(1, (int) config('storefront.claims.bootstrap_ttl_minutes', 60) - 5))
+                );
+                if ($freshEnough && $this->resumable($installation)) {
                     $installation->signedBuild?->markUsed();
 
                     return $installation;
