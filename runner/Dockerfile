@@ -51,6 +51,10 @@ RUN apt-get update \
 COPY --from=zsign /usr/local/bin/zsign /usr/local/bin/zsign
 COPY --from=build /usr/local/bin/storefront-runner /usr/local/bin/storefront-runner
 USER runner
-ENV STOREFRONT_RUNNER_IDENTITIES_DIR=/run/secrets/signing \
+# A UTF-8 locale: in the default C locale unzip writes non-ASCII names as #Uxxxx for some entries
+# and raw UTF-8 for others, so an IPA whose app folder has a Cyrillic name unpacked into two .app folders.
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    STOREFRONT_RUNNER_IDENTITIES_DIR=/run/secrets/signing \
     STOREFRONT_RUNNER_WORK_DIR=/var/lib/storefront-runner/work
 ENTRYPOINT ["/usr/local/bin/storefront-runner"]
