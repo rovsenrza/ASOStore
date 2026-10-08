@@ -14,6 +14,11 @@ const onIphone = /iPhone|iPod/.test(navigator.userAgent) || (navigator.platform 
 const inSafari = onIphone && isSafari;
 
 let pollTimer = null;
+let openTimer = null;
+// Safari hands itms-services off to iOS without navigating away, so the page stays live while
+// iOS fetches the manifest. Long enough that the native "Install" sheet (success) or its error
+// dialog (failure, e.g. a dropped connection) has time to appear before the retry is offered.
+const OPEN_GRACE_MS = 5000;
 
 function remember(id) {
   try {
@@ -145,16 +150,25 @@ function handle(installation, attempt) {
 }
 
 async function authorize(id) {
+  clearTimeout(openTimer);
   setButton(false);
   try {
     const { data } = await api.post(`/installations/${id}/authorize`, {}, {
       idempotencyKey: `storefront-authorize-${crypto.randomUUID?.() ?? Date.now()}`,
     });
     message(t('install.openingTitle'), t('install.opening'), 'ok');
-    // iOS takes over from here: it fetches the manifest and asks the user to confirm.
+    // iOS takes over from here: it fetches the manifest and asks the user to confirm. Re-enabling
+    // the button at once let an impatient second tap (nothing visibly changes on this page while
+    // iOS fetches the manifest, success or failure) mint a fresh install token before the first
+    // attempt could even finish, piling up tokens and repeat itms-services attempts. The grace
+    // period gives that attempt time to resolve, then offers a clearly-labelled retry.
     location.assign(data.install_url);
-    setButton(true);
+    openTimer = setTimeout(() => {
+      message(t('install.openingTitle'), t('install.openingRetry'), 'ok');
+      setButton(true, t('install.retry'));
+    }, OPEN_GRACE_MS);
   } catch (error) {
+    clearTimeout(openTimer);
     setButton(true);
     renderError(progress, t, error);
     if (error.code === 'INSTALL_TOKEN_EXPIRED' || error.code === 'ARTIFACT_NOT_INSTALLABLE') delete installButton.dataset.installation;
