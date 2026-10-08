@@ -2,15 +2,87 @@
   "source": "https://ruappstore.com/api/v1",
   "tile": 256,
   "columns": 8,
-  "rows": 5,
+  "rows": 7,
   "apps": [
+    {
+      "id": "01m3q94e9w20ryejzx9qcmhx1d",
+      "name": "СберБанк Онлайн",
+      "label": "СберБанк",
+      "group": "banks",
+      "file": "01m3q94e9w20ryejzx9qcmhx1d.webp",
+      "index": 0
+    },
+    {
+      "id": "01m3q8njs8m6svjyb6ndz46kcq",
+      "name": "Т-Банк",
+      "label": "Т-Банк",
+      "group": "banks",
+      "file": "01m3q8njs8m6svjyb6ndz46kcq.webp",
+      "index": 1
+    },
+    {
+      "id": "01m3q8ns8gp4eqxawybrs2jfz6",
+      "name": "Альфа-Банк",
+      "label": "Альфа-Банк",
+      "group": "banks",
+      "file": "01m3q8ns8gp4eqxawybrs2jfz6.webp",
+      "index": 2
+    },
+    {
+      "id": "01m3q8nyc4nwsjkwgc6dgrmtrz",
+      "name": "Газпромбанк",
+      "label": "Газпромбанк",
+      "group": "banks",
+      "file": "01m3q8nyc4nwsjkwgc6dgrmtrz.webp",
+      "index": 3
+    },
+    {
+      "id": "01m3q8p2hqgn57c3s0hgzxa83f",
+      "name": "Россельхозбанк",
+      "label": "Россельхозбанк",
+      "group": "banks",
+      "file": "01m3q8p2hqgn57c3s0hgzxa83f.webp",
+      "index": 4
+    },
+    {
+      "id": "01m3v51z4123tcc81enn54rpns",
+      "name": "ПСБ",
+      "label": "ПСБ",
+      "group": "banks",
+      "file": "01m3v51z4123tcc81enn54rpns.webp",
+      "index": 5
+    },
+    {
+      "id": "01m3q8mx87q9fkkrnzp28csz2c",
+      "name": "МТС Банк",
+      "label": "МТС Банк",
+      "group": "banks",
+      "file": "01m3q8mx87q9fkkrnzp28csz2c.webp",
+      "index": 6
+    },
+    {
+      "id": "01m3q8p3earnq41mayqq7c9b8q",
+      "name": "Халва — Совкомбанк",
+      "label": "Халва",
+      "group": "banks",
+      "file": "01m3q8p3earnq41mayqq7c9b8q.webp",
+      "index": 7
+    },
+    {
+      "id": "01m3v52r2sn9ghvynz9t6n916y",
+      "name": "Банк ДОМ.РФ",
+      "label": "ДОМ.РФ",
+      "group": "banks",
+      "file": "01m3v52r2sn9ghvynz9t6n916y.webp",
+      "index": 8
+    },
     {
       "id": "01m3q92axq7160jezprkr15rr8",
       "name": "Райффайзен Онлайн Банк Россия",
       "label": "Райффайзен",
       "group": "banks",
       "file": "01m3q92axq7160jezprkr15rr8.webp",
-      "index": 0
+      "index": 9
     },
     {
       "id": "01m3q8ma3qwhyaej5q1k2zfk42",
@@ -18,7 +90,7 @@
       "label": "ОТП Банк",
       "group": "banks",
       "file": "01m3q8ma3qwhyaej5q1k2zfk42.webp",
-      "index": 1
+      "index": 10
     },
     {
       "id": "01m3q90nd92dmzah5m3p39tpg4",
@@ -26,15 +98,47 @@
       "label": "Ozon Банк",
       "group": "banks",
       "file": "01m3q90nd92dmzah5m3p39tpg4.webp",
-      "index": 2
+      "index": 11
     },
     {
-      "id": "01m3q925xnw197fjn5bkwh0br7",
-      "name": "Kaspi.kz суперприложение",
-      "label": "Kaspi.kz",
+      "id": "01m3q8pkkxx36aymtgx7rg6aeh",
+      "name": "Ак Барс Банк",
+      "label": "Ак Барс",
       "group": "banks",
-      "file": "01m3q925xnw197fjn5bkwh0br7.webp",
-      "index": 3
+      "file": "01m3q8pkkxx36aymtgx7rg6aeh.webp",
+      "index": 12
+    },
+    {
+      "id": "01m3q95z47wb3qt2ay094z0pw3",
+      "name": "Уралсиб Онлайн",
+      "label": "Уралсиб",
+      "group": "banks",
+      "file": "01m3q95z47wb3qt2ay094z0pw3.webp",
+      "index": 13
+    },
+    {
+      "id": "01m3q8egtgn08hwsm76msag5xk",
+      "name": "МКБ Банк",
+      "label": "МКБ",
+      "group": "banks",
+      "file": "01m3q8egtgn08hwsm76msag5xk.webp",
+      "index": 14
+    },
+    {
+      "id": "01m3q8sq22rg4mrp17xvrzhp08",
+      "name": "Банк Санкт-Петербург",
+      "label": "Банк СПб",
+      "group": "banks",
+      "file": "01m3q8sq22rg4mrp17xvrzhp08.webp",
+      "index": 15
+    },
+    {
+      "id": "01m3q93n4d9k53r9m83xnrwsv6",
+      "name": "Новикомбанк",
+      "label": "Новикомбанк",
+      "group": "banks",
+      "file": "01m3q93n4d9k53r9m83xnrwsv6.webp",
+      "index": 16
     },
     {
       "id": "01m3q915dvgnprpff9k18b323j",
@@ -42,7 +146,7 @@
       "label": "АТБ",
       "group": "banks",
       "file": "01m3q915dvgnprpff9k18b323j.webp",
-      "index": 4
+      "index": 17
     },
     {
       "id": "01m3q8p9sk9e7dcnv9f0stn1qe",
@@ -50,7 +154,23 @@
       "label": "Цифра банк",
       "group": "banks",
       "file": "01m3q8p9sk9e7dcnv9f0stn1qe.webp",
-      "index": 5
+      "index": 18
+    },
+    {
+      "id": "01m4bmv7dx10j4d46yrrjw9x9w",
+      "name": "Альфа-Инвестиции",
+      "label": "Альфа-Инвестиции",
+      "group": "banks",
+      "file": "01m4bmv7dx10j4d46yrrjw9x9w.webp",
+      "index": 19
+    },
+    {
+      "id": "01m3q925xnw197fjn5bkwh0br7",
+      "name": "Kaspi.kz суперприложение",
+      "label": "Kaspi.kz",
+      "group": "banks",
+      "file": "01m3q925xnw197fjn5bkwh0br7.webp",
+      "index": 20
     },
     {
       "id": "01m3q8znf84bhna3kb4mfxpr6k",
@@ -58,7 +178,7 @@
       "label": "Ozon",
       "group": "shopping",
       "file": "01m3q8znf84bhna3kb4mfxpr6k.webp",
-      "index": 6
+      "index": 21
     },
     {
       "id": "01m3q90scd97pgwj3mct31d710",
@@ -66,7 +186,7 @@
       "label": "Wildberries",
       "group": "shopping",
       "file": "01m3q90scd97pgwj3mct31d710.webp",
-      "index": 7
+      "index": 22
     },
     {
       "id": "01m3q92ybktdv1ca6edwvxafvk",
@@ -74,7 +194,7 @@
       "label": "Яндекс Маркет",
       "group": "shopping",
       "file": "01m3q92ybktdv1ca6edwvxafvk.webp",
-      "index": 8
+      "index": 23
     },
     {
       "id": "01m3q8xf3wcsqqm7v0fp07trrs",
@@ -82,15 +202,15 @@
       "label": "AliExpress",
       "group": "shopping",
       "file": "01m3q8xf3wcsqqm7v0fp07trrs.webp",
-      "index": 9
+      "index": 24
     },
     {
       "id": "01m3q8m1ytggw407syc12x9dd7",
-      "name": "Aвито",
+      "name": "Авито",
       "label": "Авито",
       "group": "shopping",
       "file": "01m3q8m1ytggw407syc12x9dd7.webp",
-      "index": 10
+      "index": 25
     },
     {
       "id": "01m3q8ke2xx89mcq3mznzpza9c",
@@ -98,7 +218,7 @@
       "label": "СДЭК",
       "group": "shopping",
       "file": "01m3q8ke2xx89mcq3mznzpza9c.webp",
-      "index": 11
+      "index": 26
     },
     {
       "id": "01m3q92nbmgh1k4etw5yw4w9yj",
@@ -106,7 +226,7 @@
       "label": "Пятёрочка",
       "group": "shopping",
       "file": "01m3q92nbmgh1k4etw5yw4w9yj.webp",
-      "index": 12
+      "index": 27
     },
     {
       "id": "01m3q9355x5rbfasw1pyywjvv9",
@@ -114,7 +234,7 @@
       "label": "Яндекс Go",
       "group": "shopping",
       "file": "01m3q9355x5rbfasw1pyywjvv9.webp",
-      "index": 13
+      "index": 28
     },
     {
       "id": "01m3q8kh725krgtsx8z26d9909",
@@ -122,7 +242,7 @@
       "label": "Instagram",
       "group": "social",
       "file": "01m3q8kh725krgtsx8z26d9909.webp",
-      "index": 14
+      "index": 29
     },
     {
       "id": "01m3q8y5t44hk0aahhty1m7018",
@@ -130,7 +250,7 @@
       "label": "WhatsApp",
       "group": "social",
       "file": "01m3q8y5t44hk0aahhty1m7018.webp",
-      "index": 15
+      "index": 30
     },
     {
       "id": "01m3q8sd4s5f0wahxmt8s2ag33",
@@ -138,7 +258,7 @@
       "label": "TikTok",
       "group": "social",
       "file": "01m3q8sd4s5f0wahxmt8s2ag33.webp",
-      "index": 16
+      "index": 31
     },
     {
       "id": "01m3q8phbm4cazadk54wkbkvx1",
@@ -146,7 +266,7 @@
       "label": "Threads",
       "group": "social",
       "file": "01m3q8phbm4cazadk54wkbkvx1.webp",
-      "index": 17
+      "index": 32
     },
     {
       "id": "01m3q8f6e6qcbqyf524td52wx2",
@@ -154,7 +274,7 @@
       "label": "X",
       "group": "social",
       "file": "01m3q8f6e6qcbqyf524td52wx2.webp",
-      "index": 18
+      "index": 33
     },
     {
       "id": "01m3q8s78vyj7bz8bz0ddktz6q",
@@ -162,7 +282,7 @@
       "label": "Discord",
       "group": "social",
       "file": "01m3q8s78vyj7bz8bz0ddktz6q.webp",
-      "index": 19
+      "index": 34
     },
     {
       "id": "01m3q8pch30d9yxb2wn32hz6wc",
@@ -170,15 +290,15 @@
       "label": "Viber",
       "group": "social",
       "file": "01m3q8pch30d9yxb2wn32hz6wc.webp",
-      "index": 20
+      "index": 35
     },
     {
       "id": "01m3q8qbs6w5e55q2ghyex5pdy",
-      "name": "VK",
+      "name": "ВКонтакте: общение в соцсети",
       "label": "VK",
       "group": "social",
       "file": "01m3q8qbs6w5e55q2ghyex5pdy.webp",
-      "index": 21
+      "index": 36
     },
     {
       "id": "01m3q8xz2wzpygnxk48pbfa3yc",
@@ -186,7 +306,7 @@
       "label": "YouTube Music",
       "group": "media",
       "file": "01m3q8xz2wzpygnxk48pbfa3yc.webp",
-      "index": 22
+      "index": 37
     },
     {
       "id": "01m3q8xvwpkz4xb7vbdczgnj2j",
@@ -194,7 +314,7 @@
       "label": "Spotify",
       "group": "media",
       "file": "01m3q8xvwpkz4xb7vbdczgnj2j.webp",
-      "index": 23
+      "index": 38
     },
     {
       "id": "01m3q8wv8bcb654rwrbdvbpcvc",
@@ -202,7 +322,7 @@
       "label": "Netflix",
       "group": "media",
       "file": "01m3q8wv8bcb654rwrbdvbpcvc.webp",
-      "index": 24
+      "index": 39
     },
     {
       "id": "01m3q8jj3qs30ctxkavqgb0nfg",
@@ -210,7 +330,7 @@
       "label": "Okko",
       "group": "media",
       "file": "01m3q8jj3qs30ctxkavqgb0nfg.webp",
-      "index": 25
+      "index": 40
     },
     {
       "id": "01m3q8xgdn1sj5p664pa7ydcyz",
@@ -218,15 +338,15 @@
       "label": "RUTUBE",
       "group": "media",
       "file": "01m3q8xgdn1sj5p664pa7ydcyz.webp",
-      "index": 26
+      "index": 41
     },
     {
       "id": "01m3q8yr16pay3jcw89kvgzh4z",
-      "name": "Yandex.Music",
+      "name": "Яндекс Музыка",
       "label": "Яндекс Музыка",
       "group": "media",
       "file": "01m3q8yr16pay3jcw89kvgzh4z.webp",
-      "index": 27
+      "index": 42
     },
     {
       "id": "01m3q8z21s6m6zwm2c38bn16s5",
@@ -234,15 +354,15 @@
       "label": "VK Музыка",
       "group": "media",
       "file": "01m3q8z21s6m6zwm2c38bn16s5.webp",
-      "index": 28
+      "index": 43
     },
     {
       "id": "01m3q8jyqyn0gd1x4kqmmd1wmv",
-      "name": "VK Video",
+      "name": "VK Видео",
       "label": "VK Video",
       "group": "media",
       "file": "01m3q8jyqyn0gd1x4kqmmd1wmv.webp",
-      "index": 29
+      "index": 44
     },
     {
       "id": "01m3q91x77hc7550fhk067aj69",
@@ -250,7 +370,7 @@
       "label": "Госуслуги",
       "group": "services",
       "file": "01m3q91x77hc7550fhk067aj69.webp",
-      "index": 30
+      "index": 45
     },
     {
       "id": "01m3q92gq46eyqvzh33a61w7bw",
@@ -258,7 +378,7 @@
       "label": "Мой МТС",
       "group": "services",
       "file": "01m3q92gq46eyqvzh33a61w7bw.webp",
-      "index": 31
+      "index": 46
     },
     {
       "id": "01m3q8mrkwsb47zrmxny7xqf6b",
@@ -266,7 +386,7 @@
       "label": "МегаФон",
       "group": "services",
       "file": "01m3q8mrkwsb47zrmxny7xqf6b.webp",
-      "index": 32
+      "index": 47
     },
     {
       "id": "01m3q8hv4jd4a613pnwtng5yz8",
@@ -274,7 +394,7 @@
       "label": "билайн",
       "group": "services",
       "file": "01m3q8hv4jd4a613pnwtng5yz8.webp",
-      "index": 33
+      "index": 48
     },
     {
       "id": "01m3q8hy6zk5szd5zs6dfr7emn",
@@ -282,7 +402,7 @@
       "label": "Моя Москва",
       "group": "services",
       "file": "01m3q8hy6zk5szd5zs6dfr7emn.webp",
-      "index": 34
+      "index": 49
     },
     {
       "id": "01m3q8kay7v8wvdphsr829qgx1",
@@ -290,7 +410,7 @@
       "label": "hh.ru",
       "group": "services",
       "file": "01m3q8kay7v8wvdphsr829qgx1.webp",
-      "index": 35
+      "index": 50
     },
     {
       "id": "01m3q903yhm8zr4x74rt9jexzy",
@@ -298,7 +418,7 @@
       "label": "Яндекс Карты",
       "group": "services",
       "file": "01m3q903yhm8zr4x74rt9jexzy.webp",
-      "index": 36
+      "index": 51
     },
     {
       "id": "01m3q8j4gtvm8pd4gwn1rgkv45",
@@ -306,7 +426,7 @@
       "label": "Почта Mail.ru",
       "group": "services",
       "file": "01m3q8j4gtvm8pd4gwn1rgkv45.webp",
-      "index": 37
+      "index": 52
     }
   ]
 }
