@@ -139,6 +139,9 @@ public struct Signer: Sendable {
             throw RunnerError.job(code: "CODESIGN_FAILED", message: Self.zsignError(zsigned.output + zsigned.error), retryable: false)
         }
 
+        // Non-ASCII names (Payload/Кинодом.app) must read as UTF-8 here and on the device.
+        try ZipNames.markUTF8(output)
+
         // Check what will be uploaded, not the folder zsign worked in.
         let verificationStarted = Date()
         let checked = try Self.unpack(output, into: workDirectory.appendingPathComponent("check", isDirectory: true), code: "REPACK_FAILED")
