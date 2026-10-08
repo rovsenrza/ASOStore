@@ -12,6 +12,9 @@ it was actually granted, read from its own entitlements at launch:
 
 - `-[NSFileManager containerURLForSecurityApplicationGroupIdentifier:]` — a missing group's
   container falls back to the one group we hold.
+  When the signature holds no App Group at all (a team the portal login cannot reach), it
+  gets a private folder under the app's own `Library/RuStoreGroups/` instead of `nil`, so the
+  app still launches; its extensions then share nothing with it.
 - `-[NSUserDefaults initWithSuiteName:]` — a shared-defaults suite named after a missing group
   maps to ours.
 - `SecItemAdd/CopyMatching/Update/Delete` (via fishhook) — a foreign keychain access group is

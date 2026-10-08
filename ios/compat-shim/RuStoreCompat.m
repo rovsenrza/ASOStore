@@ -83,9 +83,35 @@ static id RSEntitlement(NSString *key) {
 
 static NSURL *(*orig_containerURL)(id, SEL, NSString *);
 
+// A signature that holds no App Group at all (its team could not be given one) must still
+// launch: a missing group gets a folder inside the app's own container, laid out like a real
+// group container. Nothing is shared with the app's extensions then, but the app opens.
+static NSURL *RSPrivateGroupContainer(NSString *group) {
+    NSString *name = [group stringByReplacingOccurrencesOfString:@"/" withString:@"_"];
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:[@"Library/RuStoreGroups" stringByAppendingPathComponent:name]];
+    static NSMutableSet<NSString *> *prepared;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ prepared = [NSMutableSet set]; });
+    @synchronized (prepared) {
+        if (![prepared containsObject:path]) {
+            for (NSString *sub in @[@"Library/Caches", @"Library/Preferences", @"Library/Application Support"]) {
+                [NSFileManager.defaultManager createDirectoryAtPath:[path stringByAppendingPathComponent:sub]
+                                        withIntermediateDirectories:YES attributes:nil error:NULL];
+            }
+            [prepared addObject:path];
+        }
+    }
+    return [NSURL fileURLWithPath:path isDirectory:YES];
+}
+
 static NSURL *rs_containerURL(id self, SEL _cmd, NSString *group) {
     NSURL *url = orig_containerURL(self, _cmd, group);
-    if (url != nil || group == nil || gPrimaryGroup == nil) return url;
+    if (url != nil || group == nil) return url;
+    if (gPrimaryGroup == nil) {
+        NSURL *local = RSPrivateGroupContainer(group);
+        RSLog(@"container for %@ -> private %@", group, local.path);
+        return local;
+    }
     if ([gRealGroups containsObject:group]) return url; // genuinely ours; nil is real
     NSURL *mapped = orig_containerURL(self, _cmd, gPrimaryGroup);
     RSLog(@"container for %@ -> %@", group, mapped.path);
@@ -382,9 +408,11 @@ static void RuStoreCompatInit(void) {
             RSInstallInertCloudKit();
         }
 
+        // Also without any group of our own: then missing groups get a private folder.
+        RSSwizzle(NSFileManager.class, @selector(containerURLForSecurityApplicationGroupIdentifier:),
+                  (IMP)rs_containerURL, &orig_containerURL);
         if (gPrimaryGroup != nil) {
-            RSSwizzle(NSFileManager.class, @selector(containerURLForSecurityApplicationGroupIdentifier:),
-                      (IMP)rs_containerURL, &orig_containerURL);
+            // Without one, a suite named after a group already stays in the app's own preferences.
             RSSwizzle(NSUserDefaults.class, @selector(initWithSuiteName:),
                       (IMP)rs_initWithSuite, &orig_initWithSuite);
         }
