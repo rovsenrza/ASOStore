@@ -35,6 +35,17 @@ import Testing
         return Data(local + central + end)
     }
 
+    /// "Version made by" host byte and Unix mode of each central directory entry.
+    private func origin(_ data: Data) -> [(host: UInt8, mode: UInt32)] {
+        let bytes = [UInt8](data)
+        var result: [(host: UInt8, mode: UInt32)] = []
+        for index in 0..<(bytes.count - 4) where bytes[index] == 0x50 && bytes[index + 1] == 0x4B && bytes[index + 2] == 1 && bytes[index + 3] == 2 {
+            let attributes = UInt32(bytes[index + 38]) | UInt32(bytes[index + 39]) << 8 | UInt32(bytes[index + 40]) << 16 | UInt32(bytes[index + 41]) << 24
+            result.append((host: bytes[index + 5], mode: attributes >> 16))
+        }
+        return result
+    }
+
     private func flags(_ data: Data) -> (local: [UInt16], central: [UInt16]) {
         var local: [UInt16] = []
         var central: [UInt16] = []
@@ -59,6 +70,9 @@ import Testing
         #expect(patched.count == original.count)
         #expect(flags(patched).local == [0, 0x0800, 0x0800])
         #expect(flags(patched).central == [0, 0x0800, 0x0800])
+        // DOS-made entries are re-marked as Unix ones, so unzip stops converting from code page 437.
+        #expect(origin(patched).map(\.host) == [0, 3, 3])
+        #expect(origin(patched).map(\.mode) == [0, 0o040755, 0o100755])
         // Already marked: nothing more to do.
         #expect(try ZipNames.markUTF8(url) == 0)
     }
