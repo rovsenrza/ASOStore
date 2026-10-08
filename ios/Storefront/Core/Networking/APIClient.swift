@@ -126,11 +126,15 @@ actor APIClient {
             (data, response) = try await transport.send(request)
         } catch is CancellationError {
             throw CancellationError()
-        } catch let error as URLError where error.code == .cancelled {
+        } catch let error as URLError where error.code == .cancelled && Task.isCancelled {
             throw CancellationError()
         } catch let error as URLError {
             let offline: Set<URLError.Code> = [.notConnectedToInternet, .networkConnectionLost, .dataNotAllowed]
             throw APIError(code: offline.contains(error.code) ? .offline : .networkError, requestID: requestID)
+        } catch {
+            // A connection iOS tore down while the app was suspended can surface as a POSIX error
+            // ("Software caused connection abort") rather than a URLError: still a network failure.
+            throw APIError(code: .networkError, requestID: requestID)
         }
 
         let responseID = response.value(forHTTPHeaderField: "X-Request-Id") ?? requestID

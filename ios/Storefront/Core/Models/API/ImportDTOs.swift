@@ -18,7 +18,13 @@ nonisolated struct ImportDTO: Codable, Hashable, Sendable, Identifiable {
 
     /// Still being downloaded, stored or inspected on the server: worth polling.
     var isProcessing: Bool {
-        ["DOWNLOADING", "UPLOADING", "UPLOADED", "HASHING", "INSPECTING", "COMPATIBILITY_CHECK"].contains(status ?? "")
+        ["DOWNLOADING", "UPLOADED", "HASHING", "INSPECTING", "COMPATIBILITY_CHECK"].contains(status ?? "")
+    }
+
+    /// An upload from Files that is not running on this device (the app was closed mid-upload):
+    /// picking the same file again continues it on the server.
+    var isUnfinishedUpload: Bool {
+        status == "UPLOADING"
     }
 
     var isFailed: Bool {

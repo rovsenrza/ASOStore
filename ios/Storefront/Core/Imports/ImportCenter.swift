@@ -18,6 +18,8 @@ final class ImportCenter {
             case checking
             case uploading
             case finishing
+            /// iOS stopped it after the app left the screen; it continues once the app is back.
+            case paused
             case failed(String)
         }
 
@@ -42,6 +44,10 @@ final class ImportCenter {
     @ObservationIgnored private var tasks: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var sources: [UUID: Source] = [:]
     @ObservationIgnored private var poll: Task<Void, Never>?
+    /// Uploads stopped by something other than the customer (the app left the screen, the network
+    /// dropped); they continue from the same chunk when the app is back in front.
+    @ObservationIgnored private var interrupted: Set<UUID> = []
+    @ObservationIgnored private var backgroundTasks: [UUID: UIBackgroundTaskIdentifier] = [:]
     @ObservationIgnored private let log = Logger(subsystem: "storefront", category: "imports")
 
     /// Where an upload reads from, and what is left to send if it is retried.
@@ -57,6 +63,10 @@ final class ImportCenter {
     init(repository: ImportRepository, installations: InstallationCoordinator?) {
         self.repository = repository
         self.installations = installations
+        // Customers leave mid-upload (to install another app, say); carry on when they come back.
+        NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.resumeInterrupted() }
+        }
     }
 
     /// Imports to list: server rows, minus the ones still uploading from here.
@@ -159,17 +169,25 @@ final class ImportCenter {
     }
 
     private func run(_ id: UUID) {
-        update(id) { $0.phase = .checking }
+        interrupted.remove(id)
+        let resuming = sources[id]?.session != nil
+        update(id) { $0.phase = resuming ? .uploading : .checking }
         tasks[id] = Task { [weak self] in
             await self?.upload(id)
         }
     }
 
+    private func resumeInterrupted() {
+        for id in interrupted where tasks[id] == nil && sources[id] != nil {
+            run(id)
+        }
+    }
+
     private func upload(_ id: UUID) async {
         guard var source = sources[id] else { return }
-        let background = UIApplication.shared.beginBackgroundTask(withName: "ipa-import")
+        beginBackground(id)
         defer {
-            UIApplication.shared.endBackgroundTask(background)
+            endBackground(id)
             tasks[id] = nil
         }
 
@@ -186,11 +204,16 @@ final class ImportCenter {
             }
             guard let session = source.session else { return }
 
-            update(id) { $0.phase = .uploading }
+            let sentBefore = source.sent.count
+            update(id) {
+                $0.phase = .uploading
+                $0.progress = 0.05 + Double(sentBefore) / Double(max(session.chunkCount, 1)) * 0.93
+            }
             for number in 0..<session.chunkCount where !source.sent.contains(number) {
                 try Task.checkCancellation()
                 let chunk = try await Self.readChunk(source.url, number: number, size: session.chunkSize)
-                try await sendWithRetry(uploadID: session.id, number: number, data: chunk)
+                let digest = SHA256.hash(data: chunk).map { String(format: "%02x", $0) }.joined()
+                try await retrying { try await self.repository.putChunk(uploadID: session.id, number: number, data: chunk, sha256: digest) }
                 source.sent.insert(number)
                 sources[id] = source
                 let fraction = Double(source.sent.count) / Double(max(session.chunkCount, 1))
@@ -198,12 +221,19 @@ final class ImportCenter {
             }
 
             update(id) { $0.phase = .finishing }
-            _ = try await repository.complete(uploadID: session.id)
+            _ = try await retrying { try await self.repository.complete(uploadID: session.id) }
             // Fetch the server row first, so the import never disappears between the two lists.
             await refresh()
             finish(id)
         } catch is CancellationError {
+            // The customer's own cancel removes the upload first; anything else is iOS stopping us.
+            guard sources[id] != nil else { return }
+            interrupted.insert(id)
+            update(id) { $0.phase = .paused }
         } catch let error as APIError {
+            if Self.isTransient(error) {
+                interrupted.insert(id)
+            }
             update(id) { $0.phase = .failed(Self.message(for: error)) }
         } catch {
             log.error("import upload failed: \(String(describing: error), privacy: .public)")
@@ -211,22 +241,43 @@ final class ImportCenter {
         }
     }
 
-    /// A dropped connection costs one chunk, not the whole upload.
-    private func sendWithRetry(uploadID: String, number: Int, data: Data) async throws {
-        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    /// A dropped connection or a busy server costs a wait, not the upload: about two minutes of
+    /// retries before giving up (and then it continues on its own when the app is reopened).
+    private func retrying<Value>(_ operation: () async throws -> Value) async throws -> Value {
         var attempt = 0
         while true {
             do {
-                try await repository.putChunk(uploadID: uploadID, number: number, data: data, sha256: digest)
-                return
-            } catch let error as APIError where [.offline, .networkError, .serviceUnavailable, .rateLimited].contains(error.code) && attempt < 4 {
+                return try await operation()
+            } catch let error as APIError where Self.isTransient(error) && attempt < 7 {
                 attempt += 1
-                try await Task.sleep(for: .seconds(2 * attempt))
+                try await Task.sleep(for: .seconds(min(1 << attempt, 30)))
             }
         }
     }
 
+    nonisolated static func isTransient(_ error: APIError) -> Bool {
+        [.offline, .networkError, .serviceUnavailable, .rateLimited].contains(error.code)
+            || (error.code == .invalidResponse && error.status >= 500)
+    }
+
+    /// iOS gives an app some time after it leaves the screen; the upload keeps going meanwhile.
+    /// When that runs out it stops cleanly (iOS would otherwise end the app) and is resumed later.
+    private func beginBackground(_ id: UUID) {
+        backgroundTasks[id] = UIApplication.shared.beginBackgroundTask(withName: "ipa-import") { [weak self] in
+            MainActor.assumeIsolated {
+                self?.tasks[id]?.cancel()
+                self?.endBackground(id)
+            }
+        }
+    }
+
+    private func endBackground(_ id: UUID) {
+        guard let task = backgroundTasks.removeValue(forKey: id) else { return }
+        UIApplication.shared.endBackgroundTask(task)
+    }
+
     private func finish(_ id: UUID) {
+        interrupted.remove(id)
         if let source = sources.removeValue(forKey: id) {
             if source.scoped {
                 source.url.stopAccessingSecurityScopedResource()

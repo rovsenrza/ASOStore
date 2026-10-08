@@ -67,6 +67,17 @@ struct APIClientTests {
         #expect(error?.code == expected)
     }
 
+    /// iOS tears down sockets while the app is suspended; that is a network failure to retry,
+    /// not the caller cancelling (which would silently stop an upload).
+    @Test(arguments: [URLError(.cancelled) as any Error, NSError(domain: NSPOSIXErrorDomain, code: 53)])
+    func treatsConnectionsTornDownBySuspensionAsNetworkFailures(failure: any Error) async throws {
+        let transport = ScriptedTransport { _ in throw failure }
+        let error = await #expect(throws: APIError.self) {
+            try await APIClient.stubbed(transport).get("/health", as: HealthDTO.self)
+        }
+        #expect(error?.code == .networkError)
+    }
+
     @Test func loadStateClassifiesFailures() {
         #expect(isCase(LoadState<Int>(error: APIError(code: .offline)), \.isOffline))
         #expect(isCase(LoadState<Int>(error: APIError(code: .unauthenticated)), \.isUnauthorized))

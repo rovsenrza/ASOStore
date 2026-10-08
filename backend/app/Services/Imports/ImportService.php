@@ -70,6 +70,12 @@ class ImportService
         if ($sizeBytes < 1 || $sizeBytes > self::MAX_BYTES) {
             throw new ApiException(ErrorCode::ValidationFailed, details: ['size_bytes' => 'Файл слишком большой.']);
         }
+        // Picking the same file again (after the app was closed mid-upload, say) continues the
+        // upload already open for it instead of sending everything again as a new import.
+        $resumable = $this->resumableUpload($user, $sizeBytes, $sha256);
+        if ($resumable !== null) {
+            return $resumable;
+        }
         $this->assertWithinLimits($user);
 
         return DB::transaction(function () use ($user, $filename, $sizeBytes, $sha256, $ip) {
@@ -209,6 +215,25 @@ class ImportService
             'status' => 'OPEN',
             'expires_at' => now()->addDay(),
         ]);
+    }
+
+    private function resumableUpload(User $user, int $sizeBytes, ?string $sha256): ?UploadSession
+    {
+        if ($sha256 === null) {
+            return null;
+        }
+
+        // `app` excludes deleted imports: deleting one is how a customer starts over on purpose.
+        return UploadSession::query()
+            ->where('uploaded_by', $user->id)
+            ->where('source_type', SourceType::UserImport->value)
+            ->where('expected_sha256', strtolower($sha256))
+            ->where('expected_size', $sizeBytes)
+            ->where('status', 'OPEN')
+            ->where('expires_at', '>', now())
+            ->whereHas('app', fn ($query) => $query->where('imported_by_user_id', $user->id))
+            ->latest('id')
+            ->first();
     }
 
     private function assertWithinLimits(User $user): void

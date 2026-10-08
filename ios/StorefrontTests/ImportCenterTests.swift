@@ -71,11 +71,65 @@ struct ImportCenterTests {
         #expect(center.visibleImports.first?.installable == true)
     }
 
+    /// Picking a file whose upload the server already has in part sends only what is missing,
+    /// and a connection dropped mid-chunk costs a retry of that chunk, not the upload.
+    @Test func continuesAnUploadAndRidesOutADroppedConnection() async throws {
+        let bytes = Data("PK\u{3}\u{4}0123456789".utf8) // 14 bytes → chunks of 5, 5, 4
+        let file = URL.temporaryDirectory.appending(path: "Resume App.ipa")
+        try bytes.write(to: file)
+
+        let chunks = ChunkLog()
+        let dropOnce = DropOnce()
+        let transport = ScriptedTransport { request in
+            let path = request.url?.path() ?? ""
+            switch (request.httpMethod, path) {
+            case ("POST", "/api/v1/imports"):
+                // The server kept chunk 0 from an earlier attempt.
+                return (201, Data(#"{"data":{"id":"up2","import_id":"imp2","status":"OPEN","chunk_size":5,"chunk_count":3,"received_chunks":[0],"missing_chunks":[1,2],"expires_at":"2030-01-01T00:00:00Z"},"meta":{"request_id":"r"},"error":null}"#.utf8))
+            case ("PUT", _):
+                if path.hasSuffix("/chunks/1"), dropOnce.first() {
+                    throw URLError(.networkConnectionLost)
+                }
+                chunks.append(path, request.httpBody ?? Data())
+                return (200, Data(#"{"data":{"number":0,"size_bytes":5,"sha256":"x","already_received":false},"meta":{"request_id":"r"},"error":null}"#.utf8))
+            case ("POST", "/api/v1/imports/up2/complete"):
+                return (201, Data(#"{"data":{"import_id":"imp2","status":"PROVENANCE_REVIEW","job_id":null,"sha256":"x","size_bytes":14},"meta":{"request_id":"r"},"error":null}"#.utf8))
+            case ("GET", "/api/v1/imports"):
+                return (200, Data(#"{"data":[],"meta":{"request_id":"r"},"error":null}"#.utf8))
+            default:
+                return (404, Envelopes.error("NOT_FOUND"))
+            }
+        }
+        let center = ImportCenter(repository: ImportRepository(api: .stubbed(transport)), installations: nil)
+
+        center.importFile(at: file)
+        for _ in 0..<400 where !center.uploads.isEmpty {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        #expect(center.uploads.isEmpty)
+        #expect(chunks.paths == ["/api/v1/imports/up2/chunks/1", "/api/v1/imports/up2/chunks/2"])
+        #expect(chunks.joined == bytes.dropFirst(5))
+    }
+
     @Test func refusesALinkThatIsNotHTTPS() async {
         let center = ImportCenter(repository: ImportRepository(api: .stubbed(StubTransport(body: Data()))), installations: nil)
 
         #expect(await center.importLink("http://example.com/a.ipa") == false)
         #expect(center.message == "Нужна ссылка, начинающаяся с https://.")
+    }
+}
+
+nonisolated private final class DropOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var dropped = false
+
+    /// True the first time only.
+    func first() -> Bool {
+        lock.withLock {
+            defer { dropped = true }
+            return !dropped
+        }
     }
 }
 

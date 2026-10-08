@@ -112,6 +112,7 @@ private struct UploadRow: View {
         case .checking: "Подготовка файла…"
         case .uploading: "Загрузка на сервер"
         case .finishing: "Завершение загрузки…"
+        case .paused: "Пауза — продолжится в приложении"
         case .failed(let reason): reason
         }
     }
@@ -217,7 +218,7 @@ private struct ImportRow: View {
             ProgressView()
                 .frame(minWidth: 44, minHeight: 34)
                 .accessibilityLabel("Проверяется")
-        } else if item.isFailed {
+        } else if item.isFailed || item.isUnfinishedUpload {
             Button {
                 confirmsDelete = true
             } label: {
@@ -265,7 +266,7 @@ private struct ImportRow: View {
         }
         switch item.status {
         case "DOWNLOADING": return "Сервер скачивает файл…"
-        case "UPLOADING": return "Загрузка не завершена"
+        case "UPLOADING": return "Загрузка прервана. Выберите этот файл снова — она продолжится с того же места."
         case "PUBLISHED", "PROVENANCE_REVIEW", "READY": return "Проверено"
         default: return "Проверяем файл…"
         }

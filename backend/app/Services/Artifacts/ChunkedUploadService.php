@@ -106,7 +106,7 @@ class ChunkedUploadService
 
         $temporary = tmpfile();
         if ($temporary === false) {
-            $this->fail($upload, 'TEMPORARY_FILE_UNAVAILABLE');
+            UploadSession::query()->whereKey($upload->id)->where('status', 'ASSEMBLING')->update(['status' => 'OPEN']);
             throw new ApiException(ErrorCode::ServiceUnavailable);
         }
 
@@ -164,8 +164,7 @@ class ChunkedUploadService
             }
 
             $path = 'originals/'.substr($sha256, 0, 2).'/'.$sha256.'.ipa';
-            rewind($temporary);
-            Storage::disk('artifacts')->put($path, $temporary);
+            $this->storeOriginal($path, $temporary);
 
             $artifact = DB::transaction(function () use ($upload, $sha256, $actualSize, $path) {
                 $artifact = AppArtifact::create([
@@ -208,10 +207,40 @@ class ChunkedUploadService
             }
             throw $exception;
         } catch (\Throwable $exception) {
-            $this->fail($upload, 'ASSEMBLY_FAILED');
-            throw $exception;
+            // Storage or database trouble, not a bad file: every chunk is still stored, so the
+            // upload goes back to OPEN and completing it again can succeed.
+            report($exception);
+            UploadSession::query()->whereKey($upload->id)->where('status', 'ASSEMBLING')->update(['status' => 'OPEN']);
+            throw new ApiException(ErrorCode::ServiceUnavailable, 'Сервер временно не смог сохранить файл. Повторите попытку.');
         } finally {
             fclose($temporary);
+        }
+    }
+
+    /**
+     * Object storage occasionally fails a large multipart write; one bad part should not cost the
+     * customer the whole upload.
+     *
+     * @param  resource  $file
+     */
+    private function storeOriginal(string $path, $file): void
+    {
+        $attempts = 3;
+        for ($attempt = 1; ; $attempt++) {
+            try {
+                rewind($file);
+                if (Storage::disk('artifacts')->put($path, $file) === false) {
+                    throw new \RuntimeException("Unable to write file at location: {$path}.");
+                }
+
+                return;
+            } catch (\Throwable $exception) {
+                if ($attempt >= $attempts) {
+                    throw $exception;
+                }
+                report($exception);
+                usleep($attempt * 500_000);
+            }
         }
     }
 
