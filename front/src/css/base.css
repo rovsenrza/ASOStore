@@ -224,7 +224,7 @@ p { text-wrap: pretty; }
   width: min(100%, var(--max));
   margin-inline: auto;
   display: grid;
-  grid-template-columns: 1.4fr repeat(4, 1fr);
+  grid-template-columns: 1.4fr repeat(5, 1fr);
   gap: var(--s7) var(--s6);
 }
 .site-footer .brand { color: #fff; font-size: 1.25rem; }

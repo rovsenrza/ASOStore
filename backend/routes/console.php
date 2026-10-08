@@ -61,6 +61,11 @@ Schedule::call(fn () => app(BuildWarmup::class)->forTeams())
 Schedule::call(fn () => app(PlategaPayments::class)->reconcile())
     ->name('platega:reconcile')->everyTwoMinutes()->withoutOverlapping();
 
+// New and changed catalog pages go to Yandex/Bing via IndexNow (no-op without SEO_INDEXNOW_KEY);
+// listings published since the last run also get their readable address first.
+Schedule::command('catalog:seo-slugs')->dailyAt('05:00')->withoutOverlapping();
+Schedule::command('seo:indexnow --hours=25')->dailyAt('05:10')->withoutOverlapping();
+
 // The database cache never drops expired keys nobody reads again (worker nonces, throttles).
 Schedule::command('cache:prune-database')->hourly()->withoutOverlapping();
 

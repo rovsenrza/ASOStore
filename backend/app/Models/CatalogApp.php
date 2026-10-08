@@ -6,6 +6,7 @@ use App\Enums\AppVisibility;
 use App\Enums\ArtifactStatus;
 use App\Enums\SourceType;
 use App\Models\Concerns\HasPublicId;
+use App\Services\Seo\SeoSlugs;
 use Database\Factories\CatalogAppFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -59,6 +60,22 @@ class CatalogApp extends Model
             'is_storefront' => 'boolean',
             'featured_rank' => 'integer',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        // A listing gets its public page address once published, and keeps it after renames.
+        static::saving(function (CatalogApp $app) {
+            if ($app->seo_slug === null && $app->visibility === AppVisibility::Published && filled($app->name)) {
+                $app->seo_slug = app(SeoSlugs::class)->unique($app->name, $app->id);
+            }
+        });
+    }
+
+    /** The public, indexable page of a published listing. */
+    public function seoUrl(): ?string
+    {
+        return $this->seo_slug !== null ? config('seo.base_url').'/apps/'.$this->seo_slug : null;
     }
 
     /**
@@ -158,6 +175,21 @@ class CatalogApp extends Model
     public function scopeVisibleToCustomers(Builder $query): void
     {
         $query->where('visibility', AppVisibility::Published->value);
+    }
+
+    /**
+     * Listings with a public web page: published catalog apps, not the storefront itself and not
+     * customers' private imports.
+     *
+     * @param  Builder<CatalogApp>  $query
+     */
+    public function scopePubliclyListed(Builder $query): void
+    {
+        $query->visibleToCustomers()
+            ->where('is_storefront', false)
+            ->whereNull('imported_by_user_id')
+            ->whereNotNull('seo_slug')
+            ->whereHas('category', fn (Builder $category) => $category->where('slug', '!=', 'imported'));
     }
 
     /**

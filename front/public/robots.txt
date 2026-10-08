@@ -7,5 +7,25 @@ Disallow: /login.html
 Disallow: /register.html
 Disallow: /forgot-password.html
 Disallow: /reset-password.html
+Disallow: /verify-email.html
+Disallow: /payment.html
+Disallow: /app-signin.html
+Disallow: /catalog-shell.html
+
+# Yandex: links shared with tracking or referral parameters are the same page.
+User-agent: Yandex
+Allow: /
+Disallow: /admin/
+Disallow: /api/
+Disallow: /account.html
+Disallow: /login.html
+Disallow: /register.html
+Disallow: /forgot-password.html
+Disallow: /reset-password.html
+Disallow: /verify-email.html
+Disallow: /payment.html
+Disallow: /app-signin.html
+Disallow: /catalog-shell.html
+Clean-param: utm_source&utm_medium&utm_campaign&utm_content&utm_term&yclid&gclid&fbclid&ref&start
 
 Sitemap: https://ruappstore.com/sitemap.xml
