@@ -2,6 +2,7 @@
 
 use App\Enums\AppVisibility;
 use App\Enums\ArtifactStatus;
+use App\Http\Middleware\SecurityHeaders;
 use App\Models\AppArtifact;
 use App\Models\AppCategory;
 use App\Models\AppPublisher;
@@ -16,7 +17,7 @@ beforeEach(function () {
     $this->listing = CatalogApp::factory()->create([
         'name' => 'СберБанк Онлайн',
         'subtitle' => 'Банк в телефоне',
-        'description' => "Переводы и платежи.\n\nКарты, вклады и кэшбэк.",
+        'description' => "Переводы и платежи.\n\nКарты, вклады и кэшбэк.\n・Переводы по номеру телефона;\n- Оплата ЖКХ без комиссии.",
         'category_id' => $this->finance->id,
         'publisher_id' => AppPublisher::factory()->create(['name' => 'Sberbank of Russia'])->id,
         'icon_path' => 'catalog/icons/sber.webp',
@@ -56,16 +57,20 @@ it('serves an indexable app page with its facts, install steps, FAQ and structur
         ->toContain('300 МБ')
         ->toContain('Sberbank of Russia')
         ->toContain('Карты, вклады и кэшбэк.')
-        ->toContain('Как установить СберБанк Онлайн на&nbsp;iPhone')
+        ->toContain('Как скачать и установить СберБанк Онлайн на&nbsp;iPhone')
         ->toContain('href="https://ruappstore.com/categories/finance"');
     expect($response->headers->get('Set-Cookie'))->toBeNull();
 
     preg_match('#<script type="application/ld\+json">(.*?)</script>#s', $html, $match);
-    $types = collect(json_decode($match[1], true)['@graph'])->pluck('@type')->all();
-    expect($types)->toBe(['BreadcrumbList', 'SoftwareApplication', 'FAQPage']);
-    $software = collect(json_decode($match[1], true)['@graph'])->firstWhere('@type', 'SoftwareApplication');
-    expect($software)->toMatchArray(['name' => 'СберБанк Онлайн', 'operatingSystem' => 'iOS 15.0+', 'applicationCategory' => 'FinanceApplication', 'softwareVersion' => '15.2.0'])
-        ->and($software['offers']['priceCurrency'])->toBe('RUB');
+    $graph = collect(json_decode($match[1], true)['@graph']);
+    expect($graph->pluck('@type')->all())->toBe(['Organization', 'WebSite', 'ItemPage', 'BreadcrumbList', 'SoftwareApplication', 'HowTo', 'FAQPage']);
+    $software = $graph->firstWhere('@type', 'SoftwareApplication');
+    expect($software)->toMatchArray(['name' => 'СберБанк Онлайн', 'operatingSystem' => 'iOS 15.0 или новее', 'applicationCategory' => 'FinanceApplication', 'softwareVersion' => '15.2.0'])
+        ->and($software['featureList'])->toBe(['Переводы по номеру телефона', 'Оплата ЖКХ без комиссии'])
+        ->and($software['offers']['priceCurrency'])->toBe('RUB')
+        ->and($graph->firstWhere('@type', 'ItemPage')['mainEntity'])->toBe(['@id' => 'https://ruappstore.com/apps/sberbank-onlayn#app'])
+        ->and($graph->firstWhere('@type', 'BreadcrumbList')['@id'])->toBe('https://ruappstore.com/apps/sberbank-onlayn#breadcrumb')
+        ->and($graph->firstWhere('@type', 'HowTo')['step'])->toHaveCount(4);
 });
 
 it('escapes catalog text it puts into the page', function () {
@@ -94,7 +99,8 @@ it('has no public page for drafts, private imports or the storefront', function 
 
 it('lists a category and the whole catalog with links to every app', function () {
     $this->get('/categories/finance')->assertOk()
-        ->assertSee('<title>Финансы для iPhone — 1 приложение без App Store | Ru App Store</title>', false)
+        ->assertSee('<title>Банковские и финансовые приложения для iPhone — скачать без App Store | Ru App Store</title>', false)
+        ->assertSee('Мобильные банки, кошельки и инвестиции', false)
         ->assertSee('href="/apps/sberbank-onlayn"', false);
     $this->get('/categories/nothing-here')->assertNotFound();
 
@@ -151,11 +157,11 @@ it('proves the IndexNow key and submits changed pages', function () {
 
 it('lets public pages run Yandex.Metrika while the API keeps the strict policy', function () {
     $page = $this->get('/apps/sberbank-onlayn')->assertOk();
-    expect($page->headers->get('Content-Security-Policy'))->toBe(\App\Http\Middleware\SecurityHeaders::PUBLIC_PAGE_CSP)
+    expect($page->headers->get('Content-Security-Policy'))->toBe(SecurityHeaders::PUBLIC_PAGE_CSP)
         ->toContain('https://mc.yandex.ru')
         ->and($page->headers->has('X-Frame-Options'))->toBeFalse();
 
     $this->getJson('/api/v1/health')
-        ->assertHeader('Content-Security-Policy', \App\Http\Middleware\SecurityHeaders::CSP)
+        ->assertHeader('Content-Security-Policy', SecurityHeaders::CSP)
         ->assertHeader('X-Frame-Options', 'DENY');
 });

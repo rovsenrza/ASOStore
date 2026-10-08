@@ -9,7 +9,7 @@
   <meta property="og:description" content="{{ $page->description }}">
   <meta property="og:url" content="{{ $page->canonical }}">
   <meta property="og:image" content="{{ $page->image ?? config('seo.base_url').'/assets/og/ru-app-store-og.jpg' }}">
-  <meta name="twitter:card" content="{{ $page->image ? 'summary' : 'summary_large_image' }}">
+  <meta name="twitter:card" content="{{ $page->image && $page->ogType !== 'article' ? 'summary' : 'summary_large_image' }}">
 @if ($page->schema !== [])
   <script type="application/ld+json">{!! json_encode(['@context' => 'https://schema.org', '@graph' => $page->schema], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) !!}</script>
 @endif

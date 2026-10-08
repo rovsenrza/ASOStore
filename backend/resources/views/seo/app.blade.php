@@ -1,8 +1,8 @@
 @php
     use App\Http\Controllers\Web\CatalogPageController as Page;
     $name = $app->name;
-    $intro = "{$name} можно установить на iPhone через Ru App Store, даже если приложения нет в российском App Store. "
-        ."Мы подписываем {$name} для вашего устройства: нужен iPhone".($facts['min_ios'] ? " с iOS {$facts['min_ios']} или новее" : '')
+    $intro = "{$name} можно скачать на айфон через Ru App Store, даже если приложение пропало из App Store или не скачивается в России. "
+        ."Мы подписываем {$name} для вашего iPhone: нужна iOS".($facts['min_ios'] ? " {$facts['min_ios']} или новее" : '')
         .', компьютер и джейлбрейк не нужны.';
     if ($facts['version']) {
         $intro .= " В каталоге — версия {$facts['version']}"
@@ -45,9 +45,12 @@
   <section class="prose" aria-labelledby="about-title">
     <h2 id="about-title">{{ $name }} на iPhone без App&nbsp;Store</h2>
     <p>{{ $intro }}</p>
+@if ($paragraphs !== [])
+    <h3>О приложении {{ $name }}</h3>
 @foreach (array_slice($paragraphs, 0, 12) as $paragraph)
     <p>{{ $paragraph }}</p>
 @endforeach
+@endif
   </section>
 
 @if ($app->screenshots->isNotEmpty())
@@ -62,7 +65,7 @@
 @endif
 
   <section id="install" aria-labelledby="install-title">
-    <h2 id="install-title">Как установить {{ $name }} на&nbsp;iPhone</h2>
+    <h2 id="install-title">Как скачать и установить {{ $name }} на&nbsp;iPhone</h2>
     <ol class="install-steps">
       <li><b>Купите доступ к Ru App Store.</b> Любой тариф{{ $price ? ' (от '.$price.' ₽ в месяц)' : '' }} открывает весь каталог. <a href="/buy.html">Тарифы и оплата</a></li>
       <li><b>Зарегистрируйте iPhone.</b> Откройте сайт в Safari и установите профиль регистрации — это занимает пару минут. <a href="/activate.html">Регистрация iPhone</a></li>
@@ -72,7 +75,7 @@
   </section>
 
   <section aria-labelledby="faq-title">
-    <h2 id="faq-title">Частые вопросы</h2>
+    <h2 id="faq-title">Вопросы об установке {{ $name }}</h2>
     <div class="faq">
 @foreach ($faq as [$question, $answer])
       <details{{ $loop->first ? ' open' : '' }}><summary>{{ $question }}</summary><p>{{ $answer }}</p></details>

@@ -88,7 +88,7 @@ class AppGroupProvisioner
         }
 
         // The last JSON line; Spaceship may print notices before it.
-        foreach (array_reverse(preg_split('/\R/', trim($output)) ?: []) as $line) {
+        foreach (array_reverse(preg_split('/\R/u', trim($output)) ?: []) as $line) {
             $decoded = json_decode($line, true);
             if (is_array($decoded) && array_key_exists('ok', $decoded)) {
                 return $decoded;

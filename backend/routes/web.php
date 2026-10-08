@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Web\BlogController;
 use App\Http\Controllers\Web\CatalogPageController;
 use App\Http\Controllers\Web\SitemapController;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
@@ -18,6 +19,8 @@ Route::withoutMiddleware([StartSession::class, ShareErrorsFromSession::class, Va
         Route::get('/apps', [CatalogPageController::class, 'index'])->name('seo.apps');
         Route::get('/apps/{slug}', [CatalogPageController::class, 'show'])->where('slug', '[a-z0-9-]+')->name('seo.app');
         Route::get('/categories/{slug}', [CatalogPageController::class, 'category'])->where('slug', '[a-z0-9-]+')->name('seo.category');
+        Route::get('/blog', [BlogController::class, 'index'])->name('seo.blog');
+        Route::get('/blog/{slug}', [BlogController::class, 'show'])->where('slug', '[a-z0-9-]+')->name('seo.blog-post');
         Route::get('/sitemap.xml', SitemapController::class)->name('seo.sitemap');
         // IndexNow proves the site owns its key with a text file named after it.
         Route::get('/{key}.txt', function (string $key) {

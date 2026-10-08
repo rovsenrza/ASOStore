@@ -6,12 +6,15 @@ use App\Enums\CategoryKind;
 use App\Http\Controllers\Controller;
 use App\Models\AppCategory;
 use App\Models\CatalogApp;
+use App\Services\Seo\CategoryCopy;
 use App\Services\Seo\PageShell;
+use App\Services\Seo\Schema;
 use App\Services\Seo\SeoPage;
 use App\Services\TelegramStore\StoreSettings;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Response;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\RedirectResponse;
@@ -36,16 +39,32 @@ class CatalogPageController extends Controller
             $categories = $this->categories();
             $apps = $this->publicApps()->get()->groupBy('category_id');
             $total = $apps->sum(fn (Collection $list) => $list->count());
-            $base = config('seo.base_url');
+            $count = $total.' '.self::plural($total, 'приложение', 'приложения', 'приложений');
+            $url = Schema::base().'/apps';
+            $title = 'Каталог приложений для iPhone без App Store — '.$count.' | Ru App Store';
+            $description = 'Скачать на айфон приложения, которых нет в российском App Store: банки, маркетплейсы, соцсети, игры и сервисы — '.$count.'. Установка через Ru App Store.';
 
             return new SeoPage(
-                title: 'Каталог приложений для iPhone без App Store — '.$total.' '.self::plural($total, 'приложение', 'приложения', 'приложений').' | Ru App Store',
-                description: 'Банки, маркетплейсы, соцсети, игры и сервисы, которых нет в российском App Store: '.$total.' '.self::plural($total, 'приложение', 'приложения', 'приложений').' для установки на iPhone через Ru App Store.',
-                canonical: $base.'/apps',
-                main: view('seo.catalog', ['categories' => $categories, 'apps' => $apps, 'total' => $total, 'perCategory' => self::OVERVIEW_PER_CATEGORY])->render(),
+                title: $title,
+                description: $description,
+                canonical: $url,
+                main: view('seo.catalog', ['categories' => $categories, 'apps' => $apps, 'total' => $total, 'count' => $count, 'perCategory' => self::OVERVIEW_PER_CATEGORY])->render(),
                 schema: [
-                    $this->breadcrumbs([['Каталог', $base.'/apps']]),
-                    ['@type' => 'CollectionPage', '@id' => $base.'/apps', 'name' => 'Каталог приложений Ru App Store', 'url' => $base.'/apps', 'inLanguage' => 'ru'],
+                    Schema::organization(),
+                    Schema::website(),
+                    Schema::webPage('CollectionPage', $url, $title, $description, extra: [
+                        'about' => 'Приложения для iPhone, которых нет в российском App Store',
+                        'mainEntity' => [
+                            '@type' => 'ItemList',
+                            'name' => 'Категории каталога',
+                            'numberOfItems' => $categories->count(),
+                            'itemListElement' => $categories->values()->map(fn (AppCategory $category, int $i) => [
+                                '@type' => 'ListItem', 'position' => $i + 1, 'name' => CategoryCopy::heading($category),
+                                'url' => Schema::base().'/categories/'.$category->slug,
+                            ])->all(),
+                        ],
+                    ]),
+                    Schema::breadcrumbs($url, [['Каталог', $url]]),
                 ],
             );
         });
@@ -59,27 +78,35 @@ class CatalogPageController extends Controller
         return $this->cached('categories/'.$slug, function () use ($category) {
             $apps = $this->publicApps()->where('category_id', $category->id)->get();
             abort_if($apps->isEmpty(), 404);
-            $base = config('seo.base_url');
-            $url = $base.'/categories/'.$category->slug;
+            $url = Schema::base().'/categories/'.$category->slug;
             $count = $apps->count().' '.self::plural($apps->count(), 'приложение', 'приложения', 'приложений');
+            $heading = CategoryCopy::heading($category);
+            $title = $heading.' — скачать без App Store | Ru App Store';
+            $description = Str::limit($heading.': '.$count.' — '.$apps->take(4)->pluck('name')->implode(', ')
+                .' и другие. Скачайте на айфон через Ru App Store без компьютера и джейлбрейка.', 158);
 
             return new SeoPage(
-                title: $category->title.' для iPhone — '.$count.' без App Store | Ru App Store',
-                description: Str::limit($category->title.': '.$count.' для iPhone, которых нет в российском App Store, — '.$apps->take(4)->pluck('name')->implode(', ').' и другие. Установка через Ru App Store без компьютера.', 158),
+                title: $title,
+                description: $description,
                 canonical: $url,
-                main: view('seo.category', ['category' => $category, 'apps' => $apps, 'count' => $count, 'categories' => $this->categories()])->render(),
+                main: view('seo.category', [
+                    'category' => $category, 'apps' => $apps, 'count' => $count, 'categories' => $this->categories(),
+                    'heading' => $heading, 'intro' => CategoryCopy::intro($category, $count),
+                ])->render(),
                 schema: [
-                    $this->breadcrumbs([['Каталог', $base.'/apps'], [$category->title, $url]]),
-                    [
-                        '@type' => 'CollectionPage', '@id' => $url, 'name' => $category->title.' для iPhone', 'url' => $url, 'inLanguage' => 'ru',
+                    Schema::organization(),
+                    Schema::website(),
+                    Schema::webPage('CollectionPage', $url, $title, $description, $apps->first()?->iconUrl(), $this->lastModified($apps), [
                         'mainEntity' => [
                             '@type' => 'ItemList',
+                            'name' => $heading,
                             'numberOfItems' => $apps->count(),
                             'itemListElement' => $apps->values()->map(fn (CatalogApp $app, int $i) => [
                                 '@type' => 'ListItem', 'position' => $i + 1, 'url' => $app->seoUrl(), 'name' => $app->name,
                             ])->all(),
                         ],
-                    ],
+                    ]),
+                    Schema::breadcrumbs($url, [['Каталог', Schema::base().'/apps'], [$category->title, $url]]),
                 ],
             );
         });
@@ -102,8 +129,9 @@ class CatalogPageController extends Controller
     private function appPage(CatalogApp $app): SeoPage
     {
         $app->load(['category', 'publisher', 'latestVersion', 'publishedArtifact', 'screenshots']);
-        $base = config('seo.base_url');
+        $base = Schema::base();
         $name = $app->name;
+        $url = $app->seoUrl();
         $artifact = $app->publishedArtifact;
         $facts = [
             'version' => $artifact?->version ?? $app->latestVersion?->version,
@@ -115,44 +143,68 @@ class CatalogPageController extends Controller
         $related = $this->publicApps()->where('category_id', $app->category_id)->whereKeyNot($app->id)->limit(self::RELATED)->get();
         $faq = $this->faq($app, $facts, $price);
         $categoryUrl = $base.'/categories/'.$app->category->slug;
-        $description = self::summary($app);
+        $modified = $this->lastModified(collect([$app]));
+        $title = self::appTitle($name);
+        $description = Str::limit($name.' нет в App Store? Скачайте '.$name.' на айфон через Ru App Store: без компьютера и джейлбрейка'
+            .($facts['min_ios'] ? ', iOS '.$facts['min_ios'].'+' : '').', обновления в каталоге.', 158);
+        $image = $app->bannerUrl() ?? $app->iconUrl();
 
         $software = array_filter([
             '@type' => 'SoftwareApplication',
-            '@id' => $app->seoUrl().'#app',
+            '@id' => $url.'#app',
             'name' => $name,
-            'url' => $app->seoUrl(),
-            'description' => $description,
-            'operatingSystem' => $facts['min_ios'] ? 'iOS '.$facts['min_ios'].'+' : 'iOS',
+            'url' => $url,
+            'description' => self::summary($app),
+            'operatingSystem' => $facts['min_ios'] ? 'iOS '.$facts['min_ios'].' или новее' : 'iOS',
             'applicationCategory' => self::schemaCategory($app->category),
+            'applicationSubCategory' => $app->category->title,
+            'availableOnDevice' => 'iPhone, iPad',
             'softwareVersion' => $facts['version'],
             'fileSize' => $facts['size'] ? self::megabytes($facts['size']).' MB' : null,
+            'contentRating' => $app->age_rating,
+            'datePublished' => $app->created_at?->toAtomString(),
+            'dateModified' => $modified?->toAtomString(),
+            'releaseNotes' => $app->latestVersion?->release_notes ? Str::limit(trim($app->latestVersion->release_notes), 500) : null,
+            'featureList' => self::features($app->description) ?: null,
+            'keywords' => "скачать {$name} на iPhone, {$name} на айфон, установить {$name} без App Store, {$name} для iOS",
             'image' => $app->iconUrl(),
             'screenshot' => $app->screenshots->take(6)->map->url()->values()->all() ?: null,
             'author' => $app->publisher ? ['@type' => 'Organization', 'name' => $app->publisher->name] : null,
             'offers' => $price ? [
                 '@type' => 'Offer', 'price' => (string) $price, 'priceCurrency' => 'RUB',
-                'url' => $base.'/buy.html', 'availability' => 'https://schema.org/InStock',
+                'description' => 'Доступ к каталогу Ru App Store на месяц', 'url' => $base.'/buy.html',
+                'availability' => 'https://schema.org/InStock', 'seller' => ['@id' => $base.'/#org'],
             ] : null,
         ], fn ($value) => $value !== null);
 
         return new SeoPage(
-            title: self::appTitle($name),
-            description: Str::limit($name.' нет в App Store? Установите '.$name.' на iPhone через Ru App Store'
-                .($facts['min_ios'] ? ' (iOS '.$facts['min_ios'].'+)' : '').': без компьютера и джейлбрейка, обновления в каталоге.', 158),
-            canonical: $app->seoUrl(),
+            title: $title,
+            description: $description,
+            canonical: $url,
             main: view('seo.app', [
                 'app' => $app, 'facts' => $facts, 'price' => $price, 'related' => $related, 'faq' => $faq,
                 'paragraphs' => self::paragraphs($app->description), 'categoryUrl' => $categoryUrl,
             ])->render(),
             schema: [
-                $this->breadcrumbs([['Каталог', $base.'/apps'], [$app->category->title, $categoryUrl], [$name, $app->seoUrl()]]),
+                Schema::organization(),
+                Schema::website(),
+                Schema::webPage('ItemPage', $url, $title, $description, $image, $modified, ['mainEntity' => ['@id' => $url.'#app']]),
+                Schema::breadcrumbs($url, [['Каталог', $base.'/apps'], [$app->category->title, $categoryUrl], [$name, $url]]),
                 $software,
-                ['@type' => 'FAQPage', 'mainEntity' => array_map(fn (array $item) => [
+                [
+                    '@type' => 'HowTo',
+                    '@id' => $url.'#install',
+                    'name' => "Как скачать и установить {$name} на iPhone",
+                    'description' => "Установка {$name} на iPhone без App Store, компьютера и джейлбрейка.",
+                    'tool' => [['@type' => 'HowToTool', 'name' => 'iPhone или iPad'.($facts['min_ios'] ? ' с iOS '.$facts['min_ios'].' или новее' : '')],
+                        ['@type' => 'HowToTool', 'name' => 'Браузер Safari']],
+                    'step' => Schema::installSteps($name, $price),
+                ],
+                ['@type' => 'FAQPage', '@id' => $url.'#faq', 'mainEntity' => array_map(fn (array $item) => [
                     '@type' => 'Question', 'name' => $item[0], 'acceptedAnswer' => ['@type' => 'Answer', 'text' => $item[1]],
                 ], $faq)],
             ],
-            image: $app->bannerUrl() ?? $app->iconUrl(),
+            image: $image,
         );
     }
 
@@ -164,8 +216,8 @@ class CatalogPageController extends Controller
     {
         $name = $app->name;
         $faq = [
-            ["Можно ли скачать {$name} на iPhone, если его нет в App Store?",
-                "Да. Ru App Store устанавливает {$name} на iPhone напрямую, без App Store: приложение подписывается для вашего устройства. Компьютер и джейлбрейк не нужны."],
+            ["Как скачать {$name} на айфон, если его нет в App Store?",
+                "Через Ru App Store: купите доступ, зарегистрируйте iPhone в Safari, установите приложение Ru App Store и нажмите «Установить» у {$name}. Приложение подписывается для вашего устройства, поэтому App Store не нужен."],
         ];
         if ($facts['min_ios']) {
             $faq[] = ["На каких iPhone работает {$name}?", "Нужен iPhone или iPad с iOS {$facts['min_ios']} или новее."];
@@ -174,7 +226,11 @@ class CatalogPageController extends Controller
             $faq[] = ["Сколько стоит установить {$name}?",
                 "Отдельно приложение не продаётся. Доступ к Ru App Store стоит от {$price} ₽ в месяц и включает весь каталог, обновления приложений и поддержку."];
         }
+        $faq[] = ['Нужен ли компьютер или джейлбрейк?',
+            'Нет. Всё делается на самом iPhone: регистрация устройства в Safari и установка из приложения Ru App Store.'];
         $faq[] = ["Как обновлять {$name}?", 'Новые версии появляются в каталоге Ru App Store и ставятся из приложения Ru App Store так же, как первая установка.'];
+        $faq[] = ["Безопасно ли устанавливать {$name} не из App Store?",
+            "Каждый файл проверяется перед публикацией в каталоге, а {$name} работает в обычной песочнице iOS, как любое другое приложение. Логины, пароли и платёжные данные вы вводите в само приложение — Ru App Store их не получает."];
         $faq[] = ["{$name} — официальное приложение?", ($app->publisher ? "{$name} разработано {$app->publisher->name}. " : '')
             .'Ru App Store не связан с разработчиком: мы помогаем установить приложение на iPhone, когда его нет в App Store вашего региона.'];
 
@@ -202,17 +258,10 @@ class CatalogPageController extends Controller
             ->values();
     }
 
-    /**
-     * @param  list<array{0: string, 1: string}>  $trail
-     * @return array<string, mixed>
-     */
-    private function breadcrumbs(array $trail): array
+    /** @param  \Illuminate\Support\Collection<int, CatalogApp>  $apps */
+    private function lastModified(\Illuminate\Support\Collection $apps): ?Carbon
     {
-        $items = [['Ru App Store', config('seo.base_url').'/'], ...$trail];
-
-        return ['@type' => 'BreadcrumbList', 'itemListElement' => array_map(fn (array $item, int $i) => [
-            '@type' => 'ListItem', 'position' => $i + 1, 'name' => $item[0], 'item' => $item[1],
-        ], $items, array_keys($items))];
+        return $apps->flatMap(fn (CatalogApp $app) => [$app->updated_at, $app->publishedArtifact?->updated_at])->filter()->max();
     }
 
     private function monthlyPrice(): ?int
@@ -251,6 +300,23 @@ class CatalogPageController extends Controller
         $parts = preg_split('/\R\s*\R|\R/u', trim((string) $text)) ?: [];
 
         return array_values(array_filter(array_map('trim', $parts), fn (string $part) => $part !== ''));
+    }
+
+    /**
+     * The bulleted lines of an App Store description («・Переводы…», «- Оплата…»), for featureList.
+     *
+     * @return list<string>
+     */
+    public static function features(?string $text): array
+    {
+        $features = [];
+        foreach (self::paragraphs($text) as $line) {
+            if (preg_match('/^[・•●▪◦✓✔*\-–—]+\s*(.+)$/u', $line, $match) === 1) {
+                $features[] = Str::limit(rtrim($match[1], ' ;.,'), 120);
+            }
+        }
+
+        return array_slice($features, 0, 8);
     }
 
     public static function megabytes(int $bytes): string

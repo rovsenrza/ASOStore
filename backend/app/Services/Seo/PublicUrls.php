@@ -43,6 +43,13 @@ class PublicUrls
         foreach ($apps as $app) {
             $urls[] = ['loc' => $app->seoUrl(), 'lastmod' => $updated($app), 'priority' => '0.7', 'changefreq' => 'weekly', 'image' => $app->iconUrl()];
         }
+        $posts = app(Blog::class)->all();
+        if ($posts->isNotEmpty()) {
+            $urls[] = ['loc' => $base.'/blog', 'lastmod' => $posts->max('updated'), 'priority' => '0.8', 'changefreq' => 'weekly', 'image' => null];
+        }
+        foreach ($posts as $post) {
+            $urls[] = ['loc' => $post->url(), 'lastmod' => $post->updated, 'priority' => '0.8', 'changefreq' => 'monthly', 'image' => $base.$post->image];
+        }
 
         if ($changedSince === null) {
             return $urls;

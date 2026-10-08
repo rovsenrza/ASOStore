@@ -4,7 +4,7 @@
 <section class="page-hero" aria-labelledby="page-title">
   @include('seo.partials.crumbs', ['trail' => [['Каталог', null]]])
   <h1 id="page-title">Каталог приложений для&nbsp;iPhone</h1>
-  <p>{{ $total }} {{ Page::plural($total, 'приложение', 'приложения', 'приложений') }}, которых нет в российском App Store: банки, маркетплейсы, соцсети, игры и сервисы. Все устанавливаются на iPhone через Ru App Store.</p>
+  <p>Скачайте на айфон приложения, которых нет в российском App Store: банки, маркетплейсы, соцсети, игры и сервисы — {{ $count }}. Все устанавливаются через Ru App Store, без компьютера и джейлбрейка.</p>
 </section>
 
 <div class="page-body">
@@ -13,7 +13,7 @@
 @foreach ($categories as $category)
 @php($list = $apps->get($category->id, collect()))
   <section aria-labelledby="cat-{{ $category->slug }}">
-    <h2 id="cat-{{ $category->slug }}"><a href="/categories/{{ $category->slug }}">{{ $category->title }}</a></h2>
+    <h2 id="cat-{{ $category->slug }}"><a href="/categories/{{ $category->slug }}">{{ \App\Services\Seo\CategoryCopy::heading($category) }}</a></h2>
     <ul class="app-grid" role="list">
 @foreach ($list->take($perCategory) as $app)
       @include('seo.partials.app-card', ['app' => $app])

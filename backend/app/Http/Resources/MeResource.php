@@ -15,7 +15,7 @@ class MeResource extends JsonResource
 {
     /**
      * @param  array{version: ?string, build_number: int}|null  $appUpdate  A newer storefront
-     *                                                                       build than the caller's, for this device's enrolled team — null if none applies.
+     *                                                                      build than the caller's, for this device's enrolled team — null if none applies.
      */
     public function __construct($resource, private readonly ?array $appUpdate = null)
     {
