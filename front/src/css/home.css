@@ -287,6 +287,7 @@
   gap: var(--s5) var(--s3);
 }
 .wall__item { display: grid; justify-items: center; gap: var(--s2); text-align: center; font-size: var(--text-sm); font-weight: 500; line-height: 1.25; }
+.wall__link { display: grid; justify-items: center; gap: var(--s2); color: inherit; text-decoration: none; }
 .wall__item img { width: 88px; height: 88px; border-radius: 23%; box-shadow: 0 12px 26px rgb(6 22 77 / 14%); transition: transform var(--t) var(--ease-out), box-shadow var(--t) var(--ease-out); }
 .wall__item:hover img { transform: translateY(-6px) rotate(-3deg); box-shadow: 0 20px 34px rgb(6 22 77 / 20%); }
 .catalog__foot { margin-top: var(--s8); display: flex; flex-wrap: wrap; align-items: center; gap: var(--s4) var(--s6); }
