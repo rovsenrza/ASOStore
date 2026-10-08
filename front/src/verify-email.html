@@ -26,7 +26,7 @@
         <div class="form-status"></div>
         <div class="field">
           <label for="verify-code">Код из письма</label>
-          <input id="verify-code" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" aria-describedby="verify-code-hint" required>
+          <input id="verify-code" class="ym-disable-keys" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" aria-describedby="verify-code-hint" required>
           <p class="field-hint" id="verify-code-hint">Код действует 15 минут. Не пришло письмо — проверьте папку «Спам».</p>
         </div>
         <button class="primary-button" type="submit">Подтвердить <span aria-hidden="true">→</span></button>

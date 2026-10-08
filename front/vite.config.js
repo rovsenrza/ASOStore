@@ -29,9 +29,29 @@ function partials() {
   };
 }
 
+// Every page (the backend's catalog shell included): Google Search Console ownership, and the
+// Yandex.Metrika counter as early in <head> as possible, with its no-script pixel opening <body>.
+const ANALYTICS_HEAD = [
+  '<meta name="google-site-verification" content="_Y41w8JCtl-MYFW8F7K51_lykIzlSZ3ZM0hW2HXpBdw">',
+  '<script src="/js/metrika.js" async></script>',
+].join('\n  ');
+const ANALYTICS_BODY = '<noscript><div><img src="https://mc.yandex.ru/watch/113565588" class="visually-hidden" alt=""></div></noscript>';
+
+function analytics() {
+  return {
+    name: 'ru-appstore-analytics',
+    transformIndexHtml: {
+      order: 'pre',
+      handler: (html) => html
+        .replace('<meta charset="utf-8">', (charset) => `${charset}\n  ${ANALYTICS_HEAD}`)
+        .replace(/<body[^>]*>/, (body) => `${body}\n  ${ANALYTICS_BODY}`),
+    },
+  };
+}
+
 export default defineConfig({
   root: src,
-  plugins: [partials()],
+  plugins: [partials(), analytics()],
   publicDir: resolve(here, 'public'),
   resolve: {
     // Pages import the API runtime shared with the admin panel as /shared/js/…; bundle it.

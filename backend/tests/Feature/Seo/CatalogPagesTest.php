@@ -148,3 +148,14 @@ it('proves the IndexNow key and submits changed pages', function () {
         && $request['keyLocation'] === 'https://ruappstore.com/a1b2c3d4e5f6a7b8.txt'
         && in_array('https://ruappstore.com/apps/sberbank-onlayn', $request['urlList'], true));
 });
+
+it('lets public pages run Yandex.Metrika while the API keeps the strict policy', function () {
+    $page = $this->get('/apps/sberbank-onlayn')->assertOk();
+    expect($page->headers->get('Content-Security-Policy'))->toBe(\App\Http\Middleware\SecurityHeaders::PUBLIC_PAGE_CSP)
+        ->toContain('https://mc.yandex.ru')
+        ->and($page->headers->has('X-Frame-Options'))->toBeFalse();
+
+    $this->getJson('/api/v1/health')
+        ->assertHeader('Content-Security-Policy', \App\Http\Middleware\SecurityHeaders::CSP)
+        ->assertHeader('X-Frame-Options', 'DENY');
+});

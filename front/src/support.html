@@ -66,7 +66,7 @@
           <div class="form-status" role="status" aria-live="polite"></div>
           <div class="field" id="support-email-field">
             <label for="support-email">Эл. почта для ответа</label>
-            <input id="support-email" name="email" type="email" autocomplete="email" required>
+            <input id="support-email" class="ym-disable-keys" name="email" type="email" autocomplete="email" required>
           </div>
           <div class="field">
             <label for="support-topic">Тема</label>
@@ -81,11 +81,11 @@
           </div>
           <div class="field">
             <label for="support-message">Что случилось</label>
-            <textarea id="support-message" name="message" rows="5" minlength="10" maxlength="5000" required></textarea>
+            <textarea id="support-message" class="ym-disable-keys" name="message" rows="5" minlength="10" maxlength="5000" required></textarea>
           </div>
           <div class="field">
             <label for="support-reference">Код запроса, если он был на экране</label>
-            <input id="support-reference" name="reference_request_id" autocomplete="off" data-hint="support-reference-hint" aria-describedby="support-reference-hint">
+            <input id="support-reference" class="ym-disable-keys" name="reference_request_id" autocomplete="off" data-hint="support-reference-hint" aria-describedby="support-reference-hint">
             <p class="field-hint" id="support-reference-hint">Например, из сообщения «Код запроса для поддержки: …». Помогает быстрее найти проблему.</p>
           </div>
           <button class="primary-button" type="submit">Отправить <span aria-hidden="true">→</span></button>

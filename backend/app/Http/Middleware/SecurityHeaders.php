@@ -19,15 +19,36 @@ class SecurityHeaders
         ."font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; object-src 'none'; "
         ."frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
 
+    /**
+     * Public website pages rendered here (catalog, blog) also run Yandex.Metrika: its tag, beacons
+     * and Webvisor, and its click maps and Webvisor player show the page inside Metrika itself.
+     */
+    public const PUBLIC_PAGE_CSP = "default-src 'self'; img-src 'self' data: blob: https://mc.yandex.ru https://mc.yandex.com; "
+        ."style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; "
+        ."script-src 'self' https://mc.yandex.ru https://mc.yandex.com https://yastatic.net; "
+        ."connect-src 'self' https://mc.yandex.ru https://mc.yandex.com wss://mc.yandex.ru wss://mc.yandex.com https://mc.webvisor.org https://mc.webvisor.com; "
+        ."child-src blob: https://mc.yandex.ru https://mc.yandex.com; frame-src blob: https://mc.yandex.ru https://mc.yandex.com; object-src 'none'; "
+        ."frame-ancestors 'self' https://metrika.yandex.ru https://metrika.yandex.com https://metrica.yandex.com https://metrika.yandex.by "
+        .'https://metrika.yandex.kz https://metrika.ya.ru https://metrica.ya.ru https://analytics.yandex.ru https://analytics.yandex.com; '
+        ."base-uri 'self'; form-action 'self'";
+
     public function handle(Request $request, Closure $next): Response
     {
         $response = $next($request);
 
+        $public = $request->route()?->named('seo.*') ?? false;
+
         $response->headers->set('X-Content-Type-Options', 'nosniff');
-        $response->headers->set('X-Frame-Options', 'DENY');
+        if (! $public) {
+            // frame-ancestors in the public pages' CSP decides who may frame them instead.
+            $response->headers->set('X-Frame-Options', 'DENY');
+        }
         $response->headers->set('Referrer-Policy', 'strict-origin-when-cross-origin');
         $response->headers->set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-        $response->headers->set(config('storefront.security.csp_report_only') ? 'Content-Security-Policy-Report-Only' : 'Content-Security-Policy', self::CSP);
+        $response->headers->set(
+            config('storefront.security.csp_report_only') ? 'Content-Security-Policy-Report-Only' : 'Content-Security-Policy',
+            $public ? self::PUBLIC_PAGE_CSP : self::CSP,
+        );
 
         // HSTS only over HTTPS, so a local http:// setup never pins itself.
         if ($request->isSecure()) {

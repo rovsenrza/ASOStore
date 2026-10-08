@@ -10,6 +10,11 @@ export default [
     rules: { 'no-unused-vars': ['error', { argsIgnorePattern: '^_' }] },
   },
   {
+    // Copied as-is (not bundled) and loaded with a classic <script>.
+    files: ['public/js/**/*.js'],
+    languageOptions: { ecmaVersion: 2024, sourceType: 'script', globals: globals.browser },
+  },
+  {
     files: ['*.js', 'scripts/**/*.mjs'],
     languageOptions: { ecmaVersion: 2024, sourceType: 'module', globals: globals.node },
   },
