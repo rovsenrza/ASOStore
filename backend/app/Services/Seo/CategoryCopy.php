@@ -42,6 +42,22 @@ class CategoryCopy
             'Приложения для здоровья и фитнеса, которых нет в российском App Store.'],
     ];
 
+    /**
+     * slug => seo_slugs of listings from other categories that people look for here too, shown
+     * first and in this order. Russian banks live under «Русские приложения» in the store.
+     */
+    private const ALSO_LISTED = [
+        'finance' => ['sberbank-onlayn', 't-bank', 'alfa-bank', 'gazprombank', 'rosselkhozbank', 'psb', 'mts-bank',
+            'khalva-sovkombank', 'bank-domrf', 'ozon-bank', 'ak-bars-bank', 'uralsib-onlayn', 'mkb-bank',
+            'bank-sankt-peterburg', 'novikombank', 'tsifra-bank', 'alfa-investitsii'],
+    ];
+
+    /** @return list<string> */
+    public static function alsoListed(AppCategory $category): array
+    {
+        return self::ALSO_LISTED[$category->slug] ?? [];
+    }
+
     public static function heading(AppCategory $category): string
     {
         return self::COPY[$category->slug][0] ?? $category->title.' для iPhone';

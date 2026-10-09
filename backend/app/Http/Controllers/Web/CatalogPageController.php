@@ -37,8 +37,9 @@ class CatalogPageController extends Controller
     {
         return $this->cached('apps', function () {
             $categories = $this->categories();
-            $apps = $this->publicApps()->get()->groupBy('category_id');
-            $total = $apps->sum(fn (Collection $list) => $list->count());
+            $all = $this->publicApps()->get();
+            $apps = $categories->mapWithKeys(fn (AppCategory $category) => [$category->id => $this->categoryApps($all, $category)]);
+            $total = $all->count();
             $count = $total.' '.self::plural($total, 'приложение', 'приложения', 'приложений');
             $url = Schema::base().'/apps';
             $title = 'Каталог приложений для iPhone без App Store — '.$count.' | Ru App Store';
@@ -76,7 +77,7 @@ class CatalogPageController extends Controller
         abort_if($category === null || $category->slug === 'imported', 404);
 
         return $this->cached('categories/'.$slug, function () use ($category) {
-            $apps = $this->publicApps()->where('category_id', $category->id)->get();
+            $apps = $this->categoryApps($this->publicApps()->get(), $category);
             abort_if($apps->isEmpty(), 404);
             $url = Schema::base().'/categories/'.$category->slug;
             $count = $apps->count().' '.self::plural($apps->count(), 'приложение', 'приложения', 'приложений');
@@ -247,6 +248,21 @@ class CatalogPageController extends Controller
             ->publiclyListed()
             ->orderByRaw('featured_rank is null, featured_rank')
             ->orderBy('name');
+    }
+
+    /**
+     * The category's own apps, after the listings it also shows (CategoryCopy::alsoListed) in their order.
+     *
+     * @param  Collection<int, CatalogApp>  $all
+     * @return Collection<int, CatalogApp>
+     */
+    private function categoryApps(Collection $all, AppCategory $category): Collection
+    {
+        $extra = array_flip(CategoryCopy::alsoListed($category));
+        $guests = $all->filter(fn (CatalogApp $app) => $app->category_id !== $category->id && isset($extra[$app->seo_slug]))
+            ->sortBy(fn (CatalogApp $app) => $extra[$app->seo_slug]);
+
+        return $guests->concat($all->where('category_id', $category->id))->values()->loadMissing('publishedArtifact');
     }
 
     /** @return Collection<int, AppCategory> */

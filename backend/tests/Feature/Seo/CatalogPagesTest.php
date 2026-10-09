@@ -184,3 +184,13 @@ it('falls back to the category introduction when an app has no text at all', fun
 
     $this->get($bare->fresh()->seoUrl())->assertOk()->assertSee('Мобильные банки, кошельки и инвестиции');
 });
+
+it('shows Russian banks from «Русские приложения» first under Финансы too', function () {
+    $russian = AppCategory::factory()->create(['slug' => 'russkie-prilozheniya', 'title' => 'Русские приложения']);
+    $tbank = CatalogApp::factory()->create(['name' => 'Т-Банк', 'category_id' => $russian->id]);
+    AppArtifact::factory()->for($tbank, 'app')->create(['status' => ArtifactStatus::Published]);
+
+    $this->get('/categories/finance')->assertOk()->assertSeeInOrder(['Т-Банк', 'СберБанк Онлайн']);
+    $this->get('/categories/russkie-prilozheniya')->assertOk()->assertSee('Т-Банк');
+    $this->get('/apps')->assertOk()->assertSeeInOrder(['Банковские', 'Т-Банк', 'СберБанк Онлайн']);
+});
