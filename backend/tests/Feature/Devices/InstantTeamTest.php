@@ -93,6 +93,22 @@ it('keeps the primary team when routing is off or every team is past the limit',
     expect(($this->enrol)('00008030-0000000000000007')->apple_team_id)->toBe($this->primary->id);
 });
 
+it('gives the team with the fewest devices each new device once every team is past the limit', function () {
+    config(['storefront.apple.instant_device_limit' => 0]);
+    foreach (range(1, 4) as $n) {
+        ($this->enrol)('00008030-000000000000000'.$n);
+    }
+
+    // Primary 4, second 0: the second catches up first, then they alternate.
+    config(['storefront.apple.instant_device_limit' => 1]);
+    $teams = array_map(fn (int $n) => ($this->enrol)('00008030-000000000000001'.$n)->apple_team_id, range(1, 6));
+
+    expect($teams)->toBe([
+        $this->second->id, $this->second->id, $this->second->id, $this->second->id,
+        $this->primary->id, $this->second->id,
+    ]);
+});
+
 it('keeps a device Apple is processing on its team, however long it waits', function () {
     Notification::fake();
     config(['storefront.apple.instant_device_limit' => 0]);

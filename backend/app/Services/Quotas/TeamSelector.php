@@ -138,8 +138,9 @@ class TeamSelector
      * A team where Apple enables a new device at once: a new or recently
      * renewed membership enables only its first devices on registration and
      * holds the rest for 24–72 hours. The primary team comes first, then the
-     * configured variants in creation order. Null when every team is past the
-     * limit (or the routing is off); the caller then uses the primary team.
+     * configured variants in creation order. When every team is past the
+     * limit, the team with the fewest devices. Null when the routing is off
+     * or no team has free slots; the caller then uses the primary team.
      */
     public function instantTeam(string $family, ?int $exclude = null): ?AppleTeam
     {
@@ -167,13 +168,25 @@ class TeamSelector
             }
         }
 
+        $counts = [];
         foreach ($candidates as $team) {
-            if ($this->devicesThisYear($team) < $limit) {
+            $counts[$team->id] = $this->devicesThisYear($team);
+            if ($counts[$team->id] < $limit) {
                 return $team;
             }
         }
 
-        return null;
+        // Every team is past the limit, so each new device waits wherever it
+        // goes: spread the wait by giving it to the team with the fewest
+        // devices this year (the primary first on a tie).
+        $least = null;
+        foreach ($candidates as $team) {
+            if ($least === null || $counts[$team->id] < $counts[$least->id]) {
+                $least = $team;
+            }
+        }
+
+        return $least;
     }
 
     /**
