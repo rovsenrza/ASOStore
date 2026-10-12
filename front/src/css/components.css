@@ -17,7 +17,7 @@
   pointer-events: none;
 }
 .page-hero h1 { max-width: 18ch; margin-bottom: var(--s4); }
-.page-hero p { max-width: 60ch; margin-bottom: 0; color: var(--on-blue-2); font-size: var(--text-lg); line-height: 1.55; }
+.page-hero p, .page-hero .txt { max-width: 60ch; margin-bottom: 0; color: var(--on-blue-2); font-size: var(--text-lg); line-height: 1.55; }
 
 .page-body {
   width: min(100% - 2 * var(--gutter), var(--max));
@@ -369,3 +369,6 @@ button.text-link:disabled { color: var(--ink-2); cursor: default; }
   .buy-steps__list { grid-template-columns: 1fr; }
   .code-entry__actions, .code-entry__actions .btn { width: 100%; }
 }
+/* install.html uses div.txt instead of <p> so Safari never offers Reader there (Reader hides the install button). */
+.txt { margin: 0 0 1em; text-wrap: pretty; }
+.txt:last-child, .txt.field-hint { margin-bottom: 0; }
