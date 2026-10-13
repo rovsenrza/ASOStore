@@ -77,6 +77,13 @@ function fit(c, text, weight, size, maxW, min = 16) {
   return s;
 }
 
+function ellipsize(c, text, maxW) {
+  if (c.measureText(text).width <= maxW) return text;
+  let s = text;
+  while (s.length > 1 && c.measureText(`${s}…`).width > maxW) s = s.slice(0, -1);
+  return `${s}…`;
+}
+
 function wrap(c, text, maxW) {
   const out = []; let line = '';
   for (const word of text.split(/\s+/).filter(Boolean)) {
@@ -167,7 +174,7 @@ function drawScreen(c, t, scene) {
     const mx = x + 30 + cw * i + cw / 2;
     c.textAlign = 'center';
     c.fillStyle = 'rgba(255,255,255,.5)'; c.font = `700 18px ${FONT}`; c.fillText(label, mx, y + 852);
-    c.fillStyle = '#fff'; fit(c, value, 700, 28, cw - 16, 16); c.fillText(value, mx, y + 892);
+    c.fillStyle = '#fff'; c.font = `700 28px ${FONT}`; c.fillText(ellipsize(c, value, cw - 20), mx, y + 892);
     if (i > 0) { c.strokeStyle = 'rgba(255,255,255,.1)'; c.beginPath(); c.moveTo(x + 30 + cw * i, y + 828); c.lineTo(x + 30 + cw * i, y + 878); c.stroke(); }
   });
   c.textAlign = 'left'; c.globalAlpha = 1;
@@ -222,13 +229,20 @@ function drawTitle(c, t, scene) {
 
   const titleIn = easeOut(span(t, 0.32, 0.75));
   c.globalAlpha = titleIn;
-  c.fillStyle = '#16233f'; const size = 92;
+  c.fillStyle = '#16233f';
+  // Keep the whole title clear of the phone: shrink until the fixed second line
+  // «получил обновления» and the widest name word both fit the column.
+  const maxW = 820; const TAIL = 'получил обновления';
+  let size = 84;
+  const widest = () => {
+    c.font = `800 ${size}px ${FONT}`;
+    return Math.max(c.measureText(TAIL).width, ...scene.name.split(/\s+/).map((w) => c.measureText(w).width));
+  };
+  while (size > 40 && widest() > maxW) size -= 2;
   c.font = `800 ${size}px ${FONT}`;
-  const nameLines = wrap(c, scene.name, 780);
-  let yy = ly + 110 + (1 - titleIn) * 18;
-  for (const line of [...nameLines, 'получил обновления']) {
-    c.font = `800 ${size}px ${FONT}`; c.fillText(line, lx, yy); yy += size + 14;
-  }
+  const lines = [...wrap(c, scene.name, maxW), TAIL];
+  let yy = ly + 100 + (1 - titleIn) * 18;
+  for (const line of lines) { c.fillText(line, lx, yy); yy += size + 14; }
   c.globalAlpha = 1;
 }
 
