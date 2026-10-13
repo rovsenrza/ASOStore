@@ -178,6 +178,26 @@ it('shows our own write-up, the vendor text and release notes on the app page', 
         ->assertSeeInOrder(['Наш обзор Сбера.', 'Второй абзац.', 'Описание от разработчика', 'Переводы и платежи.']);
 });
 
+it('ships write-up batches that import cleanly and render as our own paragraphs', function () {
+    foreach (glob(database_path('seo/seo-about-batch*.json')) as $file) {
+        $texts = json_decode(file_get_contents($file), true, flags: JSON_THROW_ON_ERROR);
+        expect($texts)->toBeArray()->not->toBeEmpty();
+        foreach ($texts as $slug => $text) {
+            expect($slug)->toMatch('/^[a-z0-9-]+$/')
+                ->and(mb_strlen(trim($text)))->toBeGreaterThan(200)
+                ->and($text)->toContain('Ru App Store')
+                ->and(count(preg_split('/\n\s*\n/', trim($text))))->toBeGreaterThanOrEqual(2);
+        }
+    }
+
+    $text = json_decode(file_get_contents(database_path('seo/seo-about-batch2.json')), true)['sberbank-onlayn'];
+    $this->artisan('catalog:seo-about', ['file' => database_path('seo/seo-about-batch2.json')])->assertSuccessful();
+
+    expect($this->listing->fresh()->seo_about)->toBe(trim($text));
+    [$first, $second] = preg_split('/\n\s*\n/', trim($text));
+    $this->get('/apps/sberbank-onlayn')->assertOk()->assertSeeInOrder([$first, $second, 'Описание от разработчика'], false);
+});
+
 it('falls back to the category introduction when an app has no text at all', function () {
     $bare = CatalogApp::factory()->create(['name' => 'Пустышка', 'description' => null, 'category_id' => $this->finance->id]);
     AppArtifact::factory()->for($bare, 'app')->create(['status' => ArtifactStatus::Published]);
