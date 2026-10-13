@@ -27,10 +27,9 @@ return [
     // Defaults; admins change prices and the referral share from the bot (telegram_store_settings).
     'plans' => [
         'month1' => ['months' => 1, 'days' => 30, 'price' => 590],
-        // 3 and 9 months sit on the line between their neighbours' totals.
-        'month3' => ['months' => 3, 'days' => 90, 'price' => 1060],
+        'month3' => ['months' => 3, 'days' => 90, 'price' => 1190],
         'month6' => ['months' => 6, 'days' => 180, 'price' => 1770],
-        'month9' => ['months' => 9, 'days' => 270, 'price' => 2070],
+        'month9' => ['months' => 9, 'days' => 270, 'price' => 2120],
         'month12' => ['months' => 12, 'days' => 365, 'price' => 2360],
     ],
     'referral_percent' => 15,
