@@ -7,10 +7,11 @@ return [
     // The website page the public catalog pages are rendered into (header, footer, styles).
     'shell_path' => env('SEO_SHELL_PATH', public_path('catalog-shell.html')),
 
-    // IndexNow (Yandex, Bing): tells search engines about new and changed pages at once.
+    // IndexNow (Yandex, Bing): tells search engines about new and changed pages at once. The shared
+    // endpoint forwards to every participating engine; yandex.com/indexnow drops the server's requests.
     'indexnow' => [
         'key' => env('SEO_INDEXNOW_KEY'),
-        'endpoint' => env('SEO_INDEXNOW_ENDPOINT', 'https://yandex.com/indexnow'),
+        'endpoint' => env('SEO_INDEXNOW_ENDPOINT', 'https://api.indexnow.org/indexnow'),
     ],
 
     // Rendered pages are cached briefly; catalog changes show up within this time.

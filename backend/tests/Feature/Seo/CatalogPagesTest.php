@@ -178,10 +178,10 @@ it('proves the IndexNow key and submits changed pages', function () {
     $this->get('/a1b2c3d4e5f6a7b8.txt')->assertOk()->assertSee('a1b2c3d4e5f6a7b8');
     $this->get('/0000000000000000.txt')->assertNotFound();
 
-    Http::fake(['yandex.com/*' => Http::response('', 200)]);
+    Http::fake(['api.indexnow.org/*' => Http::response('', 200)]);
     $this->artisan('seo:indexnow --all')->assertSuccessful();
 
-    Http::assertSent(fn ($request) => $request->url() === 'https://yandex.com/indexnow'
+    Http::assertSent(fn ($request) => $request->url() === 'https://api.indexnow.org/indexnow'
         && $request['host'] === 'ruappstore.com'
         && $request['keyLocation'] === 'https://ruappstore.com/a1b2c3d4e5f6a7b8.txt'
         && in_array('https://ruappstore.com/apps/sberbank-onlayn', $request['urlList'], true));
