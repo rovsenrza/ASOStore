@@ -114,7 +114,12 @@ final class CatalogUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Мои приложения"].waitForExistence(timeout: 10))
         // Rows are combined for VoiceOver, so match inside any element's label. (The status
         // itself can differ between runs: in-flight installations are resumed from disk.)
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Заметки Про")).firstMatch.waitForExistence(timeout: 10))
+        // «Мои импорты» sits above the library and the list is lazy: scroll until the row exists.
+        let row = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Заметки Про")).firstMatch
+        for _ in 0..<6 where !row.exists {
+            app.swipeUp()
+        }
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
     }
 
     @MainActor
