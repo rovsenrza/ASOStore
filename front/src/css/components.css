@@ -369,6 +369,7 @@ button.text-link:disabled { color: var(--ink-2); cursor: default; }
   .buy-steps__list { grid-template-columns: 1fr; }
   .code-entry__actions, .code-entry__actions .btn { width: 100%; }
 }
+
 /* install.html uses div.txt instead of <p> so Safari never offers Reader there (Reader hides the install button). */
 .txt { margin: 0 0 1em; text-wrap: pretty; }
 .txt:last-child, .txt.field-hint { margin-bottom: 0; }

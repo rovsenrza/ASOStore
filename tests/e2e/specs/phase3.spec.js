@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { artisan, resetAdminSignIn, devicePayload, issueActivationCode } from './helpers-cli.js';
+import { artisan, confirmEmail, resetAdminSignIn, devicePayload, issueActivationCode } from './helpers-cli.js';
 import { ADMIN, totp } from './helpers.js';
 
 /*
@@ -21,6 +21,7 @@ test.describe('on an iPhone in Safari', () => {
     await page.getByLabel('Эл. почта').fill(customer.email);
     await page.getByLabel('Пароль').fill(customer.password);
     await page.getByRole('button', { name: 'Создать аккаунт' }).click();
+    await confirmEmail(page, customer.email);
     await expect(page).toHaveURL(/\/activate\.html$/);
 
     await page.getByLabel('Код активации').fill(issueActivationCode());

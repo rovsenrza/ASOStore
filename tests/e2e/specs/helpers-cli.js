@@ -18,6 +18,17 @@ export function makeIpa(out, bundle, version, build, paddingMiB = 0) {
   execFileSync('php', ['tests/Support/make-ipa.php', out, bundle, version, build, String(paddingMiB)], { cwd: path.join(ROOT, 'backend') });
 }
 
+/**
+ * Confirms a new sign-up on the verify-email page the site sends it to: the emailed code is
+ * replaced by a known one (backend/tests/Support/set-email-code.php) and entered like a person would.
+ */
+export async function confirmEmail(page, email) {
+  await page.waitForURL(/\/verify-email\.html/);
+  execFileSync('php', ['tests/Support/set-email-code.php', email, '424242'], { cwd: path.join(ROOT, 'backend') });
+  await page.getByLabel('Код из письма').fill('424242');
+  await page.getByRole('button', { name: 'Подтвердить' }).click();
+}
+
 export function issueActivationCode() {
   return artisan('activation:issue', '--count=1', '--days=30', '--note=E2E').trim().split('\n').pop().trim();
 }

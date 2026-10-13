@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { confirmEmail } from './helpers-cli.js';
 import { ADMIN, CUSTOMER, totp } from './helpers.js';
 
 /*
@@ -67,6 +68,7 @@ test('customer registers, redeems the code and reaches device setup', async ({ p
 
   await page.getByLabel('Пароль').fill(CUSTOMER.password);
   await page.getByRole('button', { name: 'Создать аккаунт' }).click();
+  await confirmEmail(page, CUSTOMER.email);
 
   await expect(page).toHaveURL(/\/activate\.html$/);
   await expect(page.locator('#stage-state')).toContainText('Нужен код активации');

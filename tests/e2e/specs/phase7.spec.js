@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
 import { expect, test } from '@playwright/test';
 import { ADMIN, totp } from './helpers.js';
 import { resetAdminSignIn } from './helpers-cli.js';
@@ -44,11 +46,13 @@ test('admin reviews Apple teams, approves an app for a team and sees runner heal
   await expect(page.locator('#jobs-table')).toBeVisible();
 });
 
-// The production CSP (App\Http\Middleware\SecurityHeaders::CSP and public/.htaccess). The test
-// server does not send it for static files, so it is added here to catch violations.
-const CSP = "default-src 'self'; img-src 'self' data: blob:; style-src 'self' https://fonts.googleapis.com; "
-  + "font-src 'self' https://fonts.gstatic.com; script-src 'self'; connect-src 'self'; object-src 'none'; "
-  + "frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+// The production policies (App\Http\Middleware\SecurityHeaders): website pages run GTM and Yandex.Metrika
+// under PUBLIC_PAGE_CSP, the admin panel keeps the strict CSP. The test server does not send them for
+// static files, so they are read from the class and added here to catch violations.
+const policy = (name) => execFileSync('php', ['-r', `require 'vendor/autoload.php'; echo App\\Http\\Middleware\\SecurityHeaders::${name};`],
+  { cwd: path.resolve(import.meta.dirname, '../../../backend'), encoding: 'utf8' });
+const CSP = policy('CSP');
+const PUBLIC_CSP = policy('PUBLIC_PAGE_CSP');
 
 test('every page works under the enforced Content Security Policy', async ({ page }) => {
   const violations = [];
@@ -58,7 +62,9 @@ test('every page works under the enforced Content Security Policy', async ({ pag
   await page.route('**/*', async (route) => {
     const response = await route.fetch();
     const headers = { ...response.headers() };
-    if ((headers['content-type'] ?? '').includes('text/html')) headers['content-security-policy'] = CSP;
+    if ((headers['content-type'] ?? '').includes('text/html')) {
+      headers['content-security-policy'] = new URL(route.request().url()).pathname.startsWith('/admin/') ? CSP : PUBLIC_CSP;
+    }
     await route.fulfill({ response, headers });
   });
 
