@@ -54,7 +54,7 @@ const policy = (name) => execFileSync('php', ['-r', `require 'vendor/autoload.ph
 const CSP = policy('CSP');
 const PUBLIC_CSP = policy('PUBLIC_PAGE_CSP');
 
-test('every page works under the enforced Content Security Policy', async ({ page }) => {
+test('every page works under the enforced Content Security Policy', async ({ page, baseURL }) => {
   const violations = [];
   page.on('console', (message) => {
     if (/Content Security Policy|Refused to/i.test(message.text())) violations.push(`${page.url()}: ${message.text()}`);
@@ -62,8 +62,10 @@ test('every page works under the enforced Content Security Policy', async ({ pag
   await page.route('**/*', async (route) => {
     const response = await route.fetch();
     const headers = { ...response.headers() };
-    if ((headers['content-type'] ?? '').includes('text/html')) {
-      headers['content-security-policy'] = new URL(route.request().url()).pathname.startsWith('/admin/') ? CSP : PUBLIC_CSP;
+    const url = new URL(route.request().url());
+    // Only our own pages: third-party frames (Metrika's mc.yandex.ru) carry their own policy.
+    if ((headers['content-type'] ?? '').includes('text/html') && url.origin === new URL(baseURL).origin) {
+      headers['content-security-policy'] = url.pathname.startsWith('/admin/') ? CSP : PUBLIC_CSP;
     }
     await route.fulfill({ response, headers });
   });

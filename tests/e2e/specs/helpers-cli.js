@@ -43,6 +43,9 @@ export function devicePayload(challenge, udid) {
  * resets the 5-per-minute admin-login limiter, which consecutive specs hit.
  */
 export function resetAdminSignIn(reason) {
+  // Sign-ins are rate-limited (5 a minute) and the suite signs in more often than that. Counters live
+  // in the limiter store (CACHE_LIMITER, files in .env.example), which `cache:clear` alone does not touch.
   artisan('cache:clear');
+  artisan('cache:clear', 'file');
   artisan('admin:reset-totp', ADMIN_EMAIL, `--reason=${reason}`);
 }
