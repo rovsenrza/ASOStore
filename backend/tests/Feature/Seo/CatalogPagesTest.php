@@ -74,6 +74,18 @@ it('serves an indexable app page with its facts, install steps, FAQ and structur
     expect($graph->firstWhere('@type', 'Organization'))->toMatchArray(['taxID' => '131656459264', 'founder' => ['@type' => 'Person', 'name' => 'Железнов Максим Алексеевич']]);
 });
 
+it('gives same-named listings different titles, by version', function () {
+    $twin = CatalogApp::factory()->create(['name' => 'СберБанк Онлайн', 'category_id' => $this->finance->id]);
+    AppArtifact::factory()->for($twin, 'app')->create(['status' => ArtifactStatus::Published, 'version' => '9.9.9']);
+
+    $title = fn (string $url) => preg_match('#<title>(.*?)</title>#', $this->get($url)->getContent(), $m) ? $m[1] : null;
+    $first = $title('/apps/sberbank-onlayn');
+    $second = $title($twin->fresh()->seoUrl());
+
+    expect($first)->not->toBe($second)
+        ->and($second)->toContain('СберБанк Онлайн 9.9.9');
+});
+
 it('escapes catalog text it puts into the page', function () {
     $this->listing->update(['subtitle' => '<script>alert(1)</script>']);
 

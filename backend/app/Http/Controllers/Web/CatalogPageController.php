@@ -145,8 +145,11 @@ class CatalogPageController extends Controller
         $faq = $this->faq($app, $facts, $price);
         $categoryUrl = $base.'/categories/'.$app->category->slug;
         $modified = $this->lastModified(collect([$app]));
-        $title = self::appTitle($name);
-        $description = Str::limit($name.' нет в App Store? Скачайте '.$name.' на айфон через Ru App Store: без компьютера и джейлбрейка'
+        // Several public listings can share a name (two builds of «Помощник», three «ПСБ»): search engines
+        // then see identical titles and descriptions, so the version tells those pages apart.
+        $namesake = $facts['version'] && $this->publicApps()->where('name', $name)->whereKeyNot($app->id)->exists();
+        $title = self::appTitle($namesake ? $name.' '.$facts['version'] : $name);
+        $description = Str::limit($name.($namesake ? ' '.$facts['version'] : '').' нет в App Store? Скачайте '.$name.' на айфон через Ru App Store: без компьютера и джейлбрейка'
             .($facts['min_ios'] ? ', iOS '.$facts['min_ios'].'+' : '').', обновления в каталоге.', 158);
         $image = $app->bannerUrl() ?? $app->iconUrl();
 
