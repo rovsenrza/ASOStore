@@ -71,6 +71,7 @@ it('serves an indexable app page with its facts, install steps, FAQ and structur
         ->and($software['offers']['priceCurrency'])->toBe('RUB')
         ->and($graph->firstWhere('@type', 'ItemPage')['mainEntity'])->toBe(['@id' => 'https://ruappstore.com/apps/sberbank-onlayn#app'])
         ->and($graph->firstWhere('@type', 'BreadcrumbList')['@id'])->toBe('https://ruappstore.com/apps/sberbank-onlayn#breadcrumb');
+    expect($graph->firstWhere('@type', 'Organization'))->toMatchArray(['taxID' => '131656459264', 'founder' => ['@type' => 'Person', 'name' => 'Железнов Максим Алексеевич']]);
 });
 
 it('escapes catalog text it puts into the page', function () {
@@ -121,7 +122,8 @@ it('publishes every public page in the sitemap, with app icons', function () {
     }
 
     expect($locs)->toContain('https://ruappstore.com/', 'https://ruappstore.com/apps', 'https://ruappstore.com/buy.html',
-        'https://ruappstore.com/categories/finance', 'https://ruappstore.com/apps/sberbank-onlayn')
+        'https://ruappstore.com/categories/finance', 'https://ruappstore.com/apps/sberbank-onlayn',
+        'https://ruappstore.com/privacy.html', 'https://ruappstore.com/terms.html')
         ->and(collect($locs)->filter(fn ($loc) => str_contains($loc, 'moy-import')))->toBeEmpty()
         ->and($xml)->toContain('<image:loc>');
 });
