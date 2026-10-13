@@ -59,7 +59,7 @@ function renderedText(path) {
   const dom = execFileSync(process.env.CHROME_BIN, [
     '--headless', '--disable-gpu', '--no-sandbox', '--virtual-time-budget=6000', '--dump-dom', BASE + path,
   ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
-  return dom.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  return dom.replace(/<[^>]+>/g, ' ').replace(/&nbsp;|\u00a0/g, ' ').replace(/\s+/g, ' ');
 }
 
 for (const page of PAGES) await check(BASE + page);
@@ -71,8 +71,9 @@ if (process.env.CHROME_BIN) {
     ['/account.html', 'Вы не вошли в аккаунт'],
     ['/admin/', 'Продолжить'],
     ['/admin/users.html', 'Продолжить'],
-    // Prices from the bot's settings and the deep link into its order.
-    ['/buy.html', 'Купить 6 месяцев в Telegram'],
+    // Prices from the bot's settings: the on-site pay button and the deep link into the bot's order.
+    ['/buy.html', 'Оплатить 1 770 ₽'],
+    ['/buy.html', 'Или заказать 6 месяцев в Telegram'],
   ];
   for (const [path, text] of expectations) {
     if (!renderedText(path).includes(text)) failures.push(`${path} did not render "${text}"`);
