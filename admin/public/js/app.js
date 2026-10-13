@@ -12,6 +12,7 @@ const NAV_PERMISSIONS = {
   'devices.html': ['devices.view'],
   'apps.html': ['catalog.view'],
   'publish.html': ['catalog.manage'],
+  'promo.html': ['catalog.view'],
 };
 
 const SIGN_IN_CODES = new Set(['UNAUTHENTICATED', 'TOTP_REQUIRED', 'SESSION_EXPIRED']);

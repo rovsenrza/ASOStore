@@ -395,3 +395,15 @@ ol.home-list .home-row::before { counter-increment: banner; content: counter(ban
 .publish-facts { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0; font-size: .8rem; color: var(--ink-soft); }
 
 .data-table td.wrap { white-space: normal; min-width: 260px; max-width: 520px; }
+
+/* Promo video page */
+.promo-results { display: grid; gap: 6px; margin: 8px 0; }
+.promo-result { display: flex; gap: 12px; align-items: center; text-align: left; padding: 8px 12px; background: var(--surface, #fff); border: 1px solid var(--border, #e2e8f0); border-radius: 12px; cursor: pointer; width: 100%; }
+.promo-result:hover { border-color: var(--accent, #4b86f0); }
+.promo-result img, .promo-result .thumb { width: 40px; height: 40px; border-radius: 9px; object-fit: cover; flex: 0 0 auto; }
+.promo-result span { display: flex; flex-direction: column; min-width: 0; }
+.promo-result small { display: block; }
+.promo-stage { margin: 16px 0; background: #e8eef7; border-radius: 16px; padding: 12px; }
+.promo-canvas { width: 100%; height: auto; display: block; border-radius: 10px; box-shadow: 0 10px 30px rgba(40,60,100,.15); }
+.promo-controls { display: flex; gap: 16px; align-items: center; }
+.promo-scrub { flex: 1; }
