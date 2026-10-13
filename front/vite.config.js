@@ -32,10 +32,21 @@ function partials() {
 // Every page (the backend's catalog shell included): Google Search Console ownership, and the
 // Yandex.Metrika counter as early in <head> as possible, with its no-script pixel opening <body>.
 const ANALYTICS_HEAD = [
+  `<!-- Google Tag Manager -->
+<script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','GTM-TC9ZSGMN');</script>
+<!-- End Google Tag Manager -->`,
   '<meta name="google-site-verification" content="_Y41w8JCtl-MYFW8F7K51_lykIzlSZ3ZM0hW2HXpBdw">',
   '<script src="/js/metrika.js" async></script>',
 ].join('\n  ');
-const ANALYTICS_BODY = '<noscript><div><img src="https://mc.yandex.ru/watch/113565588" class="visually-hidden" alt=""></div></noscript>';
+const ANALYTICS_BODY = `<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-TC9ZSGMN"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
+<noscript><div><img src="https://mc.yandex.ru/watch/113565588" class="visually-hidden" alt=""></div></noscript>`;
 
 function analytics() {
   return {

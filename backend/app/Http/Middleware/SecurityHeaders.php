@@ -20,14 +20,15 @@ class SecurityHeaders
         ."frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
 
     /**
-     * Public website pages rendered here (catalog, blog) also run Yandex.Metrika: its tag, beacons
+     * Public website pages rendered here (catalog, blog) run GTM and Yandex.Metrika: their tags, beacons
      * and Webvisor, and its click maps and Webvisor player show the page inside Metrika itself.
      */
-    public const PUBLIC_PAGE_CSP = "default-src 'self'; img-src 'self' data: blob: https://mc.yandex.ru https://mc.yandex.com; "
-        ."style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; "
-        ."script-src 'self' https://mc.yandex.ru https://mc.yandex.com https://yastatic.net; "
-        ."connect-src 'self' https://mc.yandex.ru https://mc.yandex.com wss://mc.yandex.ru wss://mc.yandex.com https://mc.webvisor.org https://mc.webvisor.com; "
-        ."child-src blob: https://mc.yandex.ru https://mc.yandex.com; frame-src blob: https://mc.yandex.ru https://mc.yandex.com; object-src 'none'; "
+    public const PUBLIC_PAGE_CSP = "default-src 'self'; img-src 'self' data: blob: https://mc.yandex.ru https://mc.yandex.com https://www.googletagmanager.com https://ssl.gstatic.com https://www.gstatic.com; "
+        ."style-src 'self' https://fonts.googleapis.com https://www.googletagmanager.com https://tagmanager.google.com; font-src 'self' https://fonts.gstatic.com data:; "
+        // Hash of the GTM bootstrap in front/vite.config.js; update together if that snippet changes.
+        ."script-src 'self' 'sha256-D5+GwdC+PUxsOwaxQy1A2Ds5oaqtclyFJVL+ljnFIQY=' https://www.googletagmanager.com https://tagmanager.google.com https://mc.yandex.ru https://mc.yandex.com https://yastatic.net; "
+        ."connect-src 'self' https://www.googletagmanager.com https://www.google.com https://mc.yandex.ru https://mc.yandex.com wss://mc.yandex.ru wss://mc.yandex.com https://mc.webvisor.org https://mc.webvisor.com; "
+        ."child-src blob: https://mc.yandex.ru https://mc.yandex.com; frame-src blob: https://www.googletagmanager.com https://mc.yandex.ru https://mc.yandex.com; object-src 'none'; "
         ."frame-ancestors 'self' https://metrika.yandex.ru https://metrika.yandex.com https://metrica.yandex.com https://metrika.yandex.by "
         .'https://metrika.yandex.kz https://metrika.ya.ru https://metrica.ya.ru https://analytics.yandex.ru https://analytics.yandex.com; '
         ."base-uri 'self'; form-action 'self'";

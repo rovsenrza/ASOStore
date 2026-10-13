@@ -180,6 +180,16 @@ it('lets public pages run Yandex.Metrika while the API keeps the strict policy',
         ->assertHeader('X-Frame-Options', 'DENY');
 });
 
+it('allows the exact GTM bootstrap the website build inlines', function () {
+    // front/vite.config.js inlines this <script> on every page; the CSP admits it by hash only.
+    $vite = file_get_contents(base_path('../front/vite.config.js'));
+    expect(preg_match('#<script>(\(function\(w,d,s,l,i\).*?)</script>#s', $vite, $m))->toBe(1);
+    $hash = "'sha256-".base64_encode(hash('sha256', $m[1], true))."'";
+
+    expect(SecurityHeaders::PUBLIC_PAGE_CSP)->toContain($hash)
+        ->toContain('https://www.googletagmanager.com');
+});
+
 it('shows our own write-up, the vendor text and release notes on the app page', function () {
     $this->listing->latestVersion?->update(['release_notes' => 'Новый раздел «Накопления».']);
     $file = tempnam(sys_get_temp_dir(), 'about');
