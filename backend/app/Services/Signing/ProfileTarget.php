@@ -78,7 +78,11 @@ final class ProfileTarget
             : $query->where('device_id', $this->deviceId);
     }
 
-    /** Attributes identifying a new profile row for this target. */
+    /**
+     * Attributes identifying a new profile row for this target.
+     *
+     * @return array<string, mixed>
+     */
     public function attributes(string $bundle): array
     {
         return [

@@ -91,7 +91,7 @@ class AppStoreImporter
             $warnings[] = 'Не удалось загрузить иконку — добавьте её вручную.';
         }
 
-        $shots = (array) ($listing['screenshotUrls'] ?? []);
+        $shots = array_values((array) ($listing['screenshotUrls'] ?? []));
         $added = $this->addScreenshots($app, $shots);
         if ($added < min(count($shots), (int) config('storefront.catalog.screenshot_max_count'))) {
             $warnings[] = 'Не все скриншоты загрузились.';
@@ -104,12 +104,6 @@ class AppStoreImporter
     }
 
     /**
-     * App Store ID and storefront country from a link such as
-     * https://apps.apple.com/us/app/amneziavpn/id1600529900, or a bare ID.
-     *
-     * @return array{0: string, 1: string}
-     */
-    /**
      * Appends App Store screenshots (mzstatic URLs) after the card's own, up to the maximum.
      * Returns how many were added; one that fails to download is skipped.
      *
@@ -120,7 +114,7 @@ class AppStoreImporter
         $room = (int) config('storefront.catalog.screenshot_max_count') - $app->screenshots()->count();
         $order = (int) $app->screenshots()->max('sort_order');
         $added = 0;
-        foreach (array_slice(array_values($urls), 0, max(0, $room)) as $url) {
+        foreach (array_slice($urls, 0, max(0, $room)) as $url) {
             try {
                 $stored = $this->withDownload(self::resize((string) $url, '1290x0w.jpg'),
                     fn (UploadedFile $file) => $this->images->storeScreenshot($file, $app->public_id));
@@ -134,6 +128,12 @@ class AppStoreImporter
         return $added;
     }
 
+    /**
+     * App Store ID and storefront country from a link such as
+     * https://apps.apple.com/us/app/amneziavpn/id1600529900, or a bare ID.
+     *
+     * @return array{0: string, 1: string}
+     */
     public static function parse(string $link): array
     {
         $link = trim($link);

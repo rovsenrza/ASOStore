@@ -223,7 +223,7 @@ class PlategaPayments
         }
 
         $buyer = $order->isWeb()
-            ? 'сайт, '.e($order->user?->email ?? 'аккаунт удалён')
+            ? 'сайт, '.e($order->user->email ?? 'аккаунт удалён')
             : e($order->username ? '@'.$order->username : (string) $order->telegram_user_id);
         $rows = $withActions
             ? [[Screen::button('✅ Подтвердить оплату', 'adm:ok:'.$order->public_id), Screen::button('❌ Отклонить', 'adm:no:'.$order->public_id)]]
@@ -251,7 +251,7 @@ class PlategaPayments
     private function payer(TelegramStoreOrder $order, ?string $clientIp): array
     {
         $payer = $order->isWeb()
-            ? ['userId' => 'web-'.($order->user?->public_id ?? $order->user_id), 'userName' => 'web-'.($order->user?->public_id ?? $order->user_id)]
+            ? ['userId' => 'web-'.($order->user->public_id ?? $order->user_id), 'userName' => 'web-'.($order->user->public_id ?? $order->user_id)]
             : ['userId' => (string) $order->telegram_user_id, 'userName' => $order->username ? '@'.$order->username : (string) $order->telegram_user_id];
 
         return $clientIp !== null ? $payer + ['clientIp' => $clientIp] : $payer;

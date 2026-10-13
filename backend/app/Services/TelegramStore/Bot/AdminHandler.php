@@ -232,7 +232,7 @@ class AdminHandler
         $lines = [
             $prefix."<b>Заказ</b> <code>{$order->reference()}</code>",
             'Покупатель: '.($order->isWeb()
-                ? 'сайт, '.e($order->user?->email ?? 'аккаунт удалён')
+                ? 'сайт, '.e($order->user->email ?? 'аккаунт удалён')
                 : e($customer?->displayName() ?? $this->buyer($order))." (<code>{$order->telegram_user_id}</code>)"),
             'Тариф: '.$this->screens->planName($order).' · '.Format::rub($order->price_rub),
             '<b>К оплате деньгами: '.Format::rub($order->amount_due_rub).'</b>',

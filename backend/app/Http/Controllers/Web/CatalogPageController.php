@@ -97,7 +97,7 @@ class CatalogPageController extends Controller
                 schema: [
                     Schema::organization(),
                     Schema::website(),
-                    Schema::webPage('CollectionPage', $url, $title, $description, $apps->first()?->iconUrl(), $this->lastModified($apps), [
+                    Schema::webPage('CollectionPage', $url, $title, $description, $apps->first()->iconUrl(), $this->lastModified($apps), [
                         'mainEntity' => [
                             '@type' => 'ItemList',
                             'name' => $heading,
@@ -135,10 +135,10 @@ class CatalogPageController extends Controller
         $url = $app->seoUrl();
         $artifact = $app->publishedArtifact;
         $facts = [
-            'version' => $artifact?->version ?? $app->latestVersion?->version,
-            'min_ios' => $artifact?->min_ios_version ?? $app->latestVersion?->min_ios_version,
+            'version' => $artifact->version ?? $app->latestVersion->version ?? null,
+            'min_ios' => $artifact->min_ios_version ?? $app->latestVersion->min_ios_version ?? null,
             'size' => $artifact?->size_bytes,
-            'updated' => $app->latestVersion?->released_at ?? $artifact?->created_at,
+            'updated' => $app->latestVersion->released_at ?? $artifact?->created_at,
         ];
         $price = $this->monthlyPrice();
         $related = $this->publicApps()->where('category_id', $app->category_id)->whereKeyNot($app->id)->limit(self::RELATED)->get();

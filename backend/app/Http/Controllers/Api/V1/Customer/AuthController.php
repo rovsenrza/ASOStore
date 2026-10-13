@@ -143,12 +143,13 @@ class AuthController extends Controller
 
         $device = $this->currentDevice->resolve($request);
         $artifact = $device?->latestRegistration?->team?->storefrontApp?->publishedArtifact;
-        $latestBuild = (int) ($artifact?->build_number ?? 0);
+        $latestBuild = (int) ($artifact->build_number ?? 0);
         if ($latestBuild <= $clientBuild) {
             return null;
         }
 
-        return ['version' => $artifact?->version, 'build_number' => $latestBuild];
+        // A newer build than the client's means the artifact exists.
+        return ['version' => $artifact->version, 'build_number' => $latestBuild];
     }
 
     public function forgotPassword(Request $request): JsonResponse

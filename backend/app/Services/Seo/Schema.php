@@ -6,9 +6,8 @@ use Illuminate\Support\Carbon;
 
 /**
  * schema.org nodes shared by every server-rendered public page. They reference each other by
- *
- * @id (the same ids the homepage uses), so search engines read one connected graph: the
- * organization, its website, this page, its breadcrumbs and what the page is about.
+ * their "@id" values (the same ids the homepage uses), so search engines read one connected graph:
+ * the organization, its website, this page, its breadcrumbs and what the page is about.
  */
 class Schema
 {

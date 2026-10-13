@@ -36,7 +36,7 @@ class OrderFulfillment
             $this->messenger->notifyAdmins(new Screen(
                 "⚠️ <b>Оплата на сайте прошла, но доступ не включился</b>\n\n"
                 ."Заказ <code>{$order->reference()}</code> · ".Format::rub($order->amount_due_rub)."\n"
-                .'Аккаунт: '.e($order->user?->email ?? 'удалён')."\n\n"
+                .'Аккаунт: '.e($order->user->email ?? 'удалён')."\n\n"
                 .'Включите доступ вручную или передайте покупателю код из этого заказа.'
             ));
         }

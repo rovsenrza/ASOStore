@@ -53,11 +53,11 @@ class CleanedCopyBuilder
         $stays = false;
         foreach ($analysis['modules'] ?? [] as $module) {
             $name = basename((string) $module['path']);
-            $isRuntime = $matches($name, $rules['runtime'] ?? []);
+            $isRuntime = $matches($name, $rules['runtime']);
             if ($isRuntime) {
                 continue;
             }
-            if (! ($module['removable'] ?? false) || $matches($name, $rules['keep'] ?? []) || ! $matches($name, $rules['remove'] ?? [])) {
+            if (! ($module['removable'] ?? false) || $matches($name, $rules['keep']) || ! $matches($name, $rules['remove'])) {
                 $stays = true;
 
                 continue;
@@ -66,7 +66,7 @@ class CleanedCopyBuilder
         }
         if ($remove !== [] && ! $stays) {
             foreach ($analysis['modules'] ?? [] as $module) {
-                if ($matches(basename((string) $module['path']), $rules['runtime'] ?? []) && ($module['removable'] ?? false)) {
+                if ($matches(basename((string) $module['path']), $rules['runtime']) && ($module['removable'] ?? false)) {
                     $remove[] = (string) $module['path'];
                 }
             }

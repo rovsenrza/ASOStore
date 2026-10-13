@@ -155,10 +155,10 @@ class ProfileProvisioner
                     ->env(['LARAVEL_INVOKABLE_CLOSURE' => base64_encode(serialize(new SerializableClosure($task)))])
                     ->command($command);
             }
-        })->start()->wait();
+        })->start()->wait()->collect();
 
         return array_map(function (int $key) use ($results) {
-            $output = $results[(string) $key]->throw()->output();
+            $output = $results->get((string) $key)->throw()->output();
             $decoded = json_decode(substr($output, 0, strpos($output, "\x1f\x8b") ?: null), true);
             if (! ($decoded['successful'] ?? false)) {
                 throw new RuntimeException(($decoded['exception'] ?? 'Error').': '.($decoded['message'] ?? mb_substr($output, 0, 500)));
@@ -183,6 +183,7 @@ class ProfileProvisioner
      * One extension's profile. Runs in a child process, which exceptions do not cross intact,
      * so failures come back as data.
      *
+     * @param  array<string, mixed>  $target
      * @param  array{bundle_identifier: string, path: string, capabilities: list<string>}  $extension
      * @return array{error?: 'retry'|'unavailable', reason?: string, message?: string, seconds?: int}
      */

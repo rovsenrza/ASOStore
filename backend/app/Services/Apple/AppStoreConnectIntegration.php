@@ -175,7 +175,7 @@ class AppStoreConnectIntegration implements AppleIntegration
                 'relationships' => [
                     'bundleId' => ['data' => ['type' => 'bundleIds', 'id' => $bundleIdResource]],
                     'certificates' => ['data' => [['type' => 'certificates', 'id' => $certificateId]]],
-                    'devices' => ['data' => array_map(fn (string $id) => ['type' => 'devices', 'id' => $id], array_values((array) $appleDeviceIds))],
+                    'devices' => ['data' => array_map(fn (string $id) => ['type' => 'devices', 'id' => $id], (array) $appleDeviceIds)],
                 ],
             ],
         ]));
