@@ -86,6 +86,24 @@ it('gives same-named listings different titles, by version', function () {
         ->and($second)->toContain('СберБанк Онлайн 9.9.9');
 });
 
+it('publishes valid JSON-LD with a schema.org @context on every server-rendered page', function () {
+    $shell = public_path('catalog-shell.html');
+    $original = is_file($shell) ? file_get_contents($shell) : null;
+    file_put_contents($shell, '<html><head><!--seo:head--><title>x</title><!--/seo:head--></head><body><main id="main"></main></body></html>');
+
+    try {
+        foreach (['/apps', '/apps/sberbank-onlayn', '/categories/finance', '/blog'] as $url) {
+            $html = $this->get($url)->assertOk()->getContent();
+            expect(preg_match('#<script type="application/ld\+json">(.*?)</script>#s', $html, $m))->toBe(1, $url);
+            $doc = json_decode($m[1], true, flags: JSON_THROW_ON_ERROR);
+            expect(array_keys($doc))->toBe(['@context', '@graph'], $url)
+                ->and($doc['@context'])->toBe('https://schema.org');
+        }
+    } finally {
+        $original === null ? @unlink($shell) : file_put_contents($shell, $original);
+    }
+});
+
 it('escapes catalog text it puts into the page', function () {
     $this->listing->update(['subtitle' => '<script>alert(1)</script>']);
 
