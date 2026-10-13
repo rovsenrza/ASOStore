@@ -153,8 +153,10 @@ it('offers the new plans with savings', function () {
 
     $labels = collect(($this->lastKeyboard)(BUYER_ID))->flatten(1)->pluck('text')->all();
     expect($labels[0])->toBe('1 месяц — 590₽')
-        ->and($labels[1])->toBe('6 месяцев — 1 770₽ · 295₽/мес · −50%')
-        ->and($labels[2])->toBe('🔥 12 месяцев — 2 360₽ · 197₽/мес · −67%');
+        ->and($labels[1])->toBe('3 месяца — 1 060₽ · 354₽/мес · −40%')
+        ->and($labels[2])->toBe('6 месяцев — 1 770₽ · 295₽/мес · −50%')
+        ->and($labels[3])->toBe('9 месяцев — 2 070₽ · 230₽/мес · −61%')
+        ->and($labels[4])->toBe('🔥 12 месяцев — 2 360₽ · 197₽/мес · −67%');
 });
 
 it('lets a tester complete a mock order end to end with a real code and referral bonus', function () {

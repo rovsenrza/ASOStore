@@ -64,7 +64,8 @@ class DeviceRegistrationService
             return $current;
         }
 
-        $team = $this->selector->instantTeam($device->device_family->value) ?? AppleTeam::primary();
+        $longPlan = $device->user?->hasLongPlan() ?? false;
+        $team = $this->selector->instantTeam($device->device_family->value, longPlan: $longPlan) ?? AppleTeam::primary();
         $year = $team?->currentMembershipYear();
         if ($team === null || $year === null) {
             return null;

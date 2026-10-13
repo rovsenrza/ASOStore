@@ -15,6 +15,8 @@ use App\Models\MembershipYear;
 use App\Models\TeamQuota;
 use App\Notifications\DeviceReadyNotification;
 use App\Services\Apple\AppleDevice;
+use App\Models\User;
+use App\Services\Activation\ActivationCodeService;
 use App\Services\Devices\DeviceRegistrationService;
 use Illuminate\Support\Facades\Notification;
 use Tests\Support\ScriptedApple;
@@ -107,6 +109,41 @@ it('gives the team with the fewest devices each new device once every team is pa
         $this->second->id, $this->second->id, $this->second->id, $this->second->id,
         $this->primary->id, $this->second->id,
     ]);
+});
+
+it('gives long-plan teams only to buyers of more than a month, and only under the limit', function () {
+    $reserved = AppleTeam::create(['apple_team_id' => 'TEAM000003', 'name' => 'Reserved', 'status' => AppleTeamStatus::Active, 'membership_expires_at' => now()->addYear()]);
+    MembershipYear::create(['apple_team_id' => $reserved->id, 'starts_at' => now()->subDay(), 'ends_at' => now()->addYear()]);
+    variantTeam($reserved, 'com.bundle3.app');
+    config(['storefront.apple.long_plan_teams' => ['TEAM000003'], 'storefront.apple.instant_device_limit' => 1]);
+    $codes = app(ActivationCodeService::class);
+    $buyer = function (int $days) use ($codes): User {
+        $user = User::factory()->create();
+        $codes->redeem($user, $codes->generate($user, 1, 'standard', $days, null, 'test')['codes'][0]);
+
+        return $user;
+    };
+    $enrolFor = function (?User $user, string $udid): DeviceRegistration {
+        $device = Device::factory()->make(['device_family' => DeviceFamily::Iphone] + ($user ? ['user_id' => $user->id] : []));
+        $device->setUdid($udid);
+        $device->enrolled_at = now();
+        $device->save();
+        $registration = app(DeviceRegistrationService::class)->request($device);
+        app(DeviceRegistrationService::class)->register($registration);
+
+        return $registration->refresh();
+    };
+
+    // A one-month buyer never lands on the reserved team, even when every shared team is full.
+    $monthly = $buyer(30);
+    expect($enrolFor($monthly, '00008030-0000000000000001')->apple_team_id)->toBe($this->primary->id)
+        ->and($enrolFor($monthly, '00008030-0000000000000002')->apple_team_id)->toBe($this->second->id)
+        ->and($enrolFor($monthly, '00008030-0000000000000003')->apple_team_id)->not->toBe($reserved->id);
+
+    // A six-month buyer takes the reserved slot; once it is used, the shared rules apply.
+    $long = $buyer(180);
+    expect($enrolFor($long, '00008030-0000000000000004')->apple_team_id)->toBe($reserved->id)
+        ->and($enrolFor($long, '00008030-0000000000000005')->apple_team_id)->not->toBe($reserved->id);
 });
 
 it('keeps a device Apple is processing on its team, however long it waits', function () {

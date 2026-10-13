@@ -141,12 +141,21 @@ class TeamSelector
      * configured variants in creation order. When every team is past the
      * limit, the team with the fewest devices. Null when the routing is off
      * or no team has free slots; the caller then uses the primary team.
+     * Long-plan teams take only long-plan buyers, and only while under the limit.
      */
-    public function instantTeam(string $family, ?int $exclude = null): ?AppleTeam
+    public function instantTeam(string $family, ?int $exclude = null, bool $longPlan = false): ?AppleTeam
     {
         $limit = (int) config('storefront.apple.instant_device_limit');
         if ($limit <= 0) {
             return null;
+        }
+
+        if ($longPlan) {
+            foreach ($this->automaticTeams($family, exclude: $exclude ?? 0, reserved: true) as $team) {
+                if ($this->devicesThisYear($team) < $limit) {
+                    return $team;
+                }
+            }
         }
 
         $primary = AppleTeam::primary();
@@ -205,15 +214,19 @@ class TeamSelector
 
     /**
      * Configured variants are ordered by team creation, giving each team its
-     * full block before the next is considered.
+     * full block before the next is considered. $reserved picks the long-plan
+     * teams instead of the shared ones.
      *
      * @return list<AppleTeam>
      */
-    private function automaticTeams(string $family, int $exclude): array
+    private function automaticTeams(string $family, int $exclude, bool $reserved = false): array
     {
         $teams = AppleTeam::query()
             ->whereIn('status', [AppleTeamStatus::Active->value, AppleTeamStatus::Expiring->value])
             ->whereKeyNot($exclude)
+            ->when($reserved,
+                fn ($query) => $query->whereIn('apple_team_id', self::longPlanTeams()),
+                fn ($query) => $query->whereNotIn('apple_team_id', self::longPlanTeams()))
             ->whereNotNull('storefront_app_id')
             ->with(['activeCredential', 'storefrontApp.publishedArtifact'])
             ->orderBy('id')
@@ -262,6 +275,7 @@ class TeamSelector
         $teams = AppleTeam::query()
             ->whereIn('status', [AppleTeamStatus::Active->value, AppleTeamStatus::Expiring->value])
             ->when($exclude !== null, fn ($query) => $query->whereKeyNot($exclude))
+            ->whereNotIn('apple_team_id', self::longPlanTeams())
             ->with('activeCredential')
             ->orderBy('id')
             ->get();
@@ -289,6 +303,12 @@ class TeamSelector
         usort($candidates, fn (array $a, array $b) => $b[1] <=> $a[1]);
 
         return $candidates;
+    }
+
+    /** @return list<string> */
+    private static function longPlanTeams(): array
+    {
+        return (array) config('storefront.apple.long_plan_teams', []);
     }
 
     private function move(DeviceRegistration $registration, Status $to, string $reason, string $message): void
