@@ -47,11 +47,11 @@ function flakyOriginals(int $failures): FilesystemAdapter
 
 it('continues the open upload when the same file is picked again', function () {
     config(['storefront.imports.daily_limit' => 1]);
-    $bytes = str_repeat('a', UploadSession::CHUNK_SIZE + 10);
+    $bytes = str_repeat('a', UploadSession::chunkSize() + 10);
     $start = ['filename' => 'Big.ipa', 'size_bytes' => strlen($bytes), 'sha256' => hash('sha256', $bytes), 'declaration_accepted' => true];
 
     $first = $this->postJson('/api/v1/imports', $start)->assertCreated()->json('data');
-    putImportChunk($first['id'], 0, substr($bytes, 0, UploadSession::CHUNK_SIZE))->assertOk();
+    putImportChunk($first['id'], 0, substr($bytes, 0, UploadSession::chunkSize()))->assertOk();
 
     // The app was closed mid-upload; the customer picks the same file again. Even with the
     // day's cap used up, it continues where it stopped rather than starting a second import.

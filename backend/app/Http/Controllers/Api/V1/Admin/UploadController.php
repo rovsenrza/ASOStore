@@ -47,7 +47,7 @@ class UploadController extends Controller
             }
         }
 
-        $chunkSize = UploadSession::CHUNK_SIZE;
+        $chunkSize = UploadSession::chunkSize();
         $upload = UploadSession::create([
             'app_id' => $app->id,
             'app_version_id' => $version?->id,

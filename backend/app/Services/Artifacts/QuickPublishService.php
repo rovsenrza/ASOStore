@@ -114,7 +114,7 @@ class QuickPublishService
                 'source_type' => SourceType::CustomerProvided,
                 'visibility' => AppVisibility::Draft,
             ]);
-            $chunkSize = UploadSession::CHUNK_SIZE;
+            $chunkSize = UploadSession::chunkSize();
             $upload = UploadSession::create([
                 'app_id' => $staging->id,
                 'uploaded_by' => $user->id,

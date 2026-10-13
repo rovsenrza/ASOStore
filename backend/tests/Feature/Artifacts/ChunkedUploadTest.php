@@ -78,7 +78,7 @@ it('resumes a chunked upload and assembles an immutable artifact', function () {
 });
 
 it('reports missing chunks without closing the resumable session', function () {
-    $upload = startUpload($this->manager, $this->catalogApp, '', size: UploadSession::CHUNK_SIZE + 1);
+    $upload = startUpload($this->manager, $this->catalogApp, '', size: UploadSession::chunkSize() + 1);
 
     $this->postJson("/api/v1/admin/uploads/{$upload['id']}/complete")
         ->assertUnprocessable()

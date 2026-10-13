@@ -91,6 +91,12 @@ return [
         'device_ca_file' => env('STOREFRONT_ENROLLMENT_DEVICE_CA'),
     ],
 
+    // Chunked IPA uploads (admin, quick publish, customer imports). Clients use the size each session
+    // reports, so this only affects new sessions.
+    'uploads' => [
+        'chunk_bytes' => (int) env('STOREFRONT_UPLOAD_CHUNK_BYTES', 8 * 1024 * 1024),
+    ],
+
     // Customer self-import of IPAs (from Files or a link). Signed on the Apple certificate for one
     // device, so imports are capped per customer to protect the cert.
     'imports' => [

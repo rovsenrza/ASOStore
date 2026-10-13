@@ -198,7 +198,7 @@ class ImportService
 
     private function openUpload(CatalogApp $app, User $user, string $filename, int $sizeBytes, ?string $sha256, ?string $ip): UploadSession
     {
-        $chunkSize = UploadSession::CHUNK_SIZE;
+        $chunkSize = UploadSession::chunkSize();
 
         return UploadSession::create([
             'app_id' => $app->id,

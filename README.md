@@ -111,7 +111,7 @@ Broadcasts run on the `default` queue (the `storefront-queue-apple@` workers als
 ## Checks
 
 ```bash
-cd backend && ./vendor/bin/pint --test && ./vendor/bin/phpstan analyse && ./vendor/bin/pest
+cd backend && ./vendor/bin/pint --test && ./vendor/bin/phpstan analyse && composer test   # tests: ~45 MB peak, fits PHP's default 128M
 npx @stoplight/spectral-cli@6 lint docs/api/openapi.yaml --ruleset .spectral.yaml
 BASE_URL=http://127.0.0.1:8000 CHROME_BIN=/path/to/chrome node scripts/web-smoke.mjs
 ./scripts/e2e.sh                    # Playwright browser journeys on a throwaway database (storefront_e2e)

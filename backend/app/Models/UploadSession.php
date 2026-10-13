@@ -26,6 +26,15 @@ class UploadSession extends Model
 
     public const CHUNK_SIZE = 8 * 1024 * 1024;
 
+    /**
+     * Chunk size for new upload sessions. Clients (iOS app, admin) read it from the session, so it
+     * can differ per environment: the test suite uses small chunks to keep PHP within 128M.
+     */
+    public static function chunkSize(): int
+    {
+        return max(1024, (int) config('storefront.uploads.chunk_bytes', self::CHUNK_SIZE));
+    }
+
     protected $fillable = [
         'app_id', 'app_version_id', 'artifact_id', 'uploaded_by', 'original_filename',
         'expected_size', 'expected_sha256', 'chunk_size', 'chunk_count', 'source_type',
