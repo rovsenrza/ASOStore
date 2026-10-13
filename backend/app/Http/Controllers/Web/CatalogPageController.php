@@ -195,15 +195,6 @@ class CatalogPageController extends Controller
                 Schema::webPage('ItemPage', $url, $title, $description, $image, $modified, ['mainEntity' => ['@id' => $url.'#app']]),
                 Schema::breadcrumbs($url, [['Каталог', $base.'/apps'], [$app->category->title, $categoryUrl], [$name, $url]]),
                 $software,
-                [
-                    '@type' => 'HowTo',
-                    '@id' => $url.'#install',
-                    'name' => "Как скачать и установить {$name} на iPhone",
-                    'description' => "Установка {$name} на iPhone без App Store, компьютера и джейлбрейка.",
-                    'tool' => [['@type' => 'HowToTool', 'name' => 'iPhone или iPad'.($facts['min_ios'] ? ' с iOS '.$facts['min_ios'].' или новее' : '')],
-                        ['@type' => 'HowToTool', 'name' => 'Браузер Safari']],
-                    'step' => Schema::installSteps($name, $price),
-                ],
                 ['@type' => 'FAQPage', '@id' => $url.'#faq', 'mainEntity' => array_map(fn (array $item) => [
                     '@type' => 'Question', 'name' => $item[0], 'acceptedAnswer' => ['@type' => 'Answer', 'text' => $item[1]],
                 ], $faq)],

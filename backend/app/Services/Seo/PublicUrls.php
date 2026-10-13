@@ -17,6 +17,8 @@ class PublicUrls
         '/install.html' => ['install.html', '0.7', 'monthly'],
         '/activate.html' => ['activate.html', '0.6', 'monthly'],
         '/support.html' => ['support.html', '0.6', 'monthly'],
+        '/privacy.html' => ['privacy.html', '0.3', 'monthly'],
+        '/terms.html' => ['terms.html', '0.3', 'monthly'],
     ];
 
     /**

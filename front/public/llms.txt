@@ -1,0 +1,35 @@
+# Ru App Store
+
+> Ru App Store (ruappstore.com) is a Russian-language app store for iPhone and iPad. It installs apps that are missing from the Russian App Store (banks, marketplaces, social networks, streaming services) directly on the iPhone, without a computer or jailbreak. Each install is signed for the user's own device. Access is a one-time purchase per iPhone, with no auto-renewal.
+
+Operator: Железнов Максим Алексеевич, ИНН 131656459264. Ru App Store is not affiliated with the developers of the apps in its catalog. Site language: Russian.
+
+## Main pages
+
+- [Главная](https://ruappstore.com/): what the service does and how it works
+- [Каталог приложений](https://ruappstore.com/apps): every app available for install, with version and iOS requirements
+- [Купить доступ](https://ruappstore.com/buy.html): plans and prices (1, 3, 6, 9 and 12 months; from 590 ₽ for one month to 2 360 ₽ for a year)
+- [Регистрация iPhone](https://ruappstore.com/activate.html): registering the device in Safari
+- [Установка и восстановление](https://ruappstore.com/install.html): installing Ru App Store and restoring access
+- [Поддержка и контакты](https://ruappstore.com/support.html)
+
+## Categories
+
+- [Банки и финансы](https://ruappstore.com/categories/finance)
+- [Социальные сети](https://ruappstore.com/categories/social)
+- [Русские приложения](https://ruappstore.com/categories/russkie-prilozheniya)
+- [Фото и видео](https://ruappstore.com/categories/photo-video)
+- [Утилиты и сервисы](https://ruappstore.com/categories/utilities)
+
+## Guides
+
+- [Блог: инструкции](https://ruappstore.com/blog): step-by-step guides for installing specific apps on iPhone
+
+## Policies
+
+- [Пользовательское соглашение](https://ruappstore.com/terms.html)
+- [Политика конфиденциальности](https://ruappstore.com/privacy.html)
+
+## Optional
+
+- [Sitemap](https://ruappstore.com/sitemap.xml): full list of app, category and blog pages

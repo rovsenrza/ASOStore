@@ -63,14 +63,14 @@ it('serves an indexable app page with its facts, install steps, FAQ and structur
 
     preg_match('#<script type="application/ld\+json">(.*?)</script>#s', $html, $match);
     $graph = collect(json_decode($match[1], true)['@graph']);
-    expect($graph->pluck('@type')->all())->toBe(['Organization', 'WebSite', 'ItemPage', 'BreadcrumbList', 'SoftwareApplication', 'HowTo', 'FAQPage']);
+    // No HowTo node: Google stopped showing HowTo rich results in 2023.
+    expect($graph->pluck('@type')->all())->toBe(['Organization', 'WebSite', 'ItemPage', 'BreadcrumbList', 'SoftwareApplication', 'FAQPage']);
     $software = $graph->firstWhere('@type', 'SoftwareApplication');
     expect($software)->toMatchArray(['name' => 'СберБанк Онлайн', 'operatingSystem' => 'iOS 15.0 или новее', 'applicationCategory' => 'FinanceApplication', 'softwareVersion' => '15.2.0'])
         ->and($software['featureList'])->toBe(['Переводы по номеру телефона', 'Оплата ЖКХ без комиссии'])
         ->and($software['offers']['priceCurrency'])->toBe('RUB')
         ->and($graph->firstWhere('@type', 'ItemPage')['mainEntity'])->toBe(['@id' => 'https://ruappstore.com/apps/sberbank-onlayn#app'])
-        ->and($graph->firstWhere('@type', 'BreadcrumbList')['@id'])->toBe('https://ruappstore.com/apps/sberbank-onlayn#breadcrumb')
-        ->and($graph->firstWhere('@type', 'HowTo')['step'])->toHaveCount(4);
+        ->and($graph->firstWhere('@type', 'BreadcrumbList')['@id'])->toBe('https://ruappstore.com/apps/sberbank-onlayn#breadcrumb');
 });
 
 it('escapes catalog text it puts into the page', function () {
