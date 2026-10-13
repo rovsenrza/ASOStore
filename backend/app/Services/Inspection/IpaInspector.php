@@ -303,7 +303,7 @@ class IpaInspector
         $executable = self::scalar($info['CFBundleExecutable'] ?? null);
 
         $invalid = [];
-        if ($identifier === null || strlen($identifier) > 155 || preg_match('/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$/', $identifier) !== 1) {
+        if ($identifier === null || strlen($identifier) > 155 || preg_match('/^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*$/', $identifier) !== 1) {
             $invalid[] = 'CFBundleIdentifier';
         }
         foreach (['CFBundleShortVersionString' => $version, 'CFBundleVersion' => $build] as $key => $value) {

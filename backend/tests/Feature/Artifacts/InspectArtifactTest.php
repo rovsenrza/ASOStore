@@ -66,6 +66,13 @@ it('reads binary Info.plist files and universal binaries', function () {
         ->and(array_column($artifact->inspection['binaries'], 'role'))->toBe(['main', 'framework', 'extension']);
 });
 
+it('accepts a single-segment App Store bundle ID such as imo\'s', function () {
+    $artifact = inspected(uploadIpa($this->manager, $this->catalogApp, IpaBuilder::app('imoimiphone')->build()));
+
+    expect($artifact->status)->toBe(ArtifactStatus::ProvenanceReview)
+        ->and($artifact->bundle_identifier)->toBe('imoimiphone');
+});
+
 it('rejects encrypted binaries anywhere in the app', function (IpaBuilder $builder, string $path) {
     $artifact = inspected(uploadIpa($this->manager, $this->catalogApp, $builder->build()));
 
