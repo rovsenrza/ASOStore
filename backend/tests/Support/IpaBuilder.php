@@ -190,7 +190,7 @@ class IpaBuilder
      * @param  array<string, mixed>|null  $entitlements
      * @param  list<string>  $loads
      */
-    public static function machO(int $cpuType = self::ARM64, int $cryptId = 0, int $platform = 2, ?array $entitlements = null, array $loads = []): string
+    public static function machO(int $cpuType = self::ARM64, int $cryptId = 0, int $platform = 2, ?array $entitlements = null, array $loads = [], string $minOs = '18.0'): string
     {
         $entitlements ??= ['application-identifier' => 'ABCDE12345.com.example.demo', 'get-task-allow' => false];
         $xml = self::plist($entitlements);
@@ -198,7 +198,8 @@ class IpaBuilder
         $entitlementBlob = pack('NN', 0xFADE7171, 8 + strlen($xml)).$xml;
         $signature = pack('NNN', 0xFADE0CC0, 20 + strlen($entitlementBlob), 1).pack('NN', 5, 20).$entitlementBlob;
 
-        $buildVersion = pack('VVVVVV', 0x32, 24, $platform, 0x00120000, 0x00120000, 0);
+        [$major, $minor] = array_map('intval', explode('.', $minOs.'.0'));
+        $buildVersion = pack('VVVVVV', 0x32, 24, $platform, ($major << 16) | ($minor << 8), 0x00120000, 0);
         $encryption = pack('VVVVVV', 0x2C, 24, 0x4000, $cryptId ? 0x1000 : 0, $cryptId, 0);
         $dylibs = '';
         foreach ($loads as $name) {

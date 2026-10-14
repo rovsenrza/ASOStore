@@ -127,6 +127,14 @@ class IpaInspector
                 }
             }
 
+            // Info.plist may claim an older iOS than the executable needs (hand-edited IPAs say 10.0).
+            // Devices below the executable's own minimum cannot start the app, so that one counts.
+            $binaryMinimum = self::executableMinimum($mainSlices);
+            if ($binaryMinimum !== null && version_compare($binaryMinimum, $bundle['min_ios_version'], '>')) {
+                $report['bundle']['declared_min_ios_version'] = $bundle['min_ios_version'];
+                $report['bundle']['min_ios_version'] = $binaryMinimum;
+            }
+
             $report['entitlements'] = $this->entitlements($mainSlices);
             $report['embedded_profile'] = $this->embeddedProfile($zip, $entries, $appRoot.'embedded.mobileprovision');
             $report['compatibility_issues'] = $this->compatibilityIssues($bundle, $mainSlices, $nested);
@@ -428,6 +436,23 @@ class IpaInspector
         }
 
         return $slices;
+    }
+
+    /**
+     * The highest iOS minimum among the device slices of an executable.
+     *
+     * @param  list<MachOSlice>  $slices
+     */
+    public static function executableMinimum(array $slices): ?string
+    {
+        $minimum = null;
+        foreach ($slices as $slice) {
+            if ($slice->platform === 2 && $slice->minOs !== null && ($minimum === null || version_compare($slice->minOs, $minimum, '>'))) {
+                $minimum = $slice->minOs;
+            }
+        }
+
+        return $minimum;
     }
 
     /**

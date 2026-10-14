@@ -120,9 +120,10 @@ it('cleans a published build that replaced an earlier upload of the same version
 
 it('shows the minimum iOS of a cleaned copy once it replaces the published build', function () {
     // As most supplied IPAs: Info.plist claims iOS 10.0 while the executable needs 18.0.
+    // Inspection already takes the executable's minimum, so the listing never shows 10.0.
     $original = inspected(uploadIpa($this->manager, $this->catalogApp, IpaBuilder::app()->info(['MinimumOSVersion' => '10.0'])->build()));
     approveAndPublish($original);
-    expect($original->refresh()->appVersion->min_ios_version)->toBe('10.0');
+    expect($original->refresh()->appVersion->min_ios_version)->toBe('18.0');
 
     $this->postJson("/api/v1/admin/artifacts/{$original->public_id}/clean", ['recommended' => true, 'reason' => 'Минимальная версия iOS'])->assertStatus(202);
     $copy = AppArtifact::query()->where('derived_from_artifact_id', $original->id)->sole();

@@ -50,6 +50,20 @@ it('moves a valid IPA to provenance review with its metadata and an audited job'
         ->and(AuditLog::where('action', 'artifact.inspected')->sole()->after['outcome'])->toBe('PROVENANCE_REVIEW');
 });
 
+it('takes the executable\'s minimum iOS when Info.plist claims an older one', function () {
+    $ipa = IpaBuilder::app()->info(['MinimumOSVersion' => '10.0'])->executable(IpaBuilder::machO(minOs: '17.6'))->build();
+    $artifact = inspected(uploadIpa($this->manager, $this->catalogApp, $ipa));
+
+    expect($artifact->min_ios_version)->toBe('17.6')
+        ->and($artifact->inspection['bundle']['declared_min_ios_version'])->toBe('10.0');
+
+    // A binary that runs on older systems than Info.plist allows keeps the declared minimum.
+    $other = CatalogApp::factory()->create();
+    $artifact = inspected(uploadIpa($this->manager, $other, IpaBuilder::app()->info(['MinimumOSVersion' => '16.0'])->executable(IpaBuilder::machO(minOs: '15.0'))->build()));
+    expect($artifact->min_ios_version)->toBe('16.0')
+        ->and($artifact->inspection['bundle'])->not->toHaveKey('declared_min_ios_version');
+});
+
 it('reads binary Info.plist files and universal binaries', function () {
     $ipa = IpaBuilder::app()
         ->binaryInfoPlist()
@@ -242,4 +256,24 @@ it('retries failed attempts, then fails permanently, and never runs a finished j
     // A permanently failed job waits for an operator; the queue does not pick it up again.
     app()->call([new InspectArtifactJob($job->id), 'handle']);
     expect($job->refresh()->attempt)->toBe(3);
+});
+
+it('raises stored artifacts to their executable\'s minimum iOS, only when asked', function () {
+    $artifact = inspected(uploadIpa($this->manager, $this->catalogApp, IpaBuilder::app()->info(['MinimumOSVersion' => '10.0'])->executable(IpaBuilder::machO(minOs: '17.6'))->build()));
+    // As inspected before the fix: Info.plist's 10.0 was taken at face value.
+    $inspection = $artifact->inspection;
+    $inspection['bundle']['min_ios_version'] = '10.0';
+    unset($inspection['bundle']['declared_min_ios_version']);
+    $version = AppVersion::create(['app_id' => $this->catalogApp->id, 'version' => '1.0.0', 'build_number' => '42', 'min_ios_version' => '10.0']);
+    $artifact->forceFill(['min_ios_version' => '10.0', 'inspection' => $inspection, 'app_version_id' => $version->id])->save();
+
+    $this->artisan('ipa:fix-min-ios')->expectsOutputToContain('would be corrected')->assertSuccessful();
+    expect($artifact->fresh()->min_ios_version)->toBe('10.0');
+
+    $this->artisan('ipa:fix-min-ios', ['--apply' => true])->expectsOutputToContain('1 artifact(s) corrected')->assertSuccessful();
+    expect($artifact->fresh()->min_ios_version)->toBe('17.6')
+        ->and($artifact->fresh()->inspection['bundle']['declared_min_ios_version'])->toBe('10.0')
+        ->and($version->fresh()->min_ios_version)->toBe('17.6');
+
+    $this->artisan('ipa:fix-min-ios', ['--apply' => true])->expectsOutputToContain('0 artifact(s) corrected')->assertSuccessful();
 });
