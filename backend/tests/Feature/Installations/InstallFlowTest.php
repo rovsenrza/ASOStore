@@ -149,6 +149,39 @@ function runnerSigns(object $test): array
     return $lease;
 }
 
+it('retries a flaky object-storage write of the signed build', function () {
+    runnerHeartbeat()->assertOk();
+    $token = $this->customer->createToken('ios')->plainTextToken;
+    $this->withToken($token)->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")->assertStatus(202);
+    forgetGuards();
+
+    // The next write of the signed build to object storage fails once, as a broken multipart upload would.
+    $real = Storage::disk('artifacts');
+    $flaky = new class($real->getDriver(), $real->getAdapter(), $real->getConfig()) extends Illuminate\Filesystem\FilesystemAdapter
+    {
+        public int $failures = 1;
+
+        public function put($path, $contents, $options = [])
+        {
+            if (str_starts_with($path, 'signed/') && $this->failures > 0) {
+                $this->failures--;
+                throw League\Flysystem\UnableToWriteFile::atLocation($path, 'An exception occurred while uploading parts to a multipart upload.');
+            }
+
+            return parent::put($path, $contents, $options);
+        }
+    };
+    Storage::set('artifacts', $flaky);
+
+    $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+    $profile = SigningProfile::sole();
+    $signed = signedIpa($profile);
+    worker('PUT', $lease['upload_path'], $signed)->assertCreated()->assertJsonPath('data.sha256', hash('sha256', $signed));
+
+    expect($flaky->failures)->toBe(0)
+        ->and(Storage::disk('artifacts')->exists('signed/'.SignedBuild::sole()->public_id.'.ipa'))->toBeTrue();
+});
+
 it('installs a published app on a registered iPhone through the whole flow', function () {
     runnerHeartbeat()->assertOk();
     expect(Certificate::sole()->runner_id)->toBe($this->runner->id);

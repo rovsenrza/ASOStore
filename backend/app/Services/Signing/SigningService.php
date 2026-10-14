@@ -348,10 +348,26 @@ class SigningService
                 $size += strlen($chunk);
                 fwrite($temporary, $chunk);
             }
-            rewind($temporary);
             $sha256 = hash_final($context);
             $disk = Storage::disk('artifacts');
-            $disk->put($path, $temporary);
+            // Object storage occasionally fails a large multipart write under load; one bad
+            // part should not fail the whole sign (the runner would re-sign from scratch).
+            for ($attempt = 1; ; $attempt++) {
+                try {
+                    rewind($temporary);
+                    if ($disk->put($path, $temporary) === false) {
+                        throw new RuntimeException("Unable to write file at location: {$path}.");
+                    }
+
+                    break;
+                } catch (\Throwable $exception) {
+                    if ($attempt >= 3) {
+                        throw $exception;
+                    }
+                    report($exception);
+                    usleep($attempt * 500_000);
+                }
+            }
             app(ArtifactFileCache::class)->store($disk, $path, $sha256, $size, $temporary);
         } finally {
             fclose($temporary);
