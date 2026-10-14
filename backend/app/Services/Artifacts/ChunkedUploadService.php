@@ -50,6 +50,13 @@ class ChunkedUploadService
         $existing = $upload->chunks()->where('number', $number)->first();
         if ($existing !== null) {
             if ($existing->size_bytes === $size && hash_equals($existing->sha256, $sha256)) {
+                // The row says we already have this chunk, but object storage can silently
+                // drop a write (or a part is lost under load); restore the object from this
+                // resend so assembly does not fail later for a chunk the client "already sent".
+                if (! Storage::disk('artifacts')->exists($existing->storage_path)) {
+                    Storage::disk('artifacts')->put($existing->storage_path, $contents);
+                }
+
                 return ['number' => $number, 'size_bytes' => $size, 'sha256' => $sha256, 'already_received' => true];
             }
 
@@ -115,8 +122,19 @@ class ChunkedUploadService
 
         try {
             foreach ($upload->chunks as $chunk) {
-                $stream = Storage::disk('artifacts')->readStream($chunk->storage_path);
+                try {
+                    $stream = Storage::disk('artifacts')->readStream($chunk->storage_path);
+                } catch (\Throwable $readError) {
+                    // Flysystem throws (not returns null) when object storage lost the part.
+                    report($readError);
+                    $stream = null;
+                }
                 if ($stream === null) {
+                    // Object storage lost this part. Forget just this chunk and reopen the
+                    // session so the client re-uploads only it, instead of failing the whole
+                    // upload — the DB row otherwise makes the client skip it forever.
+                    $chunk->delete();
+                    UploadSession::query()->whereKey($upload->id)->where('status', 'ASSEMBLING')->update(['status' => 'OPEN']);
                     throw new ApiException(ErrorCode::UploadIncomplete, details: ['missing_chunk' => $chunk->number]);
                 }
 

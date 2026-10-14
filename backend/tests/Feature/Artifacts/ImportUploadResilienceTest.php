@@ -86,6 +86,44 @@ it('rides out a failed write to object storage', function () {
     $this->postJson("/api/v1/imports/{$start['id']}/complete")->assertCreated()->assertJsonPath('data.status', 'PROVENANCE_REVIEW');
 });
 
+it('recovers a chunk whose object storage silently lost it', function () {
+    $bytes = IpaBuilder::app('com.vendor.lost')->build();
+    $start = $this->postJson('/api/v1/imports', ['filename' => 'Lost.ipa', 'size_bytes' => strlen($bytes), 'declaration_accepted' => true])
+        ->assertCreated()->json('data');
+    putImportChunk($start['id'], 0, $bytes)->assertOk();
+
+    // The row says chunk 0 is received, but the object is gone (a lost write under load).
+    $chunk = UploadSession::where('public_id', $start['id'])->sole()->chunks()->sole();
+    Storage::disk('artifacts')->delete($chunk->storage_path);
+
+    // Completing must not fail the whole upload: it reopens and names the missing chunk.
+    $this->postJson("/api/v1/imports/{$start['id']}/complete")
+        ->assertStatus(422)->assertJsonPath('error.code', 'UPLOAD_INCOMPLETE')
+        ->assertJsonPath('error.details.missing_chunk', 0);
+    expect(UploadSession::where('public_id', $start['id'])->sole()->status)->toBe('OPEN');
+
+    // Re-uploading just that chunk restores the object and completing now succeeds.
+    putImportChunk($start['id'], 0, $bytes)->assertOk();
+    $this->postJson("/api/v1/imports/{$start['id']}/complete")->assertCreated()->assertJsonPath('data.status', 'PROVENANCE_REVIEW');
+});
+
+it('restores a lost object when the client resends an already-received chunk', function () {
+    $bytes = IpaBuilder::app('com.vendor.resend')->build();
+    $start = $this->postJson('/api/v1/imports', ['filename' => 'Resend.ipa', 'size_bytes' => strlen($bytes), 'declaration_accepted' => true])
+        ->assertCreated()->json('data');
+    putImportChunk($start['id'], 0, $bytes)->assertOk();
+
+    $chunk = UploadSession::where('public_id', $start['id'])->sole()->chunks()->sole();
+    Storage::disk('artifacts')->delete($chunk->storage_path);
+
+    // The client resends the same chunk; the server restores the lost object instead of
+    // trusting the row, so assembly later succeeds.
+    putImportChunk($start['id'], 0, $bytes)->assertOk()->assertJsonPath('data.already_received', true);
+    expect(Storage::disk('artifacts')->exists($chunk->storage_path))->toBeTrue();
+
+    $this->postJson("/api/v1/imports/{$start['id']}/complete")->assertCreated()->assertJsonPath('data.status', 'PROVENANCE_REVIEW');
+});
+
 it('keeps the upload open when storage keeps failing, so completing it again works', function () {
     $bytes = IpaBuilder::app('com.vendor.down')->build();
     $start = $this->postJson('/api/v1/imports', ['filename' => 'Down.ipa', 'size_bytes' => strlen($bytes), 'declaration_accepted' => true])
