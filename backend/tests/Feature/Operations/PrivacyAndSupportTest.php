@@ -86,6 +86,28 @@ it('erases an account: sessions end, devices are disabled, personal data is repl
         ->and($this->device->udid_encrypted)->toBe('');
 });
 
+it('expires an upload whose assembly was killed and drops its chunks', function () {
+    Storage::fake('artifacts');
+    $manager = userWithRoles(RoleSlug::CatalogManager);
+    $app = CatalogApp::factory()->create();
+    $stuck = asStaff($manager)->postJson('/api/v1/admin/uploads', [
+        'app_id' => $app->public_id, 'filename' => 'Big.ipa', 'size_bytes' => 20, 'source_type' => 'OWN_BUILD',
+        'declaration_version' => 'v1', 'declaration_accepted' => true,
+    ])->json('data');
+    UploadSession::where('public_id', $stuck['id'])->update(['status' => 'ASSEMBLING']);
+    Storage::disk('artifacts')->put("uploads/{$stuck['id']}/chunks/0.part", 'partial');
+
+    $this->travel(2)->hours();
+    app(RetentionService::class)->run();
+    expect(UploadSession::where('public_id', $stuck['id'])->sole()->status)->toBe('ASSEMBLING');
+    Storage::disk('artifacts')->assertExists("uploads/{$stuck['id']}/chunks/0.part");
+
+    $this->travel(1)->days();
+    app(RetentionService::class)->run();
+    expect(UploadSession::where('public_id', $stuck['id'])->sole()->status)->toBe('EXPIRED');
+    Storage::disk('artifacts')->assertMissing("uploads/{$stuck['id']}/chunks/0.part");
+});
+
 it('purges files of rejected artifacts and abandoned uploads after their retention period', function () {
     Storage::fake('artifacts');
     $manager = userWithRoles(RoleSlug::CatalogManager);

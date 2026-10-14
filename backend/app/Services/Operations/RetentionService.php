@@ -34,8 +34,9 @@ class RetentionService
         $disk = Storage::disk('artifacts');
         $summary = ['upload_sessions' => 0, 'rejected_artifacts' => 0, 'signed_builds' => 0, 'installation_events' => 0, 'udids' => 0];
 
-        // Unfinished chunked uploads (P5-BE-04).
-        foreach (UploadSession::query()->whereIn('status', ['OPEN', 'FAILED'])->where('updated_at', '<', now()->subHours($days['upload_session_hours']))->get() as $upload) {
+        // Unfinished chunked uploads (P5-BE-04). ASSEMBLING too: assembly takes minutes, so one
+        // untouched for a day was killed mid-way (a timeout on a multi-GB file) and holds its chunks forever.
+        foreach (UploadSession::query()->whereIn('status', ['OPEN', 'FAILED', 'ASSEMBLING'])->where('updated_at', '<', now()->subHours($days['upload_session_hours']))->get() as $upload) {
             $disk->deleteDirectory("uploads/{$upload->public_id}");
             $upload->chunks()->delete();
             $upload->forceFill(['status' => 'EXPIRED'])->save();
