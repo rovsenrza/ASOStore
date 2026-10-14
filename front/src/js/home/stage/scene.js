@@ -20,13 +20,18 @@ const tileVertex = /* glsl */ `
   varying vec2 vCell;
   varying vec3 vNormal;
   varying vec3 vView;
-  varying float vFront;
+  varying vec2 vLocal;
+  varying float vCap;
+  varying float vBack;
   varying float vDepth;
 
   void main() {
     vUv = uv;
+    vLocal = position.xy;
     vCell = aCell;
-    vFront = step(0.6, normal.z);
+    // Both large faces show the icon, so a tile turning away never reads as an empty box.
+    vCap = step(0.6, abs(normal.z));
+    vBack = step(normal.z, 0.0);
     vec4 world = modelMatrix * instanceMatrix * vec4(position, 1.0);
     vNormal = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
     vec4 view = viewMatrix * world;
@@ -45,7 +50,9 @@ const tileFragment = /* glsl */ `
   varying vec2 vCell;
   varying vec3 vNormal;
   varying vec3 vView;
-  varying float vFront;
+  varying vec2 vLocal;
+  varying float vCap;
+  varying float vBack;
   varying float vDepth;
 
   vec2 cellUv(vec2 local) {
@@ -54,9 +61,11 @@ const tileFragment = /* glsl */ `
   }
 
   void main() {
-    vec3 face = texture2D(uAtlas, cellUv(clamp(vUv, 0.02, 0.98))).rgb;
+    // The face's own coordinates, mirrored on the back so the icon reads the right way round.
+    vec2 local = vec2(mix(vLocal.x, -vLocal.x, vBack), vLocal.y) + 0.5;
+    vec3 face = texture2D(uAtlas, cellUv(clamp(local, 0.02, 0.98))).rgb;
     vec3 edge = texture2D(uAtlas, cellUv(vec2(0.08, 0.5))).rgb * 0.72;
-    vec3 color = mix(edge, face, vFront);
+    vec3 color = mix(edge, face, vCap);
 
     vec3 n = normalize(vNormal);
     vec3 v = normalize(vView);
@@ -171,10 +180,14 @@ export async function createStage({ canvas, tier, icons, atlasUrl, onSlow }) {
   const camera = new PerspectiveCamera(30, 1, 0.1, 100);
   camera.position.set(0, 0, 15);
 
-  // The stage sits right of the headline: keep its centre of mass there.
+  // The stage sits right of the headline. The canvas bleeds to the viewport's right edge, so the
+  // scene is centred on the stage box, not the canvas, and sized to stay clear of both sides.
   const root = new Group();
-  root.position.x = 0.7;
   scene.add(root);
+  const stageBox = canvas.parentElement;
+  // Widest reach of the orbit from its centre at scale 1 (outer radius, half a tile, perspective).
+  const ORBIT_REACH = 5.6;
+  let squash = 1;
 
   // The glyph: the logo's A as three glossy capsules.
   const glyphMaterial = new MeshPhysicalMaterial({ color: new Color('#ffffff'), roughness: 0.22, metalness: 0, clearcoat: 1, clearcoatRoughness: 0.12, sheen: 0.4, sheenColor: new Color('#9fd0ff') });
@@ -267,6 +280,23 @@ export async function createStage({ canvas, tier, icons, atlasUrl, onSlow }) {
     renderer.setSize(width, height, false);
     camera.aspect = width / height;
     camera.updateProjectionMatrix();
+    fit(height);
+  }
+
+  /** Centres the scene on the stage box and keeps the orbit inside the viewport and off the headline. */
+  function fit(height) {
+    const box = canvas.getBoundingClientRect();
+    const stageRect = stageBox.getBoundingClientRect();
+    const unit = (2 * Math.tan(MathUtils.degToRad(camera.fov / 2)) * camera.position.z) / height;
+    const centre = stageRect.left + stageRect.width / 2;
+    const viewport = document.documentElement.clientWidth;
+    const room = Math.max(0, Math.min(viewport - 12 - centre, centre - stageRect.left + 48)) * unit;
+    const needed = room / ORBIT_REACH;
+    // Shrink the whole scene a little, and narrow the orbit for the rest, so the glyph stays large.
+    const scale = MathUtils.clamp(needed * 1.2, 0.72, 1);
+    squash = Math.min(1, needed / scale);
+    root.scale.setScalar(scale);
+    root.position.x = (centre - (box.left + box.width / 2)) * unit;
   }
 
   function layout(time) {
@@ -291,7 +321,7 @@ export async function createStage({ canvas, tier, icons, atlasUrl, onSlow }) {
     for (let i = 0; i < count; i += 1) {
       const o = orbit[i];
       const angle = o.angle + time * 0.09;
-      from.set(Math.sin(angle) * o.radius, o.height + Math.sin(time * 0.5 + i) * 0.15, Math.cos(angle) * o.radius * 0.55 - 0.6);
+      from.set(Math.sin(angle) * o.radius * squash, o.height + Math.sin(time * 0.5 + i) * 0.15, Math.cos(angle) * o.radius * 0.55 - 0.6);
       orbitQuat.setFromEuler(dummy.rotation.set(o.tilt.x + Math.sin(time * 0.4 + i) * 0.15, o.tilt.y + angle * 0.15, o.tilt.z));
 
       const docks = i < 24;
