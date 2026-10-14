@@ -2,6 +2,8 @@
 
 Monorepo for the customer web portal, the native iOS Storefront, the operator admin panel and the PHP backend.
 
+> **This branch (`main`) holds the product code only:** `backend/`, `front/`, `admin/`, `ios/` and `assets/`. The signing runner, server configs (`ops/`), shared web modules (`shared/`), the API contract and runbooks (`docs/`), scripts and tests live on the working branch `phase-5-artifacts`, which production deploys from. Links below that point outside the five folders resolve there.
+
 - What and why: [docs/adr/FULL_PLAN.md](docs/adr/FULL_PLAN.md)
 - Order of work, decisions, done criteria: [docs/adr/IMPLEMENTATION_PLAN.md](docs/adr/IMPLEMENTATION_PLAN.md)
 - API contract: [docs/api/openapi.yaml](docs/api/openapi.yaml), with shared examples in [docs/api/examples/](docs/api/examples/)

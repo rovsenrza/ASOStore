@@ -1,4 +1,0 @@
-extends: ["spectral:oas"]
-rules:
-  # Examples live in docs/api/examples and are validated by the backend contract tests.
-  oas3-valid-media-example: off

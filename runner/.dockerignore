@@ -1,7 +1,0 @@
-.build
-.swiftpm
-*.key
-*.p12
-*.cer
-*.pem
-*.mobileprovision
