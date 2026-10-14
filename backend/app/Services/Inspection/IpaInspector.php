@@ -130,7 +130,7 @@ class IpaInspector
             // Info.plist may claim an older iOS than the executable needs (hand-edited IPAs say 10.0).
             // Devices below the executable's own minimum cannot start the app, so that one counts.
             $binaryMinimum = self::executableMinimum($mainSlices);
-            if ($binaryMinimum !== null && version_compare($binaryMinimum, $bundle['min_ios_version'], '>')) {
+            if ($binaryMinimum !== null && self::newerVersion($binaryMinimum, $bundle['min_ios_version'])) {
                 $report['bundle']['declared_min_ios_version'] = $bundle['min_ios_version'];
                 $report['bundle']['min_ios_version'] = $binaryMinimum;
             }
@@ -436,6 +436,14 @@ class IpaInspector
         }
 
         return $slices;
+    }
+
+    /** Whether $a is a later version than $b; trailing zeros don't count ("16.0" equals "16"). */
+    public static function newerVersion(string $a, ?string $b): bool
+    {
+        $trim = fn (string $version) => preg_replace('/(\.0+)+$/', '', $version) ?? $version;
+
+        return $b === null || version_compare($trim($a), $trim($b), '>');
     }
 
     /**

@@ -6,6 +6,7 @@ use App\Models\AppArtifact;
 use App\Models\AppVersion;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
+use App\Services\Inspection\IpaInspector;
 use Illuminate\Console\Command;
 
 /**
@@ -27,7 +28,7 @@ class FixMinimumIos extends Command
             $binary = collect($artifact->inspection['binaries'] ?? [])->firstWhere('role', 'main');
             $needed = is_array($binary) && is_string($binary['min_os'] ?? null) && ($binary['platform'] ?? null) === 'ios' ? $binary['min_os'] : null;
             $declared = $artifact->min_ios_version;
-            if ($needed === null || ($declared !== null && version_compare($needed, $declared, '<='))) {
+            if ($needed === null || ! IpaInspector::newerVersion($needed, $declared)) {
                 continue;
             }
             $rows[] = [$artifact->id, $artifact->app?->name ?? '-', $artifact->status->value, $declared ?? '-', $needed];
