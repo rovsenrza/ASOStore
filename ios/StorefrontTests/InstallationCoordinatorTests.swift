@@ -83,6 +83,38 @@ struct InstallationCoordinatorTests {
         #expect(opened.urls.isEmpty)
     }
 
+    /// The app still holds READY_TO_INSTALL while the server has expired the build behind it.
+    @Test func startsAFreshInstallationWhenTheOldOneExpired() async throws {
+        let persisted = store()
+        persisted.save(appID: appID, installationID: "01j8zq4m6r2x9d3k5v7w1y0b2c")
+        let authorizations = Counter()
+        let polls = Counter()
+        let transport = ScriptedTransport { request in
+            let path = request.url?.path() ?? ""
+            if path.hasSuffix("/prepare") { return (202, try Fixtures.data("installation-preparing")) }
+            if path.hasSuffix("/authorize") {
+                return authorizations.next() == 0 ? (409, Envelopes.error("ARTIFACT_NOT_INSTALLABLE")) : (200, try Fixtures.data("install-link"))
+            }
+            // Resume reads READY_TO_INSTALL; the fresh installation is preparing once, then ready.
+            return (200, try Fixtures.data(polls.next() == 1 ? "installation-preparing" : "installation-ready"))
+        }
+        let opened = Opened()
+        let coordinator = InstallationCoordinator(
+            repository: PreparationRepository(api: .stubbed(transport)),
+            store: persisted,
+            openURL: { url in opened.urls.append(url); return true },
+            pollDelay: { _ in .milliseconds(10) }
+        )
+        await coordinator.resume()
+        #expect(coordinator.state(for: app()) == .readyToInstall)
+
+        await coordinator.act(on: app())
+        try await waitUntil { !opened.urls.isEmpty }
+        #expect(coordinator.lastError == nil)
+        #expect(transport.requests.contains { $0.url?.path().hasSuffix("/prepare") == true })
+        #expect(transport.requests.filter { $0.url?.path().hasSuffix("/authorize") == true }.count == 2)
+    }
+
     @Test func surfacesServerRefusalsWithoutChangingTheCatalogState() async throws {
         let coordinator = InstallationCoordinator(
             repository: PreparationRepository(api: .stubbed(StubTransport(status: 409, body: Envelopes.error("DEVICE_PENDING_APPLE")))),

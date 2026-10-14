@@ -24,6 +24,8 @@ final class InstallationCoordinator: ObservableObject {
     private var polls: [String: Task<Void, Never>] = [:]
     /// Apps the user asked to install in this session: open the install link as soon as it is ready.
     private var autoInstall: Set<String> = []
+    /// Apps whose stale installation was replaced by a fresh one, so a refusal cannot loop.
+    private var restarted: Set<String> = []
     private let log = Logger(subsystem: "storefront", category: "installations")
 
     init(
@@ -149,19 +151,34 @@ final class InstallationCoordinator: ObservableObject {
     }
 
     private func install(_ installation: InstallationDTO) async {
-        autoInstall.remove(installation.app.id)
+        let appID = installation.app.id
+        autoInstall.remove(appID)
         do {
             let link = try await repository.authorize(id: installation.id)
+            restarted.remove(appID)
             if await openURL(link.installUrl) == false {
                 lastError = APIError(code: .artifactNotInstallable)
             }
             // The manifest fetch moves the server state on; pick it up.
-            schedulePoll(installation.id, appID: installation.app.id, attempt: 0)
+            schedulePoll(installation.id, appID: appID, attempt: 0)
+        } catch let error as APIError where Self.isStale(error) && !restarted.contains(appID) {
+            // The build behind this installation expired or was replaced after the app last
+            // asked (it keeps the old READY_TO_INSTALL answer): start a fresh one, once.
+            restarted.insert(appID)
+            installations[appID] = nil
+            store.remove(appID: appID)
+            autoInstall.insert(appID)
+            await prepare(appID: appID)
         } catch let error as APIError {
             lastError = error
         } catch {
             lastError = APIError(code: .internal)
         }
+    }
+
+    /// Refusals that mean "this installation is over", not "you may not install".
+    private static func isStale(_ error: APIError) -> Bool {
+        [.artifactNotInstallable, .notFound, .installTokenExpired].contains(error.code)
     }
 
     private func update(_ installation: InstallationDTO) {
