@@ -3,6 +3,7 @@
   "tile": 256,
   "columns": 8,
   "rows": 7,
+  "version": "bbaf21901080",
   "apps": [
     {
       "id": "01m3q94e9w20ryejzx9qcmhx1d",

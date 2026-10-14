@@ -22,13 +22,14 @@ export function mountStage() {
       try {
         const [{ createStage }, icons] = await Promise.all([
           import('./scene.js'),
-          fetch('/assets/icons/icons.json').then((response) => response.json()),
+          // Revalidated every time: it names the atlas version that matches its cell layout.
+          fetch('/assets/icons/icons.json', { cache: 'no-cache' }).then((response) => response.json()),
         ]);
         instance = await createStage({
           canvas,
           tier,
           icons,
-          atlasUrl: '/assets/icons/atlas.webp',
+          atlasUrl: `/assets/icons/atlas.webp?v=${icons.version ?? `${icons.columns}x${icons.rows}-${icons.apps.length}`}`,
           onSlow: () => stage.classList.remove('is-webgl'),
         });
         instance.setProgress(progress);

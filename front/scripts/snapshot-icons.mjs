@@ -9,7 +9,8 @@
  * Needs ImageMagick (`magick`) for resizing and the atlas.
  */
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -73,7 +74,10 @@ for (let row = 0; row < rows; row += 1) {
 execFileSync('magick', ['-background', 'none', ...rowFiles, '-append', '-quality', '88', resolve(out, 'atlas.webp')]);
 for (const file of [...tiles, ...rowFiles]) rmSync(file);
 
-writeFileSync(resolve(out, 'icons.json'), `${JSON.stringify({ source: API, tile: TILE, columns: COLUMNS, rows, apps: manifest }, null, 2)}\n`);
+// The atlas keeps its name and is cached for a month, so the stage loads it as atlas.webp?v=<version>:
+// a browser holding an older atlas would otherwise cut tiles from the wrong cells.
+const version = createHash('sha256').update(readFileSync(resolve(out, 'atlas.webp'))).digest('hex').slice(0, 12);
+writeFileSync(resolve(out, 'icons.json'), `${JSON.stringify({ source: API, tile: TILE, columns: COLUMNS, rows, version, apps: manifest }, null, 2)}\n`);
 // Readable by the web server whatever the local umask.
 for (const file of readdirSync(out)) chmodSync(resolve(out, file), 0o644);
 console.log(`${manifest.length} icons, atlas ${COLUMNS}x${rows}`);
