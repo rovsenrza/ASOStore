@@ -81,7 +81,12 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('store-checkout', fn (Request $request) => Limit::perHour(20)->by('store-checkout:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
         RateLimiter::for('store-order', fn (Request $request) => Limit::perMinute(60)->by('store-order:'.$request->ip()));
         RateLimiter::for('payment-callback', fn (Request $request) => Limit::perMinute(300)->by('payment-callback:'.$request->ip()));
-        RateLimiter::for('enrollment', fn (Request $request) => Limit::perHour(20)->by('enrollment:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
+        // Per MINUTE, not per hour: the profile download drives a retry-heavy Safari onboarding
+        // flow (device check, enrollment, iOS's own fetch, and user retries after any hiccup).
+        // An hourly cap locked a struggling user out for a full hour, so Safari downloaded the
+        // 429 body instead of the .mobileconfig and showed "couldn't install profile". A minute
+        // window still stops abuse (each call signs a profile) but lets a stuck user recover fast.
+        RateLimiter::for('enrollment', fn (Request $request) => Limit::perMinute(15)->by('enrollment:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
         RateLimiter::for('enrollment-callback', fn (Request $request) => Limit::perMinute(10)->by('enrollment-callback:'.$request->ip()));
         RateLimiter::for('claims', fn (Request $request) => Limit::perMinute(10)->by('claims:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
         RateLimiter::for('admin-login', fn (Request $request) => Limit::perMinute(5)->by('admin-login:'.$email($request).'|'.$request->ip()));
