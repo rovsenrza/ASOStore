@@ -71,6 +71,7 @@ p {{ margin-top: 22px; font-size: 25px; line-height: 1.38; font-weight: 500; opa
 .grid img {{ width: 92px; height: 92px; border-radius: 22px; box-shadow: 0 10px 22px rgba(10,30,90,.18); }}
 .grid.c3 img {{ width: 70px; height: 70px; border-radius: 17px; }}
 .grid.n2 img {{ width: 104px; height: 104px; border-radius: 24px; }}
+.grid.n2 {{ width: 240px; }}
 .cap {{ color: #0e1a3a; font-weight: 700; font-size: 22px; text-align: center; padding: 0 16px; line-height: 1.25; }}
 .btn {{ background: #0b4be0; color: #fff; font-weight: 700; font-size: 20px; padding: 13px 34px; border-radius: 999px; }}
 </style></head><body>
