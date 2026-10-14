@@ -51,14 +51,14 @@ struct AppDetailView: View {
                     .padding(.top, app.featureImageURL == nil ? 8 : -44)
                     .padding(.bottom, 40)
                 }
+                .reportsScrollOffset()
             }
+            .coordinateSpace(name: "detailScroll")
             .ignoresSafeArea(edges: .top)
             .scrollIndicators(.hidden)
             .background(AppPalette.canvas)
-            .onScrollGeometryChange(for: Bool.self) { geometry in
+            .onScrolledPast(190 + (app.featureImageURL == nil ? 0 : StretchyBanner.height - 44)) { hidden in
                 // Past the header's install button (the banner, when there is one, sits above it).
-                geometry.contentOffset.y + geometry.contentInsets.top > 190 + (app.featureImageURL == nil ? 0 : StretchyBanner.height - 44)
-            } action: { _, hidden in
                 withAnimation(Motion.state) { headerHidden = hidden }
             }
             .safeAreaInset(edge: .bottom) {
@@ -86,7 +86,7 @@ struct AppDetailView: View {
             }
             .fullScreenCover(item: $viewer) { selection in
                 ScreenshotViewer(urls: app.screenshots, selection: selection.index)
-                    .navigationTransition(.zoom(sourceID: selection.index, in: screenshotZoom))
+                    .zoomTransition(sourceID: selection.index, in: screenshotZoom)
             }
             .task { await load() }
             .refreshable { await load() }
@@ -175,7 +175,7 @@ struct AppDetailView: View {
             .padding(.vertical, 14)
         }
         .scrollIndicators(.hidden)
-        .contentMargins(.horizontal, AppSpacing.standard, for: .scrollContent)
+        .horizontalContentMargins(AppSpacing.standard)
         .padding(.horizontal, -AppSpacing.standard)
         .overlay(alignment: .top) { Divider() }
         .overlay(alignment: .bottom) { Divider() }
@@ -240,19 +240,17 @@ struct AppDetailView: View {
                                         .overlay(RoundedRectangle(cornerRadius: 26, style: .continuous).strokeBorder(AppPalette.separator.opacity(0.3), lineWidth: 0.5))
                                 }
                                 .buttonStyle(PressableStyle(scale: 0.97))
-                                .matchedTransitionSource(id: index, in: screenshotZoom)
-                                .scrollTransition(axis: .horizontal) { content, phase in
-                                    content.scaleEffect(phase.isIdentity ? 1 : 0.94)
-                                }
+                                .zoomTransitionSource(id: index, in: screenshotZoom)
+                                .scrollShrink(0.94)
                                 .accessibilityLabel("Снимок экрана \(index + 1) из \(app.screenshots.count)")
                             }
                         }
                     }
-                    .scrollTargetLayout()
+                    .scrollTargetLayoutCompat()
                 }
-                .scrollTargetBehavior(.viewAligned)
+                .viewAlignedScrolling()
                 .scrollIndicators(.hidden)
-                .contentMargins(.horizontal, AppSpacing.standard, for: .scrollContent)
+                .horizontalContentMargins(AppSpacing.standard)
                 .padding(.horizontal, -AppSpacing.standard)
             }
         }
@@ -367,7 +365,7 @@ private struct StretchyBanner: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let pull = max(0, proxy.frame(in: .scrollView).minY)
+            let pull = max(0, proxy.frame(in: .detailScroll).minY)
             ScreenshotImage(url: url)
                 .frame(width: proxy.size.width, height: Self.height + topInset + pull)
                 .clipped()
@@ -466,10 +464,9 @@ private struct ScreenshotViewer: View {
 
 #if DEBUG
 #Preview {
-    let api = APIClient.configured(environment: APIEnvironment(baseURL: URL(string: "http://127.0.0.1:8000/api/v1")!, mode: .mock))
     NavigationStack {
         AppDetailView(app: MockCatalog.featured)
     }
-    .environment(\.catalog, CatalogRepository(api: api, cache: .catalog))
+    .previewEnvironment()
 }
 #endif

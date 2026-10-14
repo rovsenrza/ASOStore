@@ -3,7 +3,7 @@ import UniformTypeIdentifiers
 
 /// The two ways in: an IPA from Files (or sent here from another app), or a link the server downloads.
 struct ManagerImportCards: View {
-    @Environment(ImportCenter.self) private var imports: ImportCenter?
+    @EnvironmentObject private var imports: ImportCenter
     @State private var showsFilePicker = false
     @State private var showsLinkSheet = false
 
@@ -42,10 +42,9 @@ struct ManagerImportCards: View {
                 .padding(.horizontal, AppSpacing.compact)
         }
         .padding(.horizontal, AppSpacing.standard)
-        .disabled(imports == nil)
         .fileImporter(isPresented: $showsFilePicker, allowedContentTypes: [.ipa], allowsMultipleSelection: false) { result in
             if case .success(let urls) = result, let url = urls.first {
-                imports?.importFile(at: url)
+                imports.importFile(at: url)
             }
         }
         .sheet(isPresented: $showsLinkSheet) {
@@ -61,7 +60,7 @@ extension UTType {
 
 /// Paste a link; the server downloads and inspects the file, and the import appears in the list.
 struct ImportLinkSheet: View {
-    @Environment(ImportCenter.self) private var imports: ImportCenter?
+    @EnvironmentObject private var imports: ImportCenter
     @Environment(\.dismiss) private var dismiss
     @State private var link = ""
     @State private var isSending = false
@@ -116,7 +115,6 @@ struct ImportLinkSheet: View {
     }
 
     private func send() async {
-        guard let imports else { return }
         isSending = true
         let accepted = await imports.importLink(link)
         isSending = false
@@ -133,4 +131,5 @@ struct ImportLinkSheet: View {
     }
     .background { BrandBackdrop() }
     .background(AppPalette.canvas)
+    .previewEnvironment()
 }

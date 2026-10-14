@@ -4,13 +4,15 @@ import SwiftUI
 struct CategoryAppsView: View {
     let category: StoreCategory
     @Environment(\.catalog) private var catalog
-    @State private var model: CatalogListModel
+    @StateObject private var model: CatalogListModel
 
     init(category: StoreCategory) {
         self.category = category
-        let model = CatalogListModel()
-        model.filter.category = category.id
-        _model = State(initialValue: model)
+        _model = StateObject(wrappedValue: {
+            let model = CatalogListModel()
+            model.filter.category = category.id
+            return model
+        }())
     }
 
     var body: some View {

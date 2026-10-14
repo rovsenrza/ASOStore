@@ -30,7 +30,7 @@ struct StateContainerView<Value: Sendable, Content: View>: View {
         case .loaded(let value):
             content(value)
         case .empty:
-            ContentUnavailableView("Здесь пока пусто", systemImage: "tray")
+            UnavailableView("Здесь пока пусто", systemImage: "tray")
         case .offline:
             unavailable("Нет подключения", "wifi.slash", "Проверьте интернет и повторите попытку.")
         case .unauthorized:
@@ -47,11 +47,7 @@ struct StateContainerView<Value: Sendable, Content: View>: View {
     }
 
     private func unavailable(_ title: String, _ systemImage: String, _ description: String) -> some View {
-        ContentUnavailableView {
-            Label(title, systemImage: systemImage)
-        } description: {
-            Text(description)
-        } actions: {
+        UnavailableView(title: title, systemImage: systemImage, description: description) {
             Button("Повторить", action: retry)
                 .buttonStyle(.borderedProminent)
         }

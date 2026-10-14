@@ -1,7 +1,7 @@
+import Combine
 import SwiftUI
 
-@Observable
-final class SearchModel {
+final class SearchModel: ObservableObject {
     enum Listing: String, CaseIterable, Identifiable {
         case updated, new
         var id: String { rawValue }
@@ -9,12 +9,12 @@ final class SearchModel {
         var sort: CatalogSort { self == .updated ? .updated : .new }
     }
 
-    var query = ""
-    var listing: Listing = .updated
-    private(set) var results: LoadState<[StoreApp]> = .empty
+    @Published var query = ""
+    @Published var listing: Listing = .updated
+    @Published private(set) var results: LoadState<[StoreApp]> = .empty
     /// The two browse lists shown while nothing is typed, with their totals.
-    private(set) var lists: [Listing: LoadState<[StoreApp]>] = [:]
-    private(set) var totals: [Listing: Int] = [:]
+    @Published private(set) var lists: [Listing: LoadState<[StoreApp]>] = [:]
+    @Published private(set) var totals: [Listing: Int] = [:]
 
     /// Debounced: typing cancels the previous search (FULL_PLAN §11 "search remains responsive").
     func search(_ catalog: CatalogRepository) async {
@@ -65,7 +65,7 @@ final class SearchModel {
 
 struct SearchView: View {
     @Environment(\.catalog) private var catalog
-    @State private var model = SearchModel()
+    @StateObject private var model = SearchModel()
     @FocusState private var searching: Bool
     @Namespace private var zoom
 
@@ -90,7 +90,7 @@ struct SearchView: View {
             .scrollDismissesKeyboard(.immediately)
             .background { BrandBackdrop() }
             .background(AppPalette.canvas)
-            .toolbarVisibility(.hidden, for: .navigationBar)
+            .navigationBarHiddenCompat()
             .swipeBackEnabled()
             .refreshable { await model.loadLists(catalog) }
             .task(id: model.query) { await model.search(catalog) }
@@ -168,7 +168,7 @@ struct SearchView: View {
     private var searchResults: some View {
         switch model.results {
         case .empty:
-            ContentUnavailableView.search(text: model.query)
+            SearchUnavailableView(text: model.query)
                 .frame(minHeight: 300)
         default:
             StateContainerView(state: model.results, retry: retrySearch, skeleton: .rows) { apps in
@@ -199,8 +199,6 @@ struct SearchView: View {
 }
 
 #Preview {
-    let api = APIClient.configured(environment: APIEnvironment(baseURL: URL(string: "http://127.0.0.1:8000/api/v1")!, mode: .mock))
     SearchView()
-        .environment(\.catalog, CatalogRepository(api: api, cache: .catalog))
-        .environment(AppRouter())
+        .previewEnvironment()
 }

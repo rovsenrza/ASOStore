@@ -4,9 +4,9 @@ import SwiftUI
 /// nothing is hidden behind a shelf, so browsing works without search.
 struct CatalogView: View {
     @Environment(\.catalog) private var catalog
-    @Environment(SessionStore.self) private var session
-    @Environment(AppRouter.self) private var router
-    @State private var model = CatalogListModel()
+    @EnvironmentObject private var session: SessionStore
+    @EnvironmentObject private var router: AppRouter
+    @StateObject private var model = CatalogListModel()
     @State private var path = NavigationPath()
     @State private var categories: [StoreCategory] = []
     /// The filters stick to the top once the title has scrolled away.
@@ -24,7 +24,7 @@ struct CatalogView: View {
                     title
                         .padding(.horizontal, AppSpacing.standard)
                         .padding(.bottom, 10)
-                        .onGeometryChange(for: Bool.self) { $0.frame(in: .scrollView).maxY < 0 } action: { pinned in
+                        .onGeometryChange(for: Bool.self) { $0.frame(in: .named("catalogScroll")).maxY < 0 } action: { pinned in
                             withAnimation(.easeOut(duration: 0.2)) { filtersPinned = pinned }
                         }
 
@@ -37,16 +37,17 @@ struct CatalogView: View {
                 }
                 .padding(.bottom, AppSpacing.generous)
             }
+            .coordinateSpace(name: "catalogScroll")
             .background { BrandBackdrop() }
             .background(AppPalette.canvas)
             .refreshable { await model.reload(catalog) }
-            .toolbarVisibility(.hidden, for: .navigationBar)
+            .navigationBarHiddenCompat()
             .swipeBackEnabled()
             .environment(\.zoomNamespace, zoom)
             .storeDestinations()
             .task(id: CatalogReloadKey(filter: model.filter, user: session.user?.id)) { await model.reload(catalog) }
             .task { await loadCategories() }
-            .onChange(of: router.requestedAppID, initial: true) { _, id in
+            .onChangeCompat(of: router.requestedAppID, initial: true) { id in
                 guard let id else { return }
                 path.append(AppRoute(.loading(id: id), from: AppRoute.link))
                 router.requestedAppID = nil
@@ -65,7 +66,7 @@ struct CatalogView: View {
             Group {
                 if let total = model.total {
                     Text(Self.count(total))
-                        .contentTransition(.numericText(value: Double(total)))
+                        .numericTransition(Double(total))
                 } else {
                     Text(" ")
                 }
@@ -132,7 +133,7 @@ struct CatalogFilterBar: View {
                 .ignoresSafeArea(edges: .top)
                 .opacity(isPinned ? 1 : 0)
         }
-        .onChange(of: filter.kind) {
+        .onChangeCompat(of: filter.kind) { _ in
             // A games category makes no sense under «Приложения».
             if let category = filter.category, !visibleCategories.contains(where: { $0.id == category }) {
                 filter.category = nil
@@ -167,7 +168,7 @@ struct CatalogFilterBar: View {
         }
         .padding(4)
         .glassCapsule()
-        .sensoryFeedback(.selection, trigger: filter.kind)
+        .selectionFeedback(trigger: filter.kind)
     }
 
     private var categoryChips: some View {
@@ -187,8 +188,8 @@ struct CatalogFilterBar: View {
             .padding(.vertical, 2)
         }
         .scrollIndicators(.hidden)
-        .contentMargins(.horizontal, AppSpacing.standard, for: .scrollContent)
-        .sensoryFeedback(.selection, trigger: filter.category)
+        .horizontalContentMargins(AppSpacing.standard)
+        .selectionFeedback(trigger: filter.category)
     }
 
     private func chip(title: String, systemImage: String?, isSelected: Bool, action: @escaping () -> Void) -> some View {
@@ -266,7 +267,7 @@ struct SortMenu: View {
             }
         }
         .accessibilityLabel("Сортировка: \(sort.title)")
-        .sensoryFeedback(.selection, trigger: sort)
+        .selectionFeedback(trigger: sort)
     }
 }
 
@@ -274,7 +275,7 @@ struct SortMenu: View {
 
 /// The rows of a CatalogListModel, loading the next page as the end comes into view.
 struct CatalogAppList: View {
-    let model: CatalogListModel
+    @ObservedObject var model: CatalogListModel
     /// Names the list for zoom transitions.
     let source: String
     let retry: () -> Void

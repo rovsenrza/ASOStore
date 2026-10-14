@@ -1,9 +1,8 @@
 import Foundation
-import Observation
+import Combine
 
 /// The full catalog as one list, a page at a time: Каталог and «Все приложения» on Главная.
-@Observable
-final class CatalogListModel {
+final class CatalogListModel: ObservableObject {
     struct Filter: Equatable {
         var kind = CatalogKind.all
         var category: String?
@@ -14,12 +13,12 @@ final class CatalogListModel {
         case idle, loading, failed, exhausted
     }
 
-    var filter = Filter()
+    @Published var filter = Filter()
     /// The first page: drives the screen's loading, empty and error states.
-    private(set) var state: LoadState<[StoreApp]> = .loading
+    @Published private(set) var state: LoadState<[StoreApp]> = .loading
     /// Later pages, loaded as the end of the list comes into view.
-    private(set) var more: More = .idle
-    private(set) var total: Int?
+    @Published private(set) var more: More = .idle
+    @Published private(set) var total: Int?
 
     private var page = 0
     /// A reply to an older filter must not land in the new list.

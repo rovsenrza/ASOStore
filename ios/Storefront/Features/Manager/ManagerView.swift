@@ -24,8 +24,8 @@ struct ManagerView: View {
     }
 
     @Environment(\.apiClient) private var api
-    @Environment(InstallationCoordinator.self) private var installations: InstallationCoordinator?
-    @Environment(ImportCenter.self) private var imports: ImportCenter?
+    @EnvironmentObject private var installations: InstallationCoordinator
+    @EnvironmentObject private var imports: ImportCenter
     @State private var state: LoadState<[InstallationDTO]> = .loading
     @State private var filter: Filter = .all
     @Namespace private var filterSelection
@@ -51,27 +51,27 @@ struct ManagerView: View {
             }
             .background { BrandBackdrop() }
             .background(AppPalette.canvas)
-            .toolbarVisibility(.hidden, for: .navigationBar)
+            .navigationBarHiddenCompat()
             .swipeBackEnabled()
             .refreshable { await load() }
             .task { await load() }
             .storeDestinations()
             .alert("Импорт", isPresented: Binding(
-                get: { imports?.message != nil },
-                set: { if !$0 { imports?.message = nil } }
+                get: { imports.message != nil },
+                set: { if !$0 { imports.message = nil } }
             )) {
                 Button("OK", role: .cancel) {}
             } message: {
-                Text(imports?.message ?? "")
+                Text(imports.message ?? "")
             }
             .alert("Импортировать приложение?", isPresented: Binding(
-                get: { imports?.incomingFile != nil },
-                set: { if !$0, imports?.incomingFile != nil { imports?.declineIncomingFile() } }
+                get: { imports.incomingFile != nil },
+                set: { if !$0, imports.incomingFile != nil { imports.declineIncomingFile() } }
             )) {
-                Button("Импортировать") { imports?.acceptIncomingFile() }
-                Button("Отмена", role: .cancel) { imports?.declineIncomingFile() }
+                Button("Импортировать") { imports.acceptIncomingFile() }
+                Button("Отмена", role: .cancel) { imports.declineIncomingFile() }
             } message: {
-                Text("«\(imports?.incomingFile?.lastPathComponent ?? "")» будет загружен на сервер, проверен и подписан для вашего iPhone. Вы подтверждаете, что имеете право устанавливать это приложение.")
+                Text("«\(imports.incomingFile?.lastPathComponent ?? "")» будет загружен на сервер, проверен и подписан для вашего iPhone. Вы подтверждаете, что имеете право устанавливать это приложение.")
             }
         }
     }
@@ -102,13 +102,13 @@ struct ManagerView: View {
         }
         .padding(4)
         .glassCapsule()
-        .sensoryFeedback(.selection, trigger: filter)
+        .selectionFeedback(trigger: filter)
         .padding(.horizontal, AppSpacing.standard)
     }
 
     @ViewBuilder
     private func content(_ items: [InstallationDTO]) -> some View {
-        let live = items.map { installations?.installations[$0.app.id] ?? $0 }
+        let live = items.map { installations.installations[$0.app.id] ?? $0 }
         let shown = live.filter { item in
             switch filter {
             case .all: true
@@ -129,11 +129,11 @@ struct ManagerView: View {
             .padding(.horizontal, AppSpacing.standard)
 
             if shown.isEmpty {
-                ContentUnavailableView {
-                    Label(filter == .all ? "Здесь появятся ваши приложения" : "Ничего нет", systemImage: "arrow.down.app")
-                } description: {
-                    Text("Приложения, которые вы установите через Ru App Store, и их обновления будут показаны на этом экране.")
-                }
+                UnavailableView(
+                    filter == .all ? "Здесь появятся ваши приложения" : "Ничего нет",
+                    systemImage: "arrow.down.app",
+                    description: "Приложения, которые вы установите через Ru App Store, и их обновления будут показаны на этом экране."
+                )
                 .frame(minHeight: 280)
             } else {
                 LazyVStack(spacing: 0) {
@@ -162,7 +162,7 @@ struct ManagerView: View {
     }
 
     private func refreshImports() async {
-        await imports?.refresh()
+        await imports.refresh()
     }
 }
 
@@ -247,6 +247,5 @@ private struct ManagerRow: View {
 
 #Preview {
     ManagerView()
-        .environment(\.apiClient, APIClient.configured(environment: APIEnvironment(baseURL: URL(string: "http://127.0.0.1:8000/api/v1")!, mode: .mock)))
-        .environment(AppRouter())
+        .previewEnvironment()
 }

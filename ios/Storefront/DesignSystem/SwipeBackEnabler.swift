@@ -3,7 +3,7 @@ import UIKit
 
 /// Restores the edge-swipe-to-go-back gesture on a screen that hides the system navigation
 /// bar for a custom header (`.toolbar(.hidden, for: .navigationBar)` /
-/// `.toolbarVisibility(.hidden, for: .navigationBar)`). Hiding the bar disables
+/// `.navigationBarHiddenCompat()`). Hiding the bar disables
 /// `interactivePopGestureRecognizer` as a side effect — its usual delegate comes from the bar,
 /// which is now gone — so without this every screen built with a custom header loses the
 /// standard one-finger-from-the-edge way back, leaving only the small custom back button.

@@ -59,6 +59,6 @@ struct UpdateAvailableSheet: View {
 #Preview {
     Color.clear.sheet(isPresented: .constant(true)) {
         UpdateAvailableSheet(update: AppUpdateDTO(version: "1.6", buildNumber: 11))
-            .environment(\.apiClient, APIClient.configured(environment: APIEnvironment(baseURL: URL(string: "http://127.0.0.1:8000/api/v1")!, mode: .mock)))
+            .previewEnvironment()
     }
 }

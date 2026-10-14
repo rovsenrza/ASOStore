@@ -1,9 +1,9 @@
+import Combine
 import SwiftUI
 
-@Observable
-final class FeedModel {
-    private(set) var state: LoadState<FeedDTO> = .loading
-    private(set) var isStale = false
+final class FeedModel: ObservableObject {
+    @Published private(set) var state: LoadState<FeedDTO> = .loading
+    @Published private(set) var isStale = false
 
     func load(_ catalog: CatalogRepository, kind: CatalogKind) async {
         do {
@@ -29,10 +29,10 @@ final class FeedModel {
 struct FeedScreen: View {
     var kind: CatalogKind = .all
     @Environment(\.catalog) private var catalog
-    @Environment(SessionStore.self) private var session
-    @Environment(AppRouter.self) private var router
-    @State private var model = FeedModel()
-    @State private var allApps = CatalogListModel()
+    @EnvironmentObject private var session: SessionStore
+    @EnvironmentObject private var router: AppRouter
+    @StateObject private var model = FeedModel()
+    @StateObject private var allApps = CatalogListModel()
     @Namespace private var zoom
     /// Gates `resumeIfStuck` to re-appearances only: the first appearance is `.task`'s job,
     /// and firing it there too would just race the initial load.
@@ -61,7 +61,7 @@ struct FeedScreen: View {
             .background { BrandBackdrop() }
             .background(AppPalette.canvas)
             .refreshable { await reloadAll() }
-            .toolbarVisibility(.hidden, for: .navigationBar)
+            .navigationBarHiddenCompat()
             .swipeBackEnabled()
             .environment(\.zoomNamespace, zoom)
             .storeDestinations()
@@ -88,7 +88,7 @@ struct FeedScreen: View {
                         Text(CatalogView.count(total))
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                            .contentTransition(.numericText(value: Double(total)))
+                            .numericTransition(Double(total))
                     }
                 }
                 Spacer()
@@ -174,11 +174,11 @@ struct CategoryShelf: View {
                         .accessibilityIdentifier("category-\(category.id)")
                     }
                 }
-                .scrollTargetLayout()
+                .scrollTargetLayoutCompat()
             }
-            .scrollTargetBehavior(.viewAligned)
+            .viewAlignedScrolling()
             .scrollIndicators(.hidden)
-            .contentMargins(.horizontal, AppSpacing.standard, for: .scrollContent)
+            .horizontalContentMargins(AppSpacing.standard)
         }
     }
 }
@@ -240,9 +240,6 @@ private struct AppPage: View {
 }
 
 #Preview {
-    let api = APIClient.configured(environment: APIEnvironment(baseURL: URL(string: "http://127.0.0.1:8000/api/v1")!, mode: .mock))
     FeedScreen()
-        .environment(\.catalog, CatalogRepository(api: api, cache: .catalog))
-        .environment(SessionStore(api: api))
-        .environment(AppRouter())
+        .previewEnvironment()
 }

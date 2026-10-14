@@ -8,25 +8,35 @@ struct HeroCarousel: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            ScrollView(.horizontal) {
-                LazyHStack(spacing: 12) {
+            if #available(iOS 17, *) {
+                ScrollView(.horizontal) {
+                    LazyHStack(spacing: 12) {
+                        ForEach(apps) { app in
+                            HeroCard(app: app)
+                                .containerRelativeFrame(.horizontal)
+                                .scrollShrink(0.93, opacity: 0.7)
+                                .id(app.id)
+                        }
+                    }
+                    .scrollTargetLayout()
+                }
+                .scrollTargetBehavior(.viewAligned)
+                .scrollIndicators(.hidden)
+                .scrollPosition(id: $current)
+                .contentMargins(.horizontal, AppSpacing.standard, for: .scrollContent)
+            } else {
+                // iOS 16: a paging view does the snapping that view-aligned scrolling does above.
+                TabView(selection: $current) {
                     ForEach(apps) { app in
                         HeroCard(app: app)
-                            .containerRelativeFrame(.horizontal)
-                            .scrollTransition(axis: .horizontal) { content, phase in
-                                content
-                                    .scaleEffect(phase.isIdentity ? 1 : 0.93)
-                                    .opacity(phase.isIdentity ? 1 : 0.7)
-                            }
-                            .id(app.id)
+                            .padding(.horizontal, AppSpacing.standard)
+                            .tag(Optional(app.id))
                     }
                 }
-                .scrollTargetLayout()
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .frame(height: HeroCard.height)
+                .onAppear { if current == nil { current = apps.first?.id } }
             }
-            .scrollTargetBehavior(.viewAligned)
-            .scrollIndicators(.hidden)
-            .scrollPosition(id: $current)
-            .contentMargins(.horizontal, AppSpacing.standard, for: .scrollContent)
 
             if apps.count > 1 {
                 pageDots
@@ -67,15 +77,7 @@ struct HeroCard: View {
                     banner
                         .frame(height: Self.height)
                         .frame(maxWidth: .infinity)
-                        .visualEffect { content, proxy in
-                            // Parallax: the artwork lags behind the card while it pages.
-                            let midX = proxy.frame(in: .scrollView(axis: .horizontal)).midX
-                            let width = proxy.size.width
-                            // Scaled so the drift never uncovers an edge.
-                            return content
-                                .scaleEffect(1.2)
-                                .offset(x: width > 0 ? -(midX - width / 2) * 0.08 : 0)
-                        }
+                        .parallax()
                         .clipped()
 
                     HStack(spacing: 12) {
@@ -136,6 +138,25 @@ struct HeroCard: View {
                 .font(.system(size: 96, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.2))
                 .offset(x: 90, y: -30)
+        }
+    }
+}
+
+private extension View {
+    /// Parallax: the artwork lags behind the card while it pages. None on iOS 16.
+    @ViewBuilder
+    func parallax() -> some View {
+        if #available(iOS 17, *) {
+            visualEffect { content, proxy in
+                let midX = proxy.frame(in: .scrollView(axis: .horizontal)).midX
+                let width = proxy.size.width
+                // Scaled so the drift never uncovers an edge.
+                return content
+                    .scaleEffect(1.2)
+                    .offset(x: width > 0 ? -(midX - width / 2) * 0.08 : 0)
+            }
+        } else {
+            self
         }
     }
 }

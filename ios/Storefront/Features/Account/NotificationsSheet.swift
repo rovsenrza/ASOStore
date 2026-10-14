@@ -4,7 +4,7 @@ import SwiftUI
 /// notifications the app has; nothing is invented to fill the list. Each row
 /// can be swiped away, and «Очистить» clears them all.
 struct NotificationsSheet: View {
-    @Environment(InstallationCoordinator.self) private var installations: InstallationCoordinator?
+    @EnvironmentObject private var installations: InstallationCoordinator
     @Environment(\.apiClient) private var api
     @Environment(\.dismiss) private var dismiss
     @State private var library: [InstallationDTO] = []
@@ -13,7 +13,7 @@ struct NotificationsSheet: View {
         NavigationStack {
             Group {
                 if ready.isEmpty {
-                    ContentUnavailableView("Уведомлений нет", systemImage: "bell.slash", description: Text("Здесь появятся приложения, которые подготовлены для вашего iPhone и ждут установки."))
+                    UnavailableView("Уведомлений нет", systemImage: "bell.slash", description: "Здесь появятся приложения, которые подготовлены для вашего iPhone и ждут установки.")
                 } else {
                     List {
                         ForEach(ready) { item in
@@ -27,7 +27,7 @@ struct NotificationsSheet: View {
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                                 Button(role: .destructive) {
-                                    withAnimation { installations?.dismissNotification(item.id) }
+                                    withAnimation { installations.dismissNotification(item.id) }
                                 } label: {
                                     Label("Очистить", systemImage: "trash")
                                 }
@@ -42,7 +42,7 @@ struct NotificationsSheet: View {
                 if !ready.isEmpty {
                     ToolbarItem(placement: .topBarLeading) {
                         Button("Очистить") {
-                            withAnimation { installations?.clearNotifications(ready.map(\.id)) }
+                            withAnimation { installations.clearNotifications(ready.map(\.id)) }
                         }
                     }
                 }
@@ -58,7 +58,7 @@ struct NotificationsSheet: View {
     /// Ready-to-install installations the user has not cleared.
     private var ready: [InstallationDTO] {
         library
-            .map { installations?.installations[$0.app.id] ?? $0 }
-            .filter { $0.status == "READY_TO_INSTALL" && installations?.isNotificationDismissed($0.id) != true }
+            .map { installations.installations[$0.app.id] ?? $0 }
+            .filter { $0.status == "READY_TO_INSTALL" && installations.isNotificationDismissed($0.id) != true }
     }
 }

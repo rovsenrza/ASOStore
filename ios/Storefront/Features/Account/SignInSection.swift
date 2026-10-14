@@ -2,14 +2,14 @@ import SwiftUI
 
 /// In-app sign-in, a fallback to the web flow (IMPLEMENTATION_PLAN P2-IOS-01).
 struct SignInSection: View {
-    @Environment(SessionStore.self) private var session
+    @EnvironmentObject private var session: SessionStore
     @Environment(\.apiClient) private var apiClient
     @State private var email = ""
     @State private var password = ""
     @State private var isSubmitting = false
     @State private var error: APIError?
     @State private var portalURL: URL?
-    @Environment(AppRouter.self) private var router
+    @EnvironmentObject private var router: AppRouter
     @State private var handoff = PortalHandoff()
 
     var body: some View {
@@ -93,9 +93,6 @@ struct SignInSection: View {
 }
 
 #Preview {
-    let api = APIClient.configured(environment: APIEnvironment(baseURL: URL(string: "http://127.0.0.1:8000/api/v1")!, mode: .mock))
     List { SignInSection() }
-        .environment(SessionStore(api: api))
-        .environment(AppRouter())
-        .environment(\.apiClient, api)
+        .previewEnvironment()
 }

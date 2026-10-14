@@ -1,16 +1,15 @@
 import Foundation
-import Observation
+import Combine
 
 /// App-wide navigation state: the selected tab, the header sheets and deep-link outcomes.
-@Observable
-final class AppRouter {
-    var selectedTab: StorefrontTab
+final class AppRouter: ObservableObject {
+    @Published var selectedTab: StorefrontTab
     /// Account or notifications, opened from the header capsule.
-    var sheet: StoreSheet?
+    @Published var sheet: StoreSheet?
     /// Shown as an alert when a deep link cannot be completed.
-    var alertMessage: String?
+    @Published var alertMessage: String?
     /// An app page a link asked for; Каталог opens it and clears this.
-    var requestedAppID: String?
+    @Published var requestedAppID: String?
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         var tab = StorefrontTab.home

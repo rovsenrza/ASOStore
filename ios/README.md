@@ -1,6 +1,6 @@
 # iOS Storefront
 
-SwiftUI app, iOS 18+, Swift 6 with main-actor default isolation. Open `Storefront.xcodeproj`.
+SwiftUI app, iOS 16+, Swift 6 with main-actor default isolation. Open `Storefront.xcodeproj`.
 
 ## Configurations
 

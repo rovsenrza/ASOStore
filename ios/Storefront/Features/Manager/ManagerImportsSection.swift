@@ -2,10 +2,10 @@ import SwiftUI
 
 /// «Мои импорты»: uploads running on this device, then the customer's imports from the server.
 struct ManagerImportsSection: View {
-    @Environment(ImportCenter.self) private var imports: ImportCenter?
+    @EnvironmentObject private var imports: ImportCenter
 
     var body: some View {
-        if let imports, !(imports.uploads.isEmpty && imports.visibleImports.isEmpty) {
+        if !(imports.uploads.isEmpty && imports.visibleImports.isEmpty) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text("Мои импорты")
@@ -52,7 +52,7 @@ private struct ImportIcon: View {
 /// A file being sent from this device.
 private struct UploadRow: View {
     let upload: ImportCenter.Upload
-    @Environment(ImportCenter.self) private var imports: ImportCenter?
+    @EnvironmentObject private var imports: ImportCenter
 
     var body: some View {
         HStack(spacing: 14) {
@@ -70,7 +70,7 @@ private struct UploadRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
             if isFailed {
-                Button("Повторить") { imports?.retry(upload.id) }
+                Button("Повторить") { imports.retry(upload.id) }
                     .font(.subheadline.weight(.bold))
                     .padding(.horizontal, 14)
                     .frame(minHeight: 34)
@@ -94,12 +94,12 @@ private struct UploadRow: View {
         .frame(minHeight: 82)
         .contextMenu {
             Button("Отменить импорт", systemImage: "xmark", role: .destructive) {
-                Task { await imports?.cancel(upload.id) }
+                Task { await imports.cancel(upload.id) }
             }
         }
         .accessibilityElement(children: .combine)
         .accessibilityAction(named: "Отменить импорт") {
-            Task { await imports?.cancel(upload.id) }
+            Task { await imports.cancel(upload.id) }
         }
     }
 
@@ -121,13 +121,13 @@ private struct UploadRow: View {
 /// One import on the server: downloading, being checked, ready to install, or failed.
 private struct ImportRow: View {
     let item: ImportDTO
-    @Environment(ImportCenter.self) private var imports: ImportCenter?
-    @Environment(InstallationCoordinator.self) private var installations: InstallationCoordinator?
+    @EnvironmentObject private var imports: ImportCenter
+    @EnvironmentObject private var installations: InstallationCoordinator
     @State private var confirmsDelete = false
     @State private var isWorking = false
 
     private var installState: InstallState? {
-        installations?.installations[item.id]?.installState
+        installations.installations[item.id]?.installState
     }
 
     var body: some View {
@@ -169,7 +169,7 @@ private struct ImportRow: View {
         }
         .confirmationDialog("Удалить «\(item.name)»?", isPresented: $confirmsDelete, titleVisibility: .visible) {
             Button("Удалить", role: .destructive) {
-                Task { await imports?.delete(item) }
+                Task { await imports.delete(item) }
             }
         } message: {
             Text("Файл будет удалён с сервера. Уже установленное приложение останется на iPhone, но переустановить его отсюда будет нельзя.")
@@ -235,7 +235,7 @@ private struct ImportRow: View {
 
     private func install() async {
         // Ready on the server already: open the install link, like the catalog CTA.
-        if installState == .readyToInstall, let installations {
+        if installState == .readyToInstall {
             let app = StoreApp(
                 id: item.id, name: item.name, subtitle: "", category: "", developer: "",
                 systemImage: "shippingbox.fill", artwork: .derived(from: item.id),
@@ -245,7 +245,7 @@ private struct ImportRow: View {
             return
         }
         isWorking = true
-        await imports?.install(item)
+        await imports.install(item)
         isWorking = false
     }
 

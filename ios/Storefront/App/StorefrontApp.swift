@@ -3,10 +3,10 @@ import SwiftUI
 @main
 struct StorefrontApp: App {
     private let apiClient: APIClient
-    @State private var session: SessionStore
-    @State private var router = AppRouter()
-    @State private var installations: InstallationCoordinator
-    @State private var imports: ImportCenter
+    @StateObject private var session: SessionStore
+    @StateObject private var router = AppRouter()
+    @StateObject private var installations: InstallationCoordinator
+    @StateObject private var imports: ImportCenter
     private let handoff = PortalHandoff()
 
     init() {
@@ -18,13 +18,13 @@ struct StorefrontApp: App {
         #endif
         let apiClient = APIClient.configured()
         self.apiClient = apiClient
-        _session = State(initialValue: SessionStore(api: apiClient))
+        _session = StateObject(wrappedValue: SessionStore(api: apiClient))
         let installations = InstallationCoordinator(
             repository: PreparationRepository(api: apiClient),
             openURL: { url in await UIApplication.shared.open(url) }
         )
-        _installations = State(initialValue: installations)
-        _imports = State(initialValue: ImportCenter(repository: ImportRepository(api: apiClient), installations: installations))
+        _installations = StateObject(wrappedValue: installations)
+        _imports = StateObject(wrappedValue: ImportCenter(repository: ImportRepository(api: apiClient), installations: installations))
     }
 
     var body: some Scene {
@@ -33,10 +33,10 @@ struct StorefrontApp: App {
                 .tint(AppPalette.accent)
                 .environment(\.apiClient, apiClient)
                 .environment(\.catalog, CatalogRepository(api: apiClient, cache: .catalog))
-                .environment(session)
-                .environment(router)
-                .environment(installations)
-                .environment(imports)
+                .environmentObject(session)
+                .environmentObject(router)
+                .environmentObject(installations)
+                .environmentObject(imports)
                 // Cold launch: validate the stored session without blocking the UI (FULL_PLAN §11),
                 // then pick up installations that were in flight when the app was killed.
                 .task {

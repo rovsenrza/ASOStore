@@ -13,7 +13,7 @@ struct SmoothedProgress<Content: View>: View {
 
     var body: some View {
         content(shown, InstallStage(progress: progress))
-            .onChange(of: progress, initial: true) { _, reported in
+            .onChangeCompat(of: progress, initial: true) { reported in
                 advance(to: reported)
             }
     }
@@ -24,13 +24,26 @@ struct SmoothedProgress<Content: View>: View {
         let stage = InstallStage(progress: reported)
         let target = max(shown, reported ?? 0.04)
 
-        withAnimation(.smooth(duration: 0.7)) {
-            shown = target
-        } completion: {
+        let creep = {
             guard current == generation else { return }
             // Slower the closer it gets; stops short of where the next report lands.
             withAnimation(.easeOut(duration: 40)) {
                 shown = max(target, stage.ceiling - 0.03)
+            }
+        }
+        if #available(iOS 17, *) {
+            withAnimation(.smooth(duration: 0.7)) {
+                shown = target
+            } completion: {
+                creep()
+            }
+        } else {
+            withAnimation(.easeInOut(duration: 0.7)) {
+                shown = target
+            }
+            Task {
+                try? await Task.sleep(for: .milliseconds(700))
+                creep()
             }
         }
     }

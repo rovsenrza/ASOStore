@@ -20,11 +20,15 @@ final class PortalHandoff: NSObject, ASWebAuthenticationPresentationContextProvi
     /// The claim link, or nil when the customer dismissed the sheet or the portal had none.
     func claimLink(portalURL: URL) async -> URL? {
         await withCheckedContinuation { continuation in
-            let session = ASWebAuthenticationSession(
-                url: portalURL.appending(path: "app-signin.html"),
-                callback: .customScheme("storefront")
-            ) { url, _ in
+            let url = portalURL.appending(path: "app-signin.html")
+            let completion: ASWebAuthenticationSession.CompletionHandler = { url, _ in
                 continuation.resume(returning: url)
+            }
+            let session: ASWebAuthenticationSession
+            if #available(iOS 17.4, *) {
+                session = ASWebAuthenticationSession(url: url, callback: .customScheme("storefront"), completionHandler: completion)
+            } else {
+                session = ASWebAuthenticationSession(url: url, callbackURLScheme: "storefront", completionHandler: completion)
             }
             session.presentationContextProvider = self
             session.prefersEphemeralWebBrowserSession = false

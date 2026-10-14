@@ -27,12 +27,18 @@ struct PressableStyle: ButtonStyle {
 
 extension View {
     /// Rows settle in as they scroll into view, and ease out as they leave.
+    /// Static before iOS 17.
+    @ViewBuilder
     func scrollReveal() -> some View {
-        scrollTransition(.animated(Motion.reveal).threshold(.visible(0.1))) { content, phase in
-            content
-                .opacity(phase.isIdentity ? 1 : 0)
-                .offset(y: phase == .bottomTrailing ? 18 : 0)
-                .scaleEffect(phase.isIdentity ? 1 : 0.97, anchor: .top)
+        if #available(iOS 17, *) {
+            scrollTransition(.animated(Motion.reveal).threshold(.visible(0.1))) { content, phase in
+                content
+                    .opacity(phase.isIdentity ? 1 : 0)
+                    .offset(y: phase == .bottomTrailing ? 18 : 0)
+                    .scaleEffect(phase.isIdentity ? 1 : 0.97, anchor: .top)
+            }
+        } else {
+            self
         }
     }
 }

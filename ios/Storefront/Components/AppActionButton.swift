@@ -15,42 +15,36 @@ struct AppActionButton: View {
 
     let app: StoreApp
     var style: Style = .standard
-    @Environment(InstallationCoordinator.self) private var installations: InstallationCoordinator?
+    @EnvironmentObject private var installations: InstallationCoordinator
 
     private var state: InstallState {
-        installations?.state(for: app) ?? app.installState
+        installations.state(for: app)
     }
 
     var body: some View {
         Group {
             if case .preparing(let progress) = state {
                 preparing(progress)
-                    .transition(.blurReplace.combined(with: .scale(0.92)))
+                    .swapTransition()
             } else {
                 action
-                    .transition(.blurReplace.combined(with: .scale(0.92)))
+                    .swapTransition()
             }
         }
         .animation(Motion.state, value: Phase(state))
-        .sensoryFeedback(trigger: Phase(state)) { old, new in
-            switch (old, new) {
-            case (.preparing, .ready): .success
-            case (_, .failed): .error
-            default: nil
-            }
-        }
+        .modifier(OutcomeFeedback(phase: Phase(state)))
     }
 
     // MARK: Action
 
     private var action: some View {
         Button {
-            Task { await installations?.act(on: app) }
+            Task { await installations.act(on: app) }
         } label: {
             label
         }
         .buttonStyle(PressableStyle(scale: style == .prominent ? 0.98 : 0.94))
-        .disabled(!state.isActionable || installations == nil)
+        .disabled(!state.isActionable)
         .opacity(state.isActionable ? 1 : 0.55)
         .accessibilityLabel("\(title) \(app.name)")
         .accessibilityHint(hint)
@@ -63,7 +57,7 @@ struct AppActionButton: View {
             HStack(spacing: 8) {
                 if let symbol {
                     Image(systemName: symbol)
-                        .symbolEffect(.bounce, value: state == .readyToInstall)
+                        .bounceSymbol(value: state == .readyToInstall)
                 }
                 Text(title)
             }
@@ -189,6 +183,46 @@ private struct Face: ViewModifier {
             content.glassCapsule(tint: tint)
         } else {
             content.glassCapsule()
+        }
+    }
+}
+
+/// Success or error haptic as an installation finishes; silent on iOS 16.
+private struct OutcomeFeedback: ViewModifier {
+    let phase: Phase
+
+    func body(content: Content) -> some View {
+        if #available(iOS 17, *) {
+            content.sensoryFeedback(trigger: phase) { old, new in
+                switch (old, new) {
+                case (.preparing, .ready): .success
+                case (_, .failed): .error
+                default: nil
+                }
+            }
+        } else {
+            content
+        }
+    }
+}
+
+private extension View {
+    /// The button and its progress replace each other with a blur (a fade on iOS 16).
+    @ViewBuilder
+    func swapTransition() -> some View {
+        if #available(iOS 17, *) {
+            transition(.blurReplace.combined(with: .scale(0.92)))
+        } else {
+            transition(.opacity.combined(with: .scale(scale: 0.92)))
+        }
+    }
+
+    @ViewBuilder
+    func bounceSymbol(value: Bool) -> some View {
+        if #available(iOS 17, *) {
+            symbolEffect(.bounce, value: value)
+        } else {
+            self
         }
     }
 }

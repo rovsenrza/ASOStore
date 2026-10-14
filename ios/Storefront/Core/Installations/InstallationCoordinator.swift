@@ -1,5 +1,5 @@
 import Foundation
-import Observation
+import Combine
 import OSLog
 
 /// Drives prepare → poll → authorize → open itms-services (IMPLEMENTATION_PLAN §5.6, P6-IOS-01).
@@ -7,24 +7,24 @@ import OSLog
 /// State always comes from the server; the coordinator only remembers which
 /// installations are in flight so that progress resumes after the app is
 /// killed and relaunched.
-@MainActor @Observable
-final class InstallationCoordinator {
+@MainActor
+final class InstallationCoordinator: ObservableObject {
     /// Latest server state per app ID, for installations started or resumed here.
-    private(set) var installations: [String: InstallationDTO] = [:]
-    private(set) var lastError: APIError?
+    @Published private(set) var installations: [String: InstallationDTO] = [:]
+    @Published private(set) var lastError: APIError?
     /// Ready-to-install rows the user cleared from the bell, kept per installation id so a freshly
     /// prepared build notifies again. Observable so the bell badge and the list react to a clear.
-    private(set) var dismissedNotifications: Set<String>
+    @Published private(set) var dismissedNotifications: Set<String>
 
-    @ObservationIgnored private let repository: PreparationRepository
-    @ObservationIgnored private let store: ActiveInstallationStore
-    @ObservationIgnored private let dismissedStore: DismissedNotificationsStore
-    @ObservationIgnored private let openURL: @MainActor (URL) async -> Bool
-    @ObservationIgnored private let pollDelay: @Sendable (Int) -> Duration
-    @ObservationIgnored private var polls: [String: Task<Void, Never>] = [:]
+    private let repository: PreparationRepository
+    private let store: ActiveInstallationStore
+    private let dismissedStore: DismissedNotificationsStore
+    private let openURL: @MainActor (URL) async -> Bool
+    private let pollDelay: @Sendable (Int) -> Duration
+    private var polls: [String: Task<Void, Never>] = [:]
     /// Apps the user asked to install in this session: open the install link as soon as it is ready.
-    @ObservationIgnored private var autoInstall: Set<String> = []
-    @ObservationIgnored private let log = Logger(subsystem: "storefront", category: "installations")
+    private var autoInstall: Set<String> = []
+    private let log = Logger(subsystem: "storefront", category: "installations")
 
     init(
         repository: PreparationRepository,

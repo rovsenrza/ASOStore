@@ -2,7 +2,7 @@ import SwiftUI
 
 /// Account, opened from the person button in the header of every tab.
 struct AccountSheet: View {
-    @Environment(SessionStore.self) private var session
+    @EnvironmentObject private var session: SessionStore
     @Environment(\.apiClient) private var apiClient
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -126,7 +126,7 @@ struct AccountSheet: View {
 /// Членство and Устройство.
 struct AccountDetailView: View {
     let user: MeDTO
-    @Environment(SessionStore.self) private var session
+    @EnvironmentObject private var session: SessionStore
     @Environment(\.apiClient) private var apiClient
     @Environment(\.dismiss) private var dismiss
     @State private var status: LoadState<StorefrontStatusDTO> = .loading
@@ -288,8 +288,6 @@ enum MembershipText {
 }
 
 #Preview {
-    let api = APIClient.configured(environment: APIEnvironment(baseURL: URL(string: "http://127.0.0.1:8000/api/v1")!, mode: .mock))
     AccountSheet()
-        .environment(SessionStore(api: api))
-        .environment(\.apiClient, api)
+        .previewEnvironment()
 }

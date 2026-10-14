@@ -1,6 +1,6 @@
 import CryptoKit
 import Foundation
-import Observation
+import Combine
 import OSLog
 import UIKit
 
@@ -10,8 +10,8 @@ import UIKit
 ///
 /// Server state is the source of truth; the center only adds the uploads running on this device,
 /// which the server cannot report progress for.
-@MainActor @Observable
-final class ImportCenter {
+@MainActor
+final class ImportCenter: ObservableObject {
     /// An upload from this device, shown above the server list until the server has the file.
     struct Upload: Identifiable, Equatable {
         enum Phase: Equatable {
@@ -31,24 +31,24 @@ final class ImportCenter {
         var importID: String?
     }
 
-    private(set) var imports: [ImportDTO] = []
-    private(set) var hasLoaded = false
-    private(set) var uploads: [Upload] = []
+    @Published private(set) var imports: [ImportDTO] = []
+    @Published private(set) var hasLoaded = false
+    @Published private(set) var uploads: [Upload] = []
     /// A file another app sent with «Открыть в Ru App Store», waiting for the customer to confirm.
-    var incomingFile: URL?
+    @Published var incomingFile: URL?
     /// Shown as an alert by the Manager screen.
-    var message: String?
+    @Published var message: String?
 
-    @ObservationIgnored private let repository: ImportRepository
-    @ObservationIgnored private let installations: InstallationCoordinator?
-    @ObservationIgnored private var tasks: [UUID: Task<Void, Never>] = [:]
-    @ObservationIgnored private var sources: [UUID: Source] = [:]
-    @ObservationIgnored private var poll: Task<Void, Never>?
+    private let repository: ImportRepository
+    private let installations: InstallationCoordinator?
+    private var tasks: [UUID: Task<Void, Never>] = [:]
+    private var sources: [UUID: Source] = [:]
+    private var poll: Task<Void, Never>?
     /// Uploads stopped by something other than the customer (the app left the screen, the network
     /// dropped); they continue from the same chunk when the app is back in front.
-    @ObservationIgnored private var interrupted: Set<UUID> = []
-    @ObservationIgnored private var backgroundTasks: [UUID: UIBackgroundTaskIdentifier] = [:]
-    @ObservationIgnored private let log = Logger(subsystem: "storefront", category: "imports")
+    private var interrupted: Set<UUID> = []
+    private var backgroundTasks: [UUID: UIBackgroundTaskIdentifier] = [:]
+    private let log = Logger(subsystem: "storefront", category: "imports")
 
     /// Where an upload reads from, and what is left to send if it is retried.
     private struct Source {

@@ -1,13 +1,12 @@
 import Foundation
-import Observation
+import Combine
 import UIKit
 
 /// The signed-in customer, if any (FULL_PLAN §11 "SessionStore").
 ///
 /// Cold launch restores the session in the background: the UI never waits
 /// on it, and a slow or offline network leaves the stored tokens in place.
-@Observable
-final class SessionStore {
+final class SessionStore: ObservableObject {
     enum State: Equatable {
         case restoring
         case signedOut
@@ -18,7 +17,7 @@ final class SessionStore {
         case signedIn(MeDTO)
     }
 
-    private(set) var state: State = .restoring
+    @Published private(set) var state: State = .restoring
     let api: APIClient
 
     init(api: APIClient) {

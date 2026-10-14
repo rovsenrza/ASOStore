@@ -35,14 +35,14 @@ struct AppRowsSection: View {
                                 }
                             }
                         }
-                        .containerRelativeFrame(.horizontal) { width, _ in columns.count > 1 ? width - 40 : width }
+                        .horizontalContainerWidth(margin: AppSpacing.standard) { width in columns.count > 1 ? width - 40 : width }
                     }
                 }
-                .scrollTargetLayout()
+                .scrollTargetLayoutCompat()
             }
-            .scrollTargetBehavior(.viewAligned)
+            .viewAlignedScrolling()
             .scrollIndicators(.hidden)
-            .contentMargins(.horizontal, AppSpacing.standard, for: .scrollContent)
+            .horizontalContentMargins(AppSpacing.standard)
         }
     }
 
