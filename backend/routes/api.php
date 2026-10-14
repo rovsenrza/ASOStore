@@ -36,6 +36,7 @@ use App\Http\Controllers\Api\V1\Customer\TokenController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\StoreOfferController;
 use App\Http\Controllers\Api\V1\StoreOrderController;
+use App\Http\Controllers\Api\V1\TelemetryController;
 use App\Http\Middleware\RejectStaleBearerToken;
 use Illuminate\Support\Facades\Route;
 
@@ -46,6 +47,9 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::get('/health', HealthController::class)->name('api.health');
+
+// Launch reports from the compat shim inside re-signed apps (no credentials; see TelemetryController).
+Route::post('/telemetry/launch', [TelemetryController::class, 'launch'])->middleware('throttle:telemetry')->name('api.telemetry.launch');
 
 // Plans, prices and payment options for the website's purchase page.
 Route::get('/store/offer', StoreOfferController::class)->name('api.store.offer');
