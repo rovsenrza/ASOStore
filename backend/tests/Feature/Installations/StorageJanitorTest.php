@@ -156,6 +156,26 @@ it('removes the least recently used builds above the budget, unused ones first',
         ->and(janitor()->signedBytes())->toBe(2000);
 });
 
+it('runs one janitor at a time, so two runs do not both evict the same excess', function () {
+    config(['storefront.build_storage.budget_bytes' => 2500]);
+    $old = storedBuild($this);
+    $this->travel(40)->minutes();
+    storedBuild($this);
+    $this->travel(40)->minutes();
+    storedBuild($this);
+    $this->travel(40)->minutes();
+
+    $held = Cache::lock('storage-janitor:running', 60);
+    $held->get();
+    expect(janitor()->run())->toHaveKey('busy', 1)
+        ->and($old->refresh()->status)->toBe(SignedBuildStatus::Deliverable);
+    $this->artisan('storage:janitor')->expectsOutputToContain('in progress')->assertSuccessful();
+
+    $held->release();
+    expect(janitor()->run()['budget_builds'])->toBe(1)
+        ->and(janitor()->signedBytes())->toBe(2000);
+});
+
 it('removes files that cannot be installed, objects nothing refers to and stale temporary copies', function () {
     $revoked = storedBuild($this);
     DB::table('signed_builds')->where('id', $revoked->id)->update(['status' => 'REVOKED']);

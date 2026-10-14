@@ -42,6 +42,9 @@ final class StorageJanitor
 
     private const SWEPT = 'storage-janitor:objects-swept';
 
+    /** One run at a time: two runs that both see the same excess each evict it. */
+    private const RUNNING = 'storage-janitor:running';
+
     private const TERMINAL_BUILDS = [SignedBuildStatus::Expired, SignedBuildStatus::Revoked, SignedBuildStatus::SigningFailed, SignedBuildStatus::ValidationFailed];
 
     /** Installations still heading for a download of their build. */
@@ -77,6 +80,22 @@ final class StorageJanitor
             'orphan_objects', 'orphan_bytes', 'multipart_aborted', 'temp_files', 'cache_files', 'errors',
         ], 0);
 
+        $lock = $dryRun ? null : Cache::lock(self::RUNNING, 1800);
+        if ($lock !== null && ! $lock->get()) {
+            return $this->summary + ['busy' => 1];
+        }
+
+        try {
+            $this->apply($dryRun, $sweepObjects);
+        } finally {
+            $lock?->release();
+        }
+
+        return $this->summary;
+    }
+
+    private function apply(bool $dryRun, bool $sweepObjects): void
+    {
         $this->expireIdleBuilds();
         $this->enforceBudget();
         $this->purgeTerminalBuilds();
@@ -94,8 +113,6 @@ final class StorageJanitor
                 $this->audit->record('storage.janitor_applied', after: $this->summary, actor: Actor::system('storage'));
             }
         }
-
-        return $this->summary;
     }
 
     /**

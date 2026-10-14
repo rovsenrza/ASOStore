@@ -14,6 +14,11 @@ class StorageJanitorCommand extends Command
     public function handle(StorageJanitor $janitor): int
     {
         $summary = $janitor->run((bool) $this->option('dry-run'), (bool) $this->option('sweep'));
+        if ($summary['busy'] ?? false) {
+            $this->warn('Another janitor run is in progress (the ten-minute schedule); nothing was changed.');
+
+            return self::SUCCESS;
+        }
         $report = $janitor->report();
 
         $this->table(['', 'count', 'bytes'], [
