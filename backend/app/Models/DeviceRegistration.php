@@ -17,6 +17,9 @@ use Illuminate\Support\Carbon;
  * @property DeviceFamily $device_family
  * @property Carbon|null $registered_at
  * @property Carbon|null $eligible_at
+ * @property Carbon|null $delay_gift_at
+ * @property Carbon|null $delay_assessed_at
+ * @property int|null $delay_compensation_minutes
  * @property Carbon|null $last_synced_at
  */
 class DeviceRegistration extends Model
@@ -48,6 +51,9 @@ class DeviceRegistration extends Model
             'attempts' => 'integer',
             'registered_at' => 'datetime',
             'eligible_at' => 'datetime',
+            'delay_gift_at' => 'datetime',
+            'delay_assessed_at' => 'datetime',
+            'delay_compensation_minutes' => 'integer',
             'last_synced_at' => 'datetime',
         ];
     }

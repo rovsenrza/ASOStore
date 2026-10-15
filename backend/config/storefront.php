@@ -126,6 +126,17 @@ return [
         'feed_section_limit' => 10,
     ],
 
+    /*
+    | A customer whose device registration takes longer than `threshold_minutes` (Apple holds new
+    | memberships' devices back, or no team has a free slot) gets the time they waited added to
+    | their subscription, plus `gift_days` of free time. Run by subscriptions:compensate-delays.
+    */
+    'delay_compensation' => [
+        'enabled' => (bool) env('STOREFRONT_DELAY_COMPENSATION_ENABLED', true),
+        'threshold_minutes' => (int) env('STOREFRONT_DELAY_COMPENSATION_THRESHOLD_MINUTES', 30),
+        'gift_days' => (int) env('STOREFRONT_DELAY_COMPENSATION_GIFT_DAYS', 7),
+    ],
+
     'artifacts' => [
         'file_cache_enabled' => (bool) env('STOREFRONT_ARTIFACT_CACHE_ENABLED', true),
         'file_cache_path' => storage_path('app/private/artifact-cache'),

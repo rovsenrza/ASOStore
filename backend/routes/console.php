@@ -29,6 +29,9 @@ Schedule::command('auth:clear-resets')->daily();
 // Device registrations still processing at Apple, or waiting for an Apple team.
 Schedule::job(new SyncDeviceRegistrationsJob)->everyFiveMinutes();
 
+// A registration that took longer than 30 minutes: the wait and a week are added to the subscription.
+Schedule::command('subscriptions:compensate-delays')->everyFiveMinutes()->withoutOverlapping();
+
 // Runner leases that ran out go back to the queue (IMPLEMENTATION_PLAN P6-BE-02).
 Schedule::call(fn () => app(SigningService::class)->recoverExpiredLeases())
     ->name('signing:recover-leases')->everyMinute()->withoutOverlapping();
