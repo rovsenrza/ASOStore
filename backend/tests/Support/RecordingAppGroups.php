@@ -22,7 +22,7 @@ final class RecordingAppGroups extends AppGroupProvisioner
         parent::__construct(app(SecretStore::class));
     }
 
-    public function isConfigured(): bool
+    public function isConfigured(?AppleTeam $team = null): bool
     {
         return true;
     }
