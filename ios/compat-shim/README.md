@@ -31,6 +31,18 @@ it, or the group is genuinely ours) it changes nothing. No ads, no network, no s
 the same mechanism the supplied IPAs' own mods used (the removed YMNight did exactly this);
 building our own keeps it ad-free and independent of any source's modifications.
 
+## Launch reports
+
+`RSTelemetry.m` tells us when an app we installed does not open, without asking the customer.
+It writes what ended the last launch into the app's `Library/Caches/RuStoreLaunch/` and sends it
+to `POST https://ruappstore.com/api/v1/telemetry/launch` on the next launch: `CRASHED` (fatal
+signal or uncaught exception, with the backtrace), `EXITED_EARLY` (`exit()` in the first 30 s,
+with its caller) or, once per app version, `LAUNCHED` after 10 s up. It sends technical facts only:
+our and the vendor's bundle IDs, app version, iOS version, device model. Previous handlers keep
+running, so iOS and the app's own crash reporter see the same crash. Only bundles named
+`com.ruappstore.*` report. On the server: `php artisan apps:launch-reports [id]`; crashes alert
+the Telegram admins.
+
 ## Build
 
 Run on macOS with Xcode (`make`). Output: `RuStoreCompat.dylib`, a fat **arm64 + arm64e** iOS

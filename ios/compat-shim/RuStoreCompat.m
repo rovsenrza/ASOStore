@@ -10,7 +10,9 @@
 // This dylib, injected at signing time, repairs those three calls so the app
 // uses the identity it was actually granted. It only ever falls back: when the
 // real call already works (the app's own sideload fix handled it, or the group
-// is genuinely ours) it changes nothing. No ads, no network, no servers.
+// is genuinely ours) it changes nothing. No ads. Its only network use is the launch
+// report in RSTelemetry.m: whether the app opened, crashed or quit at launch, sent to
+// ruappstore.com with technical facts only (bundle IDs, versions, device model).
 //
 // It reads what iOS granted from the app's own entitlements, so it needs no
 // knowledge of any specific app and works for every future one the same way.
@@ -25,6 +27,8 @@
 #import <dlfcn.h>
 #import <mach-o/dyld.h>
 #import "fishhook.h"
+
+void RSTelemetryStart(NSString *originalBundleID);
 
 static NSArray<NSString *> *gRealGroups;      // App Groups this signature actually holds.
 static NSString *gPrimaryGroup;               // The one we map missing groups to.
@@ -390,6 +394,8 @@ static void RuStoreCompatInit(void) {
             gOriginalBundleID = [original copy];
         }
         RSLog(@"groups=%@ primary=%@ team=%@ original=%@", gRealGroups, gPrimaryGroup, gTeamPrefix, gOriginalBundleID);
+        // Before the bundle hooks below, so the report names our real bundle ID.
+        RSTelemetryStart(gOriginalBundleID);
 
         if (gOriginalBundleID != nil) {
             RSSwizzle(NSBundle.class, @selector(bundleIdentifier), (IMP)rs_bundleIdentifier, &orig_bundleIdentifier);

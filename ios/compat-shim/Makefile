@@ -5,7 +5,7 @@ SDK      := iphoneos
 MIN      := 13.0
 CLANG    := xcrun --sdk $(SDK) clang
 OUT      := RuStoreCompat.dylib
-SRC      := RuStoreCompat.m fishhook.c
+SRC      := RuStoreCompat.m RSTelemetry.m fishhook.c
 CFLAGS   := -arch arm64 -arch arm64e -miphoneos-version-min=$(MIN) -fobjc-arc -O2 \
             -fvisibility=hidden -Wall
 LDFLAGS  := -dynamiclib -install_name @executable_path/$(OUT) \
