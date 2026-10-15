@@ -6,6 +6,7 @@ use App\Enums\ArtifactStatus;
 use App\Enums\ErrorCode;
 use App\Enums\SourceType;
 use App\Exceptions\ApiException;
+use App\Jobs\AssembleUploadJob;
 use App\Jobs\InspectArtifactJob;
 use App\Models\AppArtifact;
 use App\Models\UploadSession;
@@ -81,6 +82,61 @@ class ChunkedUploadService
         return ['number' => $number, 'size_bytes' => $size, 'sha256' => $sha256, 'already_received' => false];
     }
 
+    /**
+     * Whether assembling this upload is slow enough that the request must not wait for it: the app
+     * gives `complete` 30 seconds and PHP's CPU limit is 30 seconds too, while reading, hashing and
+     * storing a multi-gigabyte IPA takes minutes.
+     */
+    public function assemblesInBackground(UploadSession $upload): bool
+    {
+        return $upload->expected_size > (int) config('storefront.uploads.background_assembly_bytes', 100 * 1024 * 1024);
+    }
+
+    /**
+     * Checks that every chunk is there and queues the assembly, so the request can answer at once.
+     * Asking again while it runs (the app retries a call it did not hear back from) gets the same
+     * answer instead of "session already closed". The caller reads the session's status afterwards:
+     * ASSEMBLING while the job works, COMPLETED when the file is stored.
+     */
+    public function completeInBackground(UploadSession $upload): UploadSession
+    {
+        $upload = DB::transaction(function () use ($upload) {
+            $locked = UploadSession::query()->lockForUpdate()->findOrFail($upload->id);
+            if (in_array($locked->status, ['ASSEMBLING', 'COMPLETED'], true)) {
+                return $locked;
+            }
+
+            return $this->beginAssembly($locked);
+        });
+
+        if ($upload->status === 'ASSEMBLING') {
+            $job = $this->jobs->create(AssembleUploadJob::TYPE, AssembleUploadJob::idempotencyKey($upload), $upload, ['upload_id' => $upload->public_id]);
+            AssembleUploadJob::dispatch($job->id);
+        }
+
+        return $upload->refresh();
+    }
+
+    /** OPEN to ASSEMBLING once all chunks are stored. Inside a transaction, on a locked row. */
+    private function beginAssembly(UploadSession $locked): UploadSession
+    {
+        $this->assertOpen($locked);
+        $chunks = $locked->chunks()->orderBy('number')->get();
+        $received = $chunks->pluck('number')->all();
+        $expected = range(0, $locked->chunk_count - 1);
+
+        if ($received !== $expected || $chunks->sum('size_bytes') !== $locked->expected_size) {
+            throw new ApiException(ErrorCode::UploadIncomplete, details: [
+                'received_chunks' => $received,
+                'missing_chunks' => array_values(array_diff($expected, $received)),
+            ]);
+        }
+
+        $locked->update(['status' => 'ASSEMBLING']);
+
+        return $locked->setRelation('chunks', $chunks);
+    }
+
     public function complete(UploadSession $upload): AppArtifact
     {
         $upload = DB::transaction(function () use ($upload) {
@@ -90,30 +146,34 @@ class ChunkedUploadService
                 return $locked;
             }
 
-            $this->assertOpen($locked);
-            $chunks = $locked->chunks()->orderBy('number')->get();
-            $received = $chunks->pluck('number')->all();
-            $expected = range(0, $locked->chunk_count - 1);
-
-            if ($received !== $expected || $chunks->sum('size_bytes') !== $locked->expected_size) {
-                throw new ApiException(ErrorCode::UploadIncomplete, details: [
-                    'received_chunks' => $received,
-                    'missing_chunks' => array_values(array_diff($expected, $received)),
-                ]);
-            }
-
-            $locked->update(['status' => 'ASSEMBLING']);
-
-            return $locked->setRelation('chunks', $chunks);
+            return $this->beginAssembly($locked);
         });
 
         if ($upload->status === 'COMPLETED') {
             return $upload->artifact()->firstOrFail();
         }
 
+        return $this->assemble($upload);
+    }
+
+    /**
+     * Joins the chunks of an ASSEMBLING upload into the stored original and queues its inspection.
+     * `$background` is the queued job: it keeps the session ASSEMBLING while the job retries, and
+     * ends it as FAILED, with a sentence the app shows, when the file cannot be assembled.
+     */
+    public function assemble(UploadSession $upload, bool $background = false): AppArtifact
+    {
+        // Reading, hashing and storing a big file takes more CPU time than the web limit of 30 s.
+        @set_time_limit(0);
+        if (! $upload->relationLoaded('chunks')) {
+            $upload->load(['chunks' => fn ($query) => $query->orderBy('number')]);
+        }
+
         $temporary = tmpfile();
         if ($temporary === false) {
-            UploadSession::query()->whereKey($upload->id)->where('status', 'ASSEMBLING')->update(['status' => 'OPEN']);
+            if (! $background) {
+                UploadSession::query()->whereKey($upload->id)->where('status', 'ASSEMBLING')->update(['status' => 'OPEN']);
+            }
             throw new ApiException(ErrorCode::ServiceUnavailable);
         }
 
@@ -134,7 +194,12 @@ class ChunkedUploadService
                     // session so the client re-uploads only it, instead of failing the whole
                     // upload — the DB row otherwise makes the client skip it forever.
                     $chunk->delete();
-                    UploadSession::query()->whereKey($upload->id)->where('status', 'ASSEMBLING')->update(['status' => 'OPEN']);
+                    if ($background) {
+                        // The app already thinks it is done, so it cannot send the part again.
+                        $this->fail($upload, self::BACKGROUND_FAILURE);
+                    } else {
+                        UploadSession::query()->whereKey($upload->id)->where('status', 'ASSEMBLING')->update(['status' => 'OPEN']);
+                    }
                     throw new ApiException(ErrorCode::UploadIncomplete, details: ['missing_chunk' => $chunk->number]);
                 }
 
@@ -220,14 +285,20 @@ class ChunkedUploadService
 
             return $artifact;
         } catch (ApiException $exception) {
-            if ($upload->fresh()->status === 'ASSEMBLING') {
+            // A busy server is not the file's fault: the queued job tries again.
+            $retry = $background && $exception->errorCode === ErrorCode::ServiceUnavailable;
+            if (! $retry && $upload->fresh()->status === 'ASSEMBLING') {
                 $this->fail($upload, $exception->errorCode->value);
             }
             throw $exception;
         } catch (\Throwable $exception) {
             // Storage or database trouble, not a bad file: every chunk is still stored, so the
-            // upload goes back to OPEN and completing it again can succeed.
+            // upload goes back to OPEN and completing it again can succeed. In the queued job it
+            // stays ASSEMBLING and the job tries again (AssembleUploadJob ends it when it gives up).
             report($exception);
+            if ($background) {
+                throw $exception;
+            }
             UploadSession::query()->whereKey($upload->id)->where('status', 'ASSEMBLING')->update(['status' => 'OPEN']);
             throw new ApiException(ErrorCode::ServiceUnavailable, 'Сервер временно не смог сохранить файл. Повторите попытку.');
         } finally {
@@ -272,7 +343,10 @@ class ChunkedUploadService
         }
     }
 
-    private function fail(UploadSession $upload, string $reason): void
+    /** Shown by the app as it is (a reason with a space is a sentence): the upload cannot be repaired from the phone. */
+    public const BACKGROUND_FAILURE = 'Сервер не смог собрать файл. Загрузите его ещё раз.';
+
+    public function fail(UploadSession $upload, string $reason): void
     {
         $upload->update(['status' => 'FAILED', 'failure_reason' => $reason]);
     }

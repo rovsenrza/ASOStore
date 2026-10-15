@@ -77,7 +77,23 @@ class ImportController extends Controller
     public function complete(Request $request, string $upload): JsonResponse
     {
         $session = $this->ownedUpload($request, $upload);
-        $artifact = $this->uploads->complete($session)->refresh();
+        if ($this->uploads->assemblesInBackground($session)) {
+            // A multi-gigabyte file takes minutes to assemble and the app waits 30 seconds: answer now,
+            // the import shows as uploading until the job has stored it (and again on a repeated call).
+            $session = $this->uploads->completeInBackground($session);
+            if ($session->status !== 'COMPLETED') {
+                return ApiResponse::ok([
+                    'import_id' => $session->app->public_id,
+                    'status' => 'ASSEMBLING',
+                    'job_id' => null,
+                    'sha256' => $session->expected_sha256,
+                    'size_bytes' => $session->expected_size,
+                ], 202);
+            }
+            $artifact = $session->artifact()->firstOrFail();
+        } else {
+            $artifact = $this->uploads->complete($session)->refresh();
+        }
         $job = PipelineJob::query()->where('idempotency_key', InspectArtifactJob::idempotencyKey($artifact))->first();
 
         return ApiResponse::ok([
