@@ -29,11 +29,14 @@ return [
     ],
 
     // Platega (https://docs.platega.io): card/SBP payments for store orders on the website and in
-    // the bot. Both keys set = online payment is on; the dashboard's Callback URL must point to
-    // https://<site>/api/v1/payments/platega/callback.
+    // the bot. Both bot keys set = online payment is on. Each checkout's Callback URL in the
+    // dashboard: https://<site>/api/v1/payments/platega/callback/bot and …/callback/site.
     'platega' => [
+        // The bot's checkout (касса); the website has its own, falling back to this one when unset.
         'merchant_id' => env('PLATEGA_MERCHANT_ID'),
         'secret' => env('PLATEGA_SECRET'),
+        'site_merchant_id' => env('PLATEGA_SITE_MERCHANT_ID'),
+        'site_secret' => env('PLATEGA_SITE_SECRET'),
         'base_url' => env('PLATEGA_BASE_URL', 'https://app.platega.io'),
         // Empty: the payer picks the method on Platega's page. A PaymentMethodInt (2 SBP QR,
         // 11 cards, 14 SberPay …) skips that choice.

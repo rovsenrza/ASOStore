@@ -146,6 +146,8 @@ paths:
         503 when Platega's API cannot be read, so Platega retries; a sweep every two minutes
         catches callbacks that never arrive. The dashboard's URL check (User-Agent
         Platega-CallbackUrlCheck) and transactions Platega does not know get 200 and change nothing.
+        The bot and the website pay through separate checkouts (кассы), each with its own
+        credentials; this URL accepts either, /payments/platega/callback/{kassa} only that one.
       parameters:
         - { name: X-MerchantId, in: header, required: true, schema: { type: string } }
         - { name: X-Secret, in: header, required: true, schema: { type: string } }
@@ -163,6 +165,39 @@ paths:
                 status: { type: string, enum: [CONFIRMED, CANCELED, CHARGEBACKED] }
                 paymentMethod: { type: integer }
                 payload: { type: string }
+      responses:
+        "200":
+          description: Received
+        "401":
+          $ref: "#/components/responses/Error"
+        "422":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+
+  /payments/platega/callback/{kassa}:
+    post:
+      tags: [Storefront]
+      operationId: plategaKassaCallback
+      summary: Platega transaction callback for one checkout
+      description: >-
+        The Callback URL of one checkout in Platega's dashboard: bot for the bot's, site for the
+        website's. Same as /payments/platega/callback, except that only that checkout's
+        X-MerchantId and X-Secret are accepted.
+      parameters:
+        - { name: kassa, in: path, required: true, schema: { type: string, enum: [bot, site] } }
+        - { name: X-MerchantId, in: header, required: true, schema: { type: string } }
+        - { name: X-Secret, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, status]
+              properties:
+                id: { type: string, format: uuid }
+                status: { type: string, enum: [CONFIRMED, CANCELED, CHARGEBACKED] }
       responses:
         "200":
           description: Received

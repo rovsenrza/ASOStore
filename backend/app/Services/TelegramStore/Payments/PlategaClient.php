@@ -11,21 +11,59 @@ use Illuminate\Support\Facades\Http;
 /**
  * Platega API (https://docs.platega.io): JSON over HTTPS, authenticated by the
  * X-MerchantId and X-Secret headers. The same pair comes back on every callback.
+ *
+ * Platega's compliance wants the bot and the website on separate checkouts (кассы), each
+ * its own merchant ID and secret: BOT is the original pair, SITE the website's. Until the
+ * website's pair is set, the website uses the bot's.
  */
 class PlategaClient
 {
+    public const BOT = 'bot';
+
+    public const SITE = 'site';
+
     public static function configured(): bool
     {
         return filled(config('services.platega.merchant_id')) && filled(config('services.platega.secret'));
     }
 
-    /** A callback is genuine when it carries our own merchant ID and secret. */
-    public function authentic(?string $merchantId, ?string $secret): bool
+    /**
+     * The merchant ID and secret of a checkout.
+     *
+     * @return array{0: string, 1: string}
+     */
+    public static function credentials(string $kassa): array
     {
-        return self::configured()
-            && is_string($merchantId) && is_string($secret)
-            && hash_equals((string) config('services.platega.merchant_id'), trim($merchantId))
-            && hash_equals((string) config('services.platega.secret'), trim($secret));
+        if ($kassa === self::SITE && filled(config('services.platega.site_merchant_id')) && filled(config('services.platega.site_secret'))) {
+            return [(string) config('services.platega.site_merchant_id'), (string) config('services.platega.site_secret')];
+        }
+
+        return [(string) config('services.platega.merchant_id'), (string) config('services.platega.secret')];
+    }
+
+    /** True when the website pays through a checkout of its own. */
+    public static function separateSite(): bool
+    {
+        return self::credentials(self::SITE) !== self::credentials(self::BOT);
+    }
+
+    /**
+     * Which of our checkouts a callback's merchant ID and secret belong to; null when neither
+     * (or not $only, when the callback URL names one).
+     */
+    public function authentic(?string $merchantId, ?string $secret, ?string $only = null): ?string
+    {
+        if (! self::configured() || ! is_string($merchantId) || ! is_string($secret)) {
+            return null;
+        }
+        foreach ($only !== null ? [$only] : [self::BOT, self::SITE] as $kassa) {
+            [$id, $key] = self::credentials($kassa);
+            if (hash_equals($id, trim($merchantId)) && hash_equals($key, trim($secret))) {
+                return $kassa;
+            }
+        }
+
+        return null;
     }
 
     /**
@@ -34,7 +72,7 @@ class PlategaClient
      * @param  array<string, mixed>  $body  CreateTransactionRequest without paymentMethod
      * @return array{id: string, url: string, expires_in: int}
      */
-    public function create(array $body): array
+    public function create(array $body, string $kassa = self::BOT): array
     {
         // Without a method the payer chooses one on Platega's page (v2 endpoint).
         $method = config('services.platega.payment_method');
@@ -43,7 +81,7 @@ class PlategaClient
             $body = ['paymentMethod' => (int) $method] + $body;
         }
 
-        $data = $this->send(fn (PendingRequest $http) => $http->post($path, $body));
+        $data = $this->send(fn (PendingRequest $http) => $http->post($path, $body), $kassa);
         $id = $data['transactionId'] ?? null;
         $url = $data['url'] ?? $data['redirect'] ?? null;
         if (! is_string($id) || $id === '' || ! is_string($url) || ! str_starts_with($url, 'https://')) {
@@ -58,9 +96,9 @@ class PlategaClient
      *
      * @return array{status: string, amount: float, currency: string, payload: string|null}
      */
-    public function transaction(string $id): array
+    public function transaction(string $id, string $kassa = self::BOT): array
     {
-        $data = $this->send(fn (PendingRequest $http) => $http->get('/transaction/'.rawurlencode($id)));
+        $data = $this->send(fn (PendingRequest $http) => $http->get('/transaction/'.rawurlencode($id)), $kassa);
         $status = $data['status'] ?? null;
         $amount = $data['paymentDetails']['amount'] ?? null;
         if (! is_string($status) || ! is_numeric($amount)) {
@@ -89,16 +127,17 @@ class PlategaClient
      * @param  callable(PendingRequest): Response  $call
      * @return array<string, mixed>
      */
-    private function send(callable $call): array
+    private function send(callable $call, string $kassa): array
     {
         if (! self::configured()) {
             throw new PlategaException('Platega is not configured.');
         }
 
+        [$merchantId, $secret] = self::credentials($kassa);
         $http = Http::baseUrl(rtrim((string) config('services.platega.base_url'), '/'))
             ->withHeaders([
-                'X-MerchantId' => (string) config('services.platega.merchant_id'),
-                'X-Secret' => (string) config('services.platega.secret'),
+                'X-MerchantId' => $merchantId,
+                'X-Secret' => $secret,
             ])
             ->acceptJson()
             ->asJson()

@@ -81,7 +81,7 @@ class StoreOrderController extends Controller
      * the transaction's state is then read from Platega itself. An error answer makes Platega
      * retry (3 times, 5 minutes apart), and the reconcile sweep catches the rest.
      */
-    public function callback(Request $request): JsonResponse
+    public function callback(Request $request, ?string $kassa = null): JsonResponse
     {
         // Saving the Callback URL in Platega's dashboard sends this probe; it needs a 200 and
         // changes nothing here. What it carries is logged (without secrets) to know its format.
@@ -89,23 +89,23 @@ class StoreOrderController extends Controller
             Log::info('Platega callback URL check.', [
                 'merchant_header' => $request->hasHeader('X-MerchantId'),
                 'secret_header' => $request->hasHeader('X-Secret'),
-                'authentic' => app(PlategaClient::class)->authentic($request->header('X-MerchantId'), $request->header('X-Secret')),
+                'kassa' => app(PlategaClient::class)->authentic($request->header('X-MerchantId'), $request->header('X-Secret'), $kassa),
                 'body_keys' => array_keys($request->json()->all()),
             ]);
 
             return ApiResponse::ok(['received' => true]);
         }
 
-        if (! app(PlategaClient::class)->authentic($request->header('X-MerchantId'), $request->header('X-Secret'))) {
-            throw new ApiException(ErrorCode::Unauthenticated, 'Unknown merchant credentials.');
-        }
+        // Each checkout has its own callback URL; the original one takes either.
+        $kassa = app(PlategaClient::class)->authentic($request->header('X-MerchantId'), $request->header('X-Secret'), $kassa)
+            ?? throw new ApiException(ErrorCode::Unauthenticated, 'Unknown merchant credentials.');
         $id = $request->input('id');
         if (! is_string($id) || preg_match('/^[0-9A-Za-z-]{8,64}$/', $id) !== 1) {
             throw new ApiException(ErrorCode::ValidationFailed, 'Transaction id is missing.');
         }
 
         try {
-            $this->payments->settle($id);
+            $this->payments->settle($id, $kassa);
         } catch (PlategaException $exception) {
             report($exception);
 

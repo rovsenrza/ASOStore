@@ -9,6 +9,7 @@ use App\Services\TelegramStore\Bot\Screen;
 use App\Services\TelegramStore\CompletedOrder;
 use App\Services\TelegramStore\OrderFulfillment;
 use App\Services\TelegramStore\OrderService;
+use App\Services\TelegramStore\TelegramApi;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -42,16 +43,18 @@ class PlategaPayments
             return $order->payment_url;
         }
 
+        // The bot's checkout is registered for the bot, so its payers go back to the bot.
         $page = url('/payment.html?'.http_build_query(['order' => $order->public_id]));
+        $bot = $order->isWeb() ? null : $this->botUrl();
         $created = $this->client->create([
             'paymentDetails' => ['amount' => $order->amount_due_rub, 'currency' => 'RUB'],
             'description' => $this->description($order),
-            'return' => $page,
-            'failedUrl' => $page.'&failed=1',
+            'return' => $bot ?? $page,
+            'failedUrl' => $bot ?? $page.'&failed=1',
             'payload' => $order->public_id,
             'orderId' => $order->reference(),
             'metadata' => $this->payer($order, $clientIp),
-        ]);
+        ], self::kassa($order));
 
         $order->update([
             'payment_method' => self::METHOD,
@@ -69,12 +72,13 @@ class PlategaPayments
     /**
      * Applies a transaction's current state to its order. Returns the completed order when
      * this call paid it. Throws PlategaException when Platega cannot be asked, so a callback
-     * answers with an error and Platega retries.
+     * answers with an error and Platega retries. $kassa is the checkout a callback came from.
      */
-    public function settle(string $transactionId): ?CompletedOrder
+    public function settle(string $transactionId, ?string $kassa = null): ?CompletedOrder
     {
+        $order = TelegramStoreOrder::query()->where('payment_reference', $transactionId)->first();
         try {
-            $transaction = $this->client->transaction($transactionId);
+            $transaction = $this->transaction($transactionId, $order !== null ? self::kassa($order) : ($kassa ?? PlategaClient::BOT));
         } catch (PlategaException $exception) {
             if (! $exception->notFound()) {
                 throw $exception;
@@ -84,8 +88,7 @@ class PlategaPayments
 
             return null;
         }
-        $order = TelegramStoreOrder::query()->where('payment_reference', $transactionId)->first()
-            ?? ($transaction['payload'] !== null ? $this->orders->find($transaction['payload']) : null);
+        $order ??= $transaction['payload'] !== null ? $this->orders->find($transaction['payload']) : null;
         if ($order === null) {
             Log::warning('Platega transaction without a store order.', ['transaction' => $transactionId, 'status' => $transaction['status']]);
 
@@ -143,6 +146,42 @@ class PlategaPayments
             });
 
         return $settled;
+    }
+
+    /** The checkout an order pays through: the website's own, or the bot's. */
+    public static function kassa(TelegramStoreOrder $order): string
+    {
+        return $order->isWeb() ? PlategaClient::SITE : PlategaClient::BOT;
+    }
+
+    /**
+     * The transaction from the expected checkout, else from the other one: website payments
+     * opened before the checkouts were split live in the bot's.
+     *
+     * @return array{status: string, amount: float, currency: string, payload: string|null}
+     */
+    private function transaction(string $id, string $kassa): array
+    {
+        try {
+            return $this->client->transaction($id, $kassa);
+        } catch (PlategaException $exception) {
+            if (! $exception->notFound() || ! PlategaClient::separateSite()) {
+                throw $exception;
+            }
+
+            return $this->client->transaction($id, $kassa === PlategaClient::SITE ? PlategaClient::BOT : PlategaClient::SITE);
+        }
+    }
+
+    private function botUrl(): ?string
+    {
+        try {
+            $username = app(TelegramApi::class)->botUsername();
+        } catch (Throwable) {
+            return null;
+        }
+
+        return preg_match('/^\w{5,32}$/', $username) === 1 ? "https://t.me/{$username}" : null;
     }
 
     /**

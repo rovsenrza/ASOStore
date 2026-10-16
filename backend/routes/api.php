@@ -57,6 +57,7 @@ Route::get('/store/offer', StoreOfferController::class)->name('api.store.offer')
 Route::get('/store/orders/{order}', [StoreOrderController::class, 'show'])->middleware('throttle:store-order')->name('api.store.orders.show');
 // Called by Platega, authenticated by the merchant ID and secret it sends back.
 Route::post('/payments/platega/callback', [StoreOrderController::class, 'callback'])->middleware('throttle:payment-callback')->name('api.payments.platega.callback');
+Route::post('/payments/platega/callback/{kassa}', [StoreOrderController::class, 'callback'])->whereIn('kassa', ['bot', 'site'])->middleware('throttle:payment-callback')->name('api.payments.platega.callback.kassa');
 
 // Customer authentication
 Route::prefix('auth')->name('api.auth.')->group(function () {

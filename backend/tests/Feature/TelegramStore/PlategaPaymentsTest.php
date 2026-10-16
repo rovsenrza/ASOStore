@@ -32,6 +32,7 @@ beforeEach(function () {
     ]);
     userWithRoles(RoleSlug::Admin);
 
+    $this->kassas = ['f1e2d3c4-0000-4000-8000-000000000001' => 'platega-secret', 'a9b8c7d6-0000-4000-8000-000000000002' => 'site-secret'];
     // Platega as the test sees it: transactions by id; a test moves them to CONFIRMED etc.
     $this->transactions = [];
     // Set to an HTTP status to make Platega's API fail.
@@ -40,14 +41,21 @@ beforeEach(function () {
         if ($this->plategaDown !== null && str_starts_with($request->url(), 'https://app.platega.io/')) {
             return Http::response(['message' => 'unavailable'], $this->plategaDown);
         }
+        // Each checkout (касса) is its own merchant ID with its own secret and sees only its transactions.
+        $merchant = $request->header('X-MerchantId')[0] ?? null;
+        if (str_starts_with($request->url(), 'https://app.platega.io/')
+            && ($this->kassas[$merchant] ?? null) !== ($request->header('X-Secret')[0] ?? null)) {
+            return Http::response(['message' => 'unauthorized'], 401);
+        }
         if ($request->url() === 'https://app.platega.io/v2/transaction/process') {
             $id = sprintf('3fa85f64-5717-4562-b3fc-%012d', count($this->transactions) + 1);
-            $this->transactions[$id] = ['status' => 'PENDING', 'amount' => $request['paymentDetails']['amount'], 'currency' => 'RUB', 'payload' => $request['payload']];
+            $this->transactions[$id] = ['status' => 'PENDING', 'amount' => $request['paymentDetails']['amount'], 'currency' => 'RUB', 'payload' => $request['payload'], 'merchant' => $merchant];
 
             return Http::response(['transactionId' => $id, 'status' => 'PENDING', 'url' => "https://pay.platega.io/?id={$id}", 'expiresIn' => '00:15:00', 'rate' => 92.5]);
         }
         if (preg_match('#^https://app\.platega\.io/transaction/([0-9a-f-]+)$#', $request->url(), $match)) {
             $tx = $this->transactions[$match[1]] ?? null;
+            $tx = $tx !== null && ($tx['merchant'] ?? $merchant) === $merchant ? $tx : null;
 
             return $tx === null ? Http::response(['message' => 'not found'], 404) : Http::response([
                 'id' => $match[1],
@@ -310,6 +318,73 @@ describe('bot', function () {
         $this->getJson("/api/v1/store/orders/{$order->public_id}")
             ->assertJsonPath('data.order.channel', 'telegram')
             ->assertJsonPath('data.order.bot_url', 'https://t.me/RuAppStoreBot');
+    });
+});
+
+describe('separate checkouts for the bot and the website', function () {
+    beforeEach(function () {
+        config(['services.platega.site_merchant_id' => 'a9b8c7d6-0000-4000-8000-000000000002', 'services.platega.site_secret' => 'site-secret']);
+        $this->siteCallback = fn (string $id, string $path = '/api/v1/payments/platega/callback/site') => $this->withHeaders([
+            'X-MerchantId' => 'a9b8c7d6-0000-4000-8000-000000000002',
+            'X-Secret' => 'site-secret',
+        ])->postJson($path, ['id' => $id, 'status' => 'CONFIRMED']);
+    });
+
+    it('pays website orders through the website checkout', function () {
+        $user = userWithRoles(RoleSlug::Customer);
+        ($this->checkout)($user)->assertCreated();
+        $order = TelegramStoreOrder::sole();
+        Http::assertSent(fn (Request $request) => $request->url() === 'https://app.platega.io/v2/transaction/process'
+            && $request->header('X-MerchantId') === ['a9b8c7d6-0000-4000-8000-000000000002']
+            && $request->header('X-Secret') === ['site-secret']);
+
+        ($this->pay)($order->payment_reference);
+        ($this->siteCallback)($order->payment_reference)->assertOk();
+
+        expect($order->refresh()->status)->toBe(TelegramStoreOrder::PAID)
+            ->and($user->activeSubscription()->exists())->toBeTrue();
+    });
+
+    it('pays bot orders through the bot checkout and sends the payer back to the bot', function () {
+        app(UpdateRouter::class)->handle(['update_id' => 3, 'callback_query' => [
+            'id' => 'cb', 'data' => 'plan:month1', 'from' => ['id' => PLATEGA_BUYER, 'first_name' => 'B', 'username' => 'buyer'],
+            'message' => ['message_id' => 50, 'chat' => ['id' => PLATEGA_BUYER, 'type' => 'private'], 'text' => 'screen'],
+        ]]);
+        $order = TelegramStoreOrder::sole();
+        app(PlategaPayments::class)->paymentUrl($order);
+
+        Http::assertSent(fn (Request $request) => $request->url() === 'https://app.platega.io/v2/transaction/process'
+            && $request->header('X-MerchantId') === ['f1e2d3c4-0000-4000-8000-000000000001']
+            && $request['return'] === 'https://t.me/RuAppStoreBot'
+            && $request['failedUrl'] === 'https://t.me/RuAppStoreBot');
+        Http::assertNotSent(fn (Request $request) => ($request->header('X-MerchantId')[0] ?? null) === 'a9b8c7d6-0000-4000-8000-000000000002');
+
+        ($this->pay)($order->refresh()->payment_reference);
+        ($this->callback)($order->payment_reference)->assertOk();
+        expect($order->refresh()->status)->toBe(TelegramStoreOrder::PAID);
+    });
+
+    it('still settles a website order whose payment was opened in the bot checkout before the split', function () {
+        config(['services.platega.site_merchant_id' => null, 'services.platega.site_secret' => null]);
+        $user = userWithRoles(RoleSlug::Customer);
+        ($this->checkout)($user);
+        $order = TelegramStoreOrder::sole();
+        config(['services.platega.site_merchant_id' => 'a9b8c7d6-0000-4000-8000-000000000002', 'services.platega.site_secret' => 'site-secret']);
+
+        ($this->pay)($order->payment_reference);
+        ($this->callback)($order->payment_reference)->assertOk();
+
+        expect($order->refresh()->status)->toBe(TelegramStoreOrder::PAID);
+    });
+
+    it('accepts each checkout only on its own callback URL, and either on the shared one', function () {
+        ($this->checkout)(userWithRoles(RoleSlug::Customer));
+        $order = TelegramStoreOrder::sole();
+
+        ($this->siteCallback)($order->payment_reference, '/api/v1/payments/platega/callback/bot')->assertUnauthorized();
+        ($this->callback)($order->payment_reference)->assertOk();
+        ($this->siteCallback)($order->payment_reference, '/api/v1/payments/platega/callback')->assertOk();
+        ($this->siteCallback)($order->payment_reference)->assertOk();
     });
 });
 
