@@ -7,14 +7,18 @@ const params = new URLSearchParams(location.search);
 const token = params.get('token');
 const email = params.get('email');
 
-if (!token || !email) {
+function showLinkProblem(text) {
   const notice = document.createElement('div');
   notice.className = 'notice notice--error';
   notice.setAttribute('role', 'alert');
   notice.innerHTML = '<p></p><a class="text-link" href="/forgot-password.html"></a>';
-  notice.querySelector('p').textContent = t('reset.invalidLink');
+  notice.querySelector('p').textContent = text;
   notice.querySelector('a').textContent = t('reset.requestNew');
   form.replaceChildren(notice);
+}
+
+if (!token || !email) {
+  showLinkProblem(t('reset.invalidLink'));
 } else {
   form.elements.namedItem('token').value = token;
   form.elements.namedItem('email').value = email;
@@ -25,6 +29,12 @@ if (!token || !email) {
       email: data.get('email'),
       password: data.get('password'),
     }),
+    // A used or expired token comes back as an error on the hidden token field.
+    onError: (error) => {
+      if (!error?.details?.fields?.token) return false;
+      showLinkProblem(t('reset.expiredLink'));
+      return true;
+    },
     onSuccess: () => {
       showSuccess(form, t('reset.doneTitle'), t('reset.done'));
       const link = document.createElement('a');

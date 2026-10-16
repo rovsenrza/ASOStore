@@ -3,8 +3,9 @@ import { renderError } from './app.js';
 /**
  * Submits a form through the API with a busy state, inline field errors
  * (from VALIDATION_FAILED details) and a general error notice otherwise.
+ * onError(error) returning true means the page handled the error itself.
  */
-export function bindForm(form, t, { submit, onSuccess }) {
+export function bindForm(form, t, { submit, onSuccess, onError }) {
   const button = form.querySelector('[type="submit"]');
   const status = form.querySelector('.form-status');
 
@@ -19,7 +20,7 @@ export function bindForm(form, t, { submit, onSuccess }) {
       const result = await submit(new FormData(form));
       await onSuccess(result);
     } catch (error) {
-      showErrors(form, status, t, error);
+      if (!onError?.(error)) showErrors(form, status, t, error);
     } finally {
       button.disabled = false;
       button.removeAttribute('aria-busy');
