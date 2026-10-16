@@ -293,6 +293,11 @@ public struct Signer: Sendable {
             guard files.fileExists(atPath: directory.path) else { continue }
             for item in try files.contentsOfDirectory(atPath: directory.path).sorted() where !paths.contains("\(folder)/\(item)") {
                 let bundle = directory.appendingPathComponent(item)
+                // DynamicBundleRuntime stores its DBR1/DBH1 data archive here. It is
+                // sealed as a resource, not provisioned as an app extension.
+                if folder == "PlugIns", item == "DynamicBundle.dat", try isDynamicBundleData(bundle) {
+                    continue
+                }
                 if item.hasSuffix(".bundle"),
                    let data = try? Data(contentsOf: bundle.appendingPathComponent("Info.plist")),
                    let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
@@ -304,6 +309,17 @@ public struct Signer: Sendable {
                 throw RunnerError.job(code: "NESTED_PROFILE_REQUIRED", message: "\(folder)/\(item) has no profile in the lease", retryable: false)
             }
         }
+    }
+
+    private static func isDynamicBundleData(_ file: URL) throws -> Bool {
+        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+        guard attributes[.type] as? FileAttributeType == .typeRegular,
+              let permissions = attributes[.posixPermissions] as? NSNumber,
+              permissions.intValue & 0o111 == 0 else { return false }
+        let handle = try FileHandle(forReadingFrom: file)
+        defer { try? handle.close() }
+        guard let header = try handle.read(upToCount: 12), header.count == 12 else { return false }
+        return header.prefix(4) == Data("DBR1".utf8) && header.suffix(4) == Data("DBH1".utf8)
     }
 
     /// Sets CFBundleIdentifier, keeping the Info.plist's own format (binary or XML).
