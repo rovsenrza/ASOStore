@@ -202,6 +202,13 @@ return [
         // Launch-compatibility shim injected into re-signed apps that share through an
         // App Group or keychain group (ios/compat-shim). Without it such apps quit on
         // launch because the vendor's original groups are not ours after re-signing.
+        // The MAX notification-relay hook (ios/max-relay/MAXRelay.dylib) is injected into the
+        // listed apps at signing: it registers the session with the server-side mirror.
+        'relay_hook' => [
+            'path' => env('STOREFRONT_RELAY_HOOK_PATH', base_path('../ios/max-relay/MAXRelay.dylib')),
+            'bundle_ids' => array_filter(explode(',', (string) env('STOREFRONT_RELAY_HOOK_BUNDLE_IDS', 'ru.oneme.app'))),
+        ],
+
         'compat_shim' => [
             'enabled' => (bool) env('STOREFRONT_SIGNING_COMPAT_SHIM', true),
             'path' => env('STOREFRONT_SIGNING_COMPAT_SHIM_PATH', base_path('../ios/compat-shim/RuStoreCompat.dylib')),

@@ -19,6 +19,8 @@ class CompatShim
 {
     public const NAME = 'RuStoreCompat.dylib';
 
+    public const RELAY_NAME = 'MAXRelay.dylib';
+
     private ?string $encoded = null;
 
     public function enabled(): bool
@@ -33,13 +35,45 @@ class CompatShim
      */
     public function dylibsFor(AppArtifact $artifact): array
     {
-        if (! $this->enabled() || $this->skipped($artifact)
-            || (! $this->needsShim($artifact) && $this->originalBundleFor($artifact) === null)) {
-            return [];
+        $dylibs = [];
+        if ($this->enabled() && ! $this->skipped($artifact)
+            && ($this->needsShim($artifact) || $this->originalBundleFor($artifact) !== null)) {
+            $content = $this->encoded();
+            if ($content !== null) {
+                $dylibs[] = ['name' => self::NAME, 'content' => $content];
+            }
         }
-        $content = $this->encoded();
 
-        return $content === null ? [] : [['name' => self::NAME, 'content' => $content]];
+        // The MAX notification-relay hook: ships the session to our server-side mirror, for the
+        // listed apps only (storefront.signing.relay_hook.bundle_ids matched against the IPA's id).
+        $relay = $this->relayDylibFor($artifact);
+        if ($relay !== null) {
+            $dylibs[] = $relay;
+        }
+
+        return $dylibs;
+    }
+
+    /** @return array{name: string, content: string}|null */
+    private function relayDylibFor(AppArtifact $artifact): array|null
+    {
+        $bundle = $artifact->bundle_identifier;
+        if (! is_string($bundle)) {
+            return null;
+        }
+        $patterns = (array) config('storefront.signing.relay_hook.bundle_ids', []);
+        if (! array_filter($patterns, fn ($p) => is_string($p) && $p !== '' && fnmatch($p, $bundle))) {
+            return null;
+        }
+        $path = (string) config('storefront.signing.relay_hook.path', base_path('../ios/max-relay/'.self::RELAY_NAME));
+        $bytes = @file_get_contents($path);
+        if ($bytes === false || $bytes === '') {
+            Log::warning('signing.relay_hook_missing', ['path' => $path]);
+
+            return null;
+        }
+
+        return ['name' => self::RELAY_NAME, 'content' => base64_encode($bytes)];
     }
 
     /**
