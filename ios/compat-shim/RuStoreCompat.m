@@ -156,10 +156,14 @@ static CFDictionaryRef RSRewriteQuery(CFDictionaryRef query) {
 }
 
 // The real functions, bound in this image (dyld never interposes the interposer itself).
-static OSStatus (*orig_SecItemAdd)(CFDictionaryRef, CFTypeRef *) = SecItemAdd;
-static OSStatus (*orig_SecItemCopyMatching)(CFDictionaryRef, CFTypeRef *) = SecItemCopyMatching;
-static OSStatus (*orig_SecItemUpdate)(CFDictionaryRef, CFDictionaryRef) = SecItemUpdate;
-static OSStatus (*orig_SecItemDelete)(CFDictionaryRef) = SecItemDelete;
+// volatile keeps them as pointers in __data: without it the compiler calls through this
+// image's GOT, and a vendor sideload patch that fishhooks every image (blatantsPatch.dylib
+// in Raiffeisen and ~90 other catalog IPAs) points that GOT back at its own hook, which
+// calls ours again until the stack overflows at launch.
+static OSStatus (* volatile orig_SecItemAdd)(CFDictionaryRef, CFTypeRef *) = SecItemAdd;
+static OSStatus (* volatile orig_SecItemCopyMatching)(CFDictionaryRef, CFTypeRef *) = SecItemCopyMatching;
+static OSStatus (* volatile orig_SecItemUpdate)(CFDictionaryRef, CFDictionaryRef) = SecItemUpdate;
+static OSStatus (* volatile orig_SecItemDelete)(CFDictionaryRef) = SecItemDelete;
 // fishhook reports what it replaced here; the values are never used (they may already be interposed).
 static void *gRebindUnused[4];
 
