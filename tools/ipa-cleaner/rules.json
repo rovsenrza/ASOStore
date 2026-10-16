@@ -69,6 +69,19 @@
       "category": "optional-mod",
       "reason": "YMNight mod: its Telegram/VIP pop-up is built in, so removing it removes the whole mod and its features",
       "recommend": false
+    },
+    {
+      "id": "dzmohaipa-notification-fix-promo",
+      "names": [
+        "TelegramNotificationFix.dylib"
+      ],
+      "all_markers": [
+        "DzMohaipa",
+        "FCAlertView"
+      ],
+      "category": "promotion",
+      "reason": "DzMohaipa launch promo popup (links to dzmohaipa.com / paypal.me/dzmohaipa); draws FCAlertView with no resource bundle and crashes at launch. The notification 'fix' is inert on a re-signed app.",
+      "recommend": true
     }
   ],
   "library_patches": [
@@ -108,20 +121,6 @@
           12622800,
           "7f2303d5",
           "arm64e fetchAnnouncement"
-        ]
-      ]
-    },
-    {
-      "id": "telegram-notification-fix-promotion",
-      "name": "TelegramNotificationFix.dylib",
-      "original_sha256": "0af51a1897bafde99d0f9b7efd64b17d44781a56adf78923cdc4c88e2106eacf",
-      "patched_sha256": "48ae2919c77847719c41422200997b95d40169af780cf36efc75fab82913c8db",
-      "reason": "Disable the DzMohaipa launch promotion block; app-group and notification fixes stay",
-      "sites": [
-        [
-          28148,
-          "ffc301d1",
-          "arm64 launch promotion block"
         ]
       ]
     }
