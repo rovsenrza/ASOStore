@@ -91,6 +91,10 @@ public struct Signer: Sendable {
                 teamPrefixRewrites += try Self.rewriteTeamPrefix(from: originalTeam, to: job.teamIdentifier, bundle: app.appendingPathComponent(nested.path))
             }
         }
+        try Self.ensureFaceIDUsageDescription(bundle: app)
+        for nested in job.nested {
+            try Self.ensureFaceIDUsageDescription(bundle: app.appendingPathComponent(nested.path))
+        }
         // Embed the one-time login code (storefront app only) so first launch signs the customer in.
         if let claim = job.bootstrapClaim {
             try Self.setInfoValue(claim, forKey: "StorefrontBootstrapClaim", bundle: app)
@@ -329,6 +333,25 @@ public struct Signer: Sendable {
         guard info[key] as? String != value else { return }
         info[key] = value
         try PropertyListSerialization.data(fromPropertyList: info, format: format, options: 0).write(to: file)
+    }
+
+    static let faceIDUsageDescription = "Face ID используется для быстрого и безопасного входа."
+
+    /// Adds NSFaceIDUsageDescription when the bundle has none. Our profile's `<TEAM>.*` keychain
+    /// access lets a keychain read reach an item another app of the team protected with Face ID
+    /// (VK's apps share their sign-in token); without the key iOS kills the app on that read
+    /// (TCC abort) instead of asking. Returns whether the Info.plist changed.
+    @discardableResult
+    static func ensureFaceIDUsageDescription(bundle: URL) throws -> Bool {
+        let file = bundle.appendingPathComponent("Info.plist")
+        var format = PropertyListSerialization.PropertyListFormat.xml
+        guard var info = try PropertyListSerialization.propertyList(from: Data(contentsOf: file), options: [], format: &format) as? [String: Any] else {
+            throw RunnerError.job(code: "INFO_PLIST_INVALID", message: "\(bundle.lastPathComponent)/Info.plist is not a dictionary", retryable: false)
+        }
+        guard (info["NSFaceIDUsageDescription"] as? String)?.isEmpty ?? true else { return false }
+        info["NSFaceIDUsageDescription"] = faceIDUsageDescription
+        try PropertyListSerialization.data(fromPropertyList: info, format: format, options: 0).write(to: file)
+        return true
     }
 
     static func isTeamIdentifier(_ value: String) -> Bool {

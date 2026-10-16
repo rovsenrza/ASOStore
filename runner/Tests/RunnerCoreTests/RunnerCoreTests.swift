@@ -689,6 +689,25 @@ struct SigningSetup {
         #expect(try Signer.rewriteTeamPrefix(from: "Q6L2SF6YDW", to: "5CV985HSCG", bundle: folder) == 0)
     }
 
+    @Test func addsAFaceIDUsageDescriptionOnlyWhenTheAppHasNone() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("face-id-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("Info.plist")
+        try PropertyListSerialization.data(fromPropertyList: ["CFBundleIdentifier": "com.allgoritm.Youla"], format: .binary, options: 0).write(to: file)
+
+        #expect(try Signer.ensureFaceIDUsageDescription(bundle: folder))
+        let info = try #require(try PropertyListSerialization.propertyList(from: Data(contentsOf: file), format: nil) as? [String: Any])
+        #expect(info["NSFaceIDUsageDescription"] as? String == Signer.faceIDUsageDescription)
+        #expect(try Data(contentsOf: file).starts(with: Data("bplist".utf8)))
+
+        // The vendor's own text stays.
+        try PropertyListSerialization.data(fromPropertyList: ["NSFaceIDUsageDescription": "To quickly launch the app"], format: .xml, options: 0).write(to: file)
+        let before = try Data(contentsOf: file)
+        #expect(try !Signer.ensureFaceIDUsageDescription(bundle: folder))
+        #expect(try Data(contentsOf: file) == before)
+    }
+
     @Test func leavesInfoPlistAloneWhenTheTeamIsOursOrMalformed() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("team-prefix-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
