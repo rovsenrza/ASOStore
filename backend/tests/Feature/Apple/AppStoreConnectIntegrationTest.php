@@ -90,6 +90,16 @@ it('finds an exact App ID on a later page when extensions match the prefix', fun
     Http::assertNotSent(fn (Request $request) => $request->method() === 'POST');
 });
 
+it('finds a certificate whose serial Apple lists without the leading zero', function () {
+    Http::fake(function (Request $request) {
+        return Http::response(['data' => str_ends_with(urldecode($request->url()), 'serialNumber]=F81DFC530EEE952C4027CBD9EBF5E8F&limit=1')
+            ? [['type' => 'certificates', 'id' => '22W7SA7PX9']]
+            : []]);
+    });
+
+    expect($this->apple->findCertificate($this->team, '0F81DFC530EEE952C4027CBD9EBF5E8F'))->toBe('22W7SA7PX9');
+});
+
 it('names App IDs in Latin letters, which is all Apple accepts', function () {
     expect(AppStoreConnectIntegration::appIdName('Яндекс Пэй', 'com.ruappstore.yandex-pay'))->toBe('Yandex Pay')
         ->and(AppStoreConnectIntegration::appIdName('Яндекс Пэй Widget', 'com.ruappstore.yandex-pay.widget'))->toBe('Yandex Pay Widget')

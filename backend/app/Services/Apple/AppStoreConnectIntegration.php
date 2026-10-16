@@ -79,14 +79,20 @@ class AppStoreConnectIntegration implements AppleIntegration
 
     public function findCertificate(AppleTeam $team, string $serialNumber): ?string
     {
-        $response = $this->send($team, fn (PendingRequest $http) => $http->get('/certificates', [
-            'filter[serialNumber]' => $serialNumber,
-            'limit' => 1,
-        ]));
+        // The certificate's DER serial can start with 0 (positive-sign padding); Apple lists it without.
+        foreach (array_unique([$serialNumber, ltrim($serialNumber, '0')]) as $serial) {
+            $response = $this->send($team, fn (PendingRequest $http) => $http->get('/certificates', [
+                'filter[serialNumber]' => $serial,
+                'limit' => 1,
+            ]));
 
-        $id = $response->json('data.0.id');
+            $id = $response->json('data.0.id');
+            if (is_string($id)) {
+                return $id;
+            }
+        }
 
-        return is_string($id) ? $id : null;
+        return null;
     }
 
     public function ensureBundleId(AppleTeam $team, string $identifier, string $name): string
