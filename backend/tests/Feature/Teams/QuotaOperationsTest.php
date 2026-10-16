@@ -232,7 +232,9 @@ it('reconciles counters with Apple and alerts on mismatches and expiries without
         ->assertJsonPath('data.0.quotas.0.family', 'IPAD')
         ->assertJsonPath('data.0.quotas.1.registered', 1)
         ->assertJsonPath('data.0.quotas.1.apple_registered', 3)
-        ->assertJsonPath('data.0.quotas.1.remaining', 0);
+        ->assertJsonPath('data.0.quotas.1.remaining', 0)
+        ->assertJsonPath('data.0.role', 'PRIMARY')
+        ->assertJsonPath('data.0.devices.ready', DeviceRegistration::where('status', 'ELIGIBLE')->count());
 });
 
 it('onboards a team through verification before it can be activated', function () {
@@ -277,8 +279,10 @@ it('approves a newly activated team for every own bundle ID, so overflow devices
     ])->assertCreated();
     $this->postJson("/api/v1/admin/apple-teams/{$team['id']}/verify")->assertOk();
 
-    $eligible = $this->patchJson("/api/v1/admin/apple-teams/{$team['id']}", ['status' => 'ACTIVE', 'reason' => 'Overflow team'])
-        ->assertOk()->json('data.eligibilities');
+    $this->patchJson("/api/v1/admin/apple-teams/{$team['id']}", ['status' => 'ACTIVE', 'reason' => 'Overflow team'])
+        ->assertOk()->assertJsonPath('data.eligibility_count', 2)->assertJsonPath('data.role', 'OVERFLOW');
+    $eligible = TeamAppEligibility::query()->whereHas('team', fn ($query) => $query->where('apple_team_id', 'NEWTEAM002'))
+        ->where('status', 'APPROVED')->pluck('bundle_identifier')->all();
 
     // Own IDs come along; a vendor's ID still needs its own approval.
     expect($eligible)->toEqualCanonicalizing(['com.ruappstore.catalog1', 'com.ruappstore.catalog2'])

@@ -11,6 +11,7 @@ use App\Models\AppleCredential;
 use App\Models\AppleTeam;
 use App\Models\CatalogApp;
 use App\Models\Certificate;
+use App\Models\DeviceRegistration;
 use App\Models\MembershipYear;
 use App\Models\SigningProfile;
 use App\Models\TeamAppEligibility;
@@ -41,7 +42,7 @@ class AppleTeamController extends Controller
 
     public function index(): JsonResponse
     {
-        $teams = AppleTeam::query()->with('activeCredential')->orderByDesc('is_primary')->orderBy('name')->get();
+        $teams = AppleTeam::query()->with('activeCredential')->orderByDesc('is_primary')->orderBy('id')->get();
 
         return ApiResponse::ok($teams->map(fn (AppleTeam $team) => $this->present($team))->all(), meta: [
             'pending_assignments' => TeamAssignment::query()->where('status', 'PENDING')->count(),
@@ -206,7 +207,9 @@ class AppleTeamController extends Controller
             'credential' => $credential ? ['key_id' => $credential->key_id, 'issuer_id' => $credential->issuer_id, 'last_verified_at' => $credential->last_verified_at?->toIso8601ZuluString()] : null,
             'membership_year' => $year ? ['starts_at' => $year->starts_at->toIso8601ZuluString(), 'ends_at' => $year->ends_at->toIso8601ZuluString()] : null,
             'quotas' => $this->quotas->summary($team),
-            'eligibilities' => TeamAppEligibility::query()->where(['apple_team_id' => $team->id, 'status' => 'APPROVED'])->pluck('bundle_identifier')->all(),
+            'role' => $team->is_primary ? 'PRIMARY' : (in_array($team->apple_team_id, (array) config('storefront.apple.long_plan_teams', []), true) ? 'LONG_PLAN' : 'OVERFLOW'),
+            'devices' => $this->devices($team, $year?->id),
+            'eligibility_count' => TeamAppEligibility::query()->where(['apple_team_id' => $team->id, 'status' => 'APPROVED'])->count(),
             'certificates' => Certificate::query()->where('apple_team_id', $team->id)->orderBy('expires_at')->get()->map(fn (Certificate $certificate) => [
                 'sha1' => $certificate->sha1_fingerprint,
                 'common_name' => $certificate->common_name,
@@ -218,6 +221,33 @@ class AppleTeamController extends Controller
                 'active' => SigningProfile::query()->where(['apple_team_id' => $team->id, 'status' => 'ACTIVE'])->count(),
                 'expiring_soon' => SigningProfile::query()->where(['apple_team_id' => $team->id, 'status' => 'ACTIVE'])->where('expires_at', '<', now()->addDays(QuotaReconciler::WARN_DAYS))->count(),
             ],
+        ];
+    }
+
+    /**
+     * This membership year's devices by Apple-side state, so the admin can tell
+     * a team whose devices are ready from one where they still wait at Apple.
+     *
+     * @return array<string, mixed>
+     */
+    private function devices(AppleTeam $team, ?int $yearId): array
+    {
+        $rows = DeviceRegistration::query()
+            ->where(['apple_team_id' => $team->id, 'membership_year_id' => $yearId])
+            ->selectRaw('status, count(*) as total, min(registered_at) as oldest')
+            ->groupBy('status')
+            ->get()
+            ->keyBy(fn ($row) => $row->getRawOriginal('status'));
+        $count = fn (string $status) => (int) ($rows[$status]->total ?? 0);
+        $oldest = $rows['APPLE_PENDING']->oldest ?? null;
+
+        return [
+            'ready' => $count('ELIGIBLE'),
+            'waiting' => $count('APPLE_PENDING'),
+            'failed' => $count('APPLE_FAILED'),
+            'disabled' => $count('DISABLED'),
+            'waiting_since' => $oldest ? Carbon::parse($oldest)->toIso8601ZuluString() : null,
+            'instant_limit' => (int) config('storefront.apple.instant_device_limit'),
         ];
     }
 

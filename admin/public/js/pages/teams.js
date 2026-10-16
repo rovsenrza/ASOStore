@@ -61,9 +61,31 @@ function quotaBar(quota) {
       : '');
 }
 
+// Older records carry the Team ID in their name too; the heading already shows it.
+function teamName(team) {
+  return team.name.replace(` (${team.apple_team_id})`, '').trim() || team.apple_team_id;
+}
+
+// iPad/iPod rows stay hidden until a device of that kind is on the team.
+function usedQuotas(team) {
+  return team.quotas.filter((quota) => quota.family === 'IPHONE' || quota.registered + quota.reserved > 0 || quota.apple_registered);
+}
+
+function deviceSummary(devices) {
+  const total = devices.ready + devices.waiting;
+  return el('p', {},
+    t('teams.devices', { ready: devices.ready, waiting: devices.waiting }),
+    devices.waiting_since ? el('span', { className: 'muted' }, ` · ${t('teams.waitingSince', { time: formatDateTime(devices.waiting_since) })}`) : '',
+    devices.failed ? el('span', { className: 'badge badge--warn' }, ` ${t('teams.failed', { count: devices.failed })}`) : '',
+    ' ',
+    el('span', { className: 'muted' }, total < devices.instant_limit
+      ? t('teams.instantLeft', { count: devices.instant_limit - total })
+      : t('teams.instantFull', { limit: devices.instant_limit })));
+}
+
 function teamCard(team) {
   const card = el('article', { className: 'card team-card' },
-    el('h2', {}, `${team.name} · ${team.apple_team_id} `, statusBadge(team.status, t(`teams.status.${team.status}`)), team.is_primary ? ` ${t('teams.primary')}` : ''),
+    el('h2', {}, `${teamName(team)} · ${team.apple_team_id} `, statusBadge(team.status, t(`teams.status.${team.status}`)), ` ${t(`teams.role.${team.role}`)}`),
     el('p', {}, team.credential ? t('teams.credential', { key: team.credential.key_id }) : t('teams.noCredential')),
     el('p', { className: 'muted' }, team.last_verified_at ? t('teams.verified', { time: formatDateTime(team.last_verified_at) }) : t('teams.notVerified')),
     el('p', {}, team.membership_year
@@ -72,9 +94,8 @@ function teamCard(team) {
     el('p', {}, 'Ru App Store: ', team.storefront_bundle_id
       ? el('span', { className: 'mono' }, team.storefront_bundle_id)
       : el('span', { className: 'muted' }, 'Вариант для этой команды не назначен или IPA не опубликован')),
-    team.quotas.length ? el('ul', { className: 'plain-list quota-list' }, team.quotas.map(quotaBar)) : el('p', { className: 'muted' }, t('teams.noQuota')),
-    el('h3', {}, t('teams.eligible')),
-    el('p', { className: 'mono' }, team.eligibilities.length ? team.eligibilities.join(', ') : t('teams.none')),
+    deviceSummary(team.devices),
+    usedQuotas(team).length ? el('ul', { className: 'plain-list quota-list' }, usedQuotas(team).map(quotaBar)) : el('p', { className: 'muted' }, t('teams.noQuota')),
     el('h3', {}, t('teams.certificates')),
     el('ul', { className: 'plain-list' }, team.certificates.map((certificate) => el('li', { className: 'mono' },
       `${certificate.sha1.slice(0, 8)}… ${certificate.common_name} · ${formatDate(certificate.expires_at)} · `,
@@ -232,7 +253,7 @@ eligibilityForm.hidden = !manage;
 
 function fillTeamSelect() {
   const select = eligibilityForm.querySelector('select');
-  select.replaceChildren(...teams.map((team) => el('option', { value: team.id }, `${team.name} · ${team.apple_team_id}`)));
+  select.replaceChildren(...teams.map((team) => el('option', { value: team.id }, `${teamName(team)} · ${team.apple_team_id}`)));
 }
 
 async function loadEligibilities() {

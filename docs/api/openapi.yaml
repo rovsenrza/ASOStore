@@ -5291,7 +5291,7 @@ components:
 
     AppleTeam:
       type: object
-      required: [id, apple_team_id, name, status, is_primary, storefront_app_id, storefront_bundle_id, membership_expires_at, last_verified_at, credential, membership_year, quotas, eligibilities, certificates, profiles]
+      required: [id, apple_team_id, name, status, is_primary, storefront_app_id, storefront_bundle_id, membership_expires_at, last_verified_at, credential, membership_year, quotas, role, devices, eligibility_count, certificates, profiles]
       properties:
         id: { $ref: "#/components/schemas/PublicId" }
         apple_team_id: { type: string }
@@ -5326,7 +5326,19 @@ components:
               remaining: { type: integer, minimum: 0 }
               apple_registered: { type: [integer, "null"] }
               last_synced_at: { type: [string, "null"] }
-        eligibilities: { type: array, items: { type: string } }
+        role: { type: string, enum: [PRIMARY, OVERFLOW, LONG_PLAN] }
+        devices:
+          type: object
+          description: This membership year's devices by Apple-side state.
+          required: [ready, waiting, failed, disabled, waiting_since, instant_limit]
+          properties:
+            ready: { type: integer }
+            waiting: { type: integer }
+            failed: { type: integer }
+            disabled: { type: integer }
+            waiting_since: { type: [string, "null"] }
+            instant_limit: { type: integer }
+        eligibility_count: { type: integer }
         certificates:
           type: array
           items:
