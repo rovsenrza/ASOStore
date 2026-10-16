@@ -158,6 +158,25 @@ class TeamSelector
             }
         }
 
+        // Teams still under the limit, and the primary team, are kept for later: every new
+        // device goes to the least-loaded team already past the limit.
+        if (config('storefront.apple.preserve_fresh_teams')) {
+            $least = null;
+            $leastCount = null;
+            foreach ($this->automaticTeams($family, exclude: $exclude ?? 0) as $team) {
+                $count = $this->devicesThisYear($team);
+                if ($team->is_primary || $count < $limit) {
+                    continue;
+                }
+                if ($least === null || $count < $leastCount) {
+                    [$least, $leastCount] = [$team, $count];
+                }
+            }
+            if ($least !== null) {
+                return $least;
+            }
+        }
+
         $primary = AppleTeam::primary();
         $candidates = [];
         if ($primary !== null && $primary->id !== $exclude

@@ -182,3 +182,25 @@ it('never registers a device with a second team in the same membership year', fu
         ->and($this->apple->calls)->toBe([])
         ->and(TeamQuota::where('apple_team_id', $this->second->id)->get()->sum(fn (TeamQuota $quota) => $quota->registeredCount()))->toBe(0);
 });
+
+it('keeps the primary and teams under the limit for later, and fills the least-loaded team past it', function () {
+    config(['storefront.apple.preserve_fresh_teams' => true, 'storefront.apple.instant_device_limit' => 2]);
+    $team = function (string $id, string $bundle, int $onApple): AppleTeam {
+        $team = AppleTeam::create(['apple_team_id' => $id, 'name' => $id, 'status' => AppleTeamStatus::Active, 'membership_expires_at' => now()->addYear()]);
+        $year = MembershipYear::create(['apple_team_id' => $team->id, 'starts_at' => now()->subDay(), 'ends_at' => now()->addYear()]);
+        TeamQuota::create(['apple_team_id' => $team->id, 'membership_year_id' => $year->id, 'device_family' => 'IPHONE', 'limit_count' => 100, 'apple_registered_count' => $onApple]);
+
+        return variantTeam($team, "com.{$id}.app");
+    };
+    $busy = $team('TEAM000003', 'busy', 9);
+    $lighter = $team('TEAM000004', 'lighter', 4);
+    $fresh = $team('TEAM000005', 'fresh', 1);
+
+    $first = ($this->enrol)('00008030-0000000000000001');
+    $second = ($this->enrol)('00008030-0000000000000002');
+
+    // The primary, the second team (0 devices) and the fresh team are left alone.
+    expect($first->apple_team_id)->toBe($lighter->id)
+        ->and($second->apple_team_id)->toBe($lighter->id)
+        ->and(DeviceRegistration::whereIn('apple_team_id', [$this->primary->id, $this->second->id, $fresh->id, $busy->id])->count())->toBe(0);
+});

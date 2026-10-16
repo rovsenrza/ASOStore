@@ -63,6 +63,10 @@ return [
         // New devices go to a team still under this count. 0 turns the routing off. A device
         // already registered stays where it is: a second team would take a second paid slot.
         'instant_device_limit' => (int) env('STOREFRONT_APPLE_INSTANT_DEVICE_LIMIT', 10),
+        // Keep the primary team and every team under instant_device_limit for later: new devices
+        // go to the least-loaded team already past the limit (falls back to the rules above when
+        // there is none). Long-plan buyers still get their reserved teams.
+        'preserve_fresh_teams' => (bool) env('STOREFRONT_APPLE_PRESERVE_FRESH_TEAMS', false),
         // Apple team IDs whose instant slots go only to buyers of a plan longer than
         // long_plan_min_days; other devices never land on them.
         'long_plan_teams' => array_values(array_filter(array_map('trim', explode(',', (string) env('STOREFRONT_APPLE_LONG_PLAN_TEAMS', ''))))),
