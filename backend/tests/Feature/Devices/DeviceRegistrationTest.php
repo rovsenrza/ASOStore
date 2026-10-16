@@ -106,6 +106,27 @@ it('keeps the slot and retries later when Apple is unavailable', function () {
     expect($registration->fresh()->status)->toBe(Status::Eligible);
 });
 
+it('polls every waiting device in turn when more wait than one sync takes', function () {
+    config(['storefront.apple.device_limit_per_family' => 200]);
+    $this->apple->onRegister = fn ($udid) => new AppleDevice('APPLE-'.$udid, $udid, AppleDeviceStatus::Processing);
+    $waiting = collect(range(1, 101))->map(function (int $n) {
+        $registration = ($this->enrol)(sprintf('00008030-%016d', $n));
+        ($this->register)($registration);
+
+        return $registration;
+    });
+    $newest = $waiting->last();
+    $this->apple->onGet = fn ($id) => new AppleDevice($id, '', $id === $newest->fresh()->apple_device_id ? AppleDeviceStatus::Enabled : AppleDeviceStatus::Processing);
+
+    $this->travel(2)->minutes();
+    app()->call([new SyncDeviceRegistrationsJob, 'handle']);
+    $this->travel(2)->minutes();
+    app()->call([new SyncDeviceRegistrationsJob, 'handle']);
+
+    // The 100 older devices must not take every slot on every run.
+    expect($newest->fresh()->status)->toBe(Status::Eligible);
+});
+
 it('fails permanently on a rejected request and frees the slot', function () {
     config(['storefront.apple.device_limit_per_family' => 1]);
     $this->apple->onRegister = fn () => throw new AppleException('Invalid UDID', 'APPLE_REQUEST_FAILED');

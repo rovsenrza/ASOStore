@@ -33,6 +33,10 @@ class SyncDeviceRegistrationsJob implements ShouldBeUnique, ShouldQueue
             ->where('status', DeviceRegistrationStatus::ApplePending->value)
             ->whereNotNull('apple_device_id')
             ->where(fn ($query) => $query->whereNull('last_synced_at')->orWhere('last_synced_at', '<=', now()->subMinute()))
+            // Least recently polled first: with more waiting devices than the limit, the oldest
+            // ones took every slot and newer ones were never polled (2026-10-16, team HQK66UM9P2).
+            ->orderByRaw('last_synced_at IS NOT NULL, last_synced_at')
+            ->orderBy('id')
             ->limit(100)
             ->get()
             ->each(function (DeviceRegistration $registration) use ($registrations) {

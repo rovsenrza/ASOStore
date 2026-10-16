@@ -140,7 +140,7 @@ class DeviceRegistrationService
      */
     public function sync(DeviceRegistration $registration): void
     {
-        $registration->refresh()->load('team.activeCredential');
+        $registration->refresh()->load(['team.activeCredential', 'device']);
         if ($registration->status !== Status::ApplePending || $registration->apple_device_id === null) {
             return;
         }
