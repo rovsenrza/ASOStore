@@ -52,10 +52,22 @@ do {
             index = i + 2
         }
 
+        // --nested PATH BUNDLE_ID PROFILE (repeatable): an extension inside the .app with its own profile.
+        var nested: [SigningJob.Nested] = []
+        var nestedIndex = 0
+        while let i = arguments[nestedIndex...].firstIndex(of: "--nested"), i + 3 < arguments.count {
+            let nestedProfile = try Data(contentsOf: URL(fileURLWithPath: arguments[i + 3]))
+            let nestedPlist = try PropertyListSerialization.propertyList(from: Signer.profilePlist(nestedProfile), format: nil) as? [String: Any]
+            nested.append(.init(path: arguments[i + 1], bundleIdentifier: arguments[i + 2],
+                                profile: .init(uuid: nestedPlist?["UUID"] as? String ?? "", content: nestedProfile.base64EncodedString())))
+            nestedIndex = i + 4
+        }
+
         let job = SigningJob(
             jobID: "local", signedBuildID: "local", bundleIdentifier: try value("--bundle-id"), teamIdentifier: team,
             certificateSHA1: identity.identity.sha1,
             profile: .init(uuid: plist?["UUID"] as? String ?? "", content: profile.base64EncodedString()),
+            nested: nested,
             injectDylibs: inject,
             source: .init(sha256: try RequestSigner.sha256(fileAt: source), sizeBytes: 0, path: ""),
             uploadPath: "", resultPath: ""
