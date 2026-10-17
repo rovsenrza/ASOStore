@@ -71,6 +71,10 @@ return [
         // long_plan_min_days; other devices never land on them.
         'long_plan_teams' => array_values(array_filter(array_map('trim', explode(',', (string) env('STOREFRONT_APPLE_LONG_PLAN_TEAMS', ''))))),
         'long_plan_min_days' => (int) env('STOREFRONT_APPLE_LONG_PLAN_MIN_DAYS', 31),
+        // When set, EVERY new device registration (any plan length) goes only to these Apple
+        // teams, to the least-loaded one with free slots; all other teams are paused for new
+        // registrations (devices already on them stay). Overrides long_plan/preserve_fresh routing.
+        'active_registration_teams' => array_values(array_filter(array_map('trim', explode(',', (string) env('STOREFRONT_APPLE_ACTIVE_REGISTRATION_TEAMS', ''))))),
         // Ruby with fastlane, for App Groups through the developer portal (AppGroupProvisioner).
         'portal_ruby' => env('STOREFRONT_APPLE_PORTAL_RUBY', 'ruby'),
     ],

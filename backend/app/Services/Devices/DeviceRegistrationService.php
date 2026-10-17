@@ -65,7 +65,12 @@ class DeviceRegistrationService
         }
 
         $longPlan = $device->user?->hasLongPlan() ?? false;
-        $team = $this->selector->instantTeam($device->device_family->value, longPlan: $longPlan) ?? AppleTeam::primary();
+        $team = $this->selector->instantTeam($device->device_family->value, longPlan: $longPlan);
+        // With a fixed active-registration set, other teams (incl. the primary) are paused: when
+        // none of the active teams has a free slot, the device waits instead of landing elsewhere.
+        if ($team === null && (array) config('storefront.apple.active_registration_teams', []) === []) {
+            $team = AppleTeam::primary();
+        }
         $year = $team?->currentMembershipYear();
         if ($team === null || $year === null) {
             return null;
