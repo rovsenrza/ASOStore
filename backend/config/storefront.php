@@ -211,6 +211,8 @@ return [
         'relay_hook' => [
             'path' => env('STOREFRONT_RELAY_HOOK_PATH', base_path('../ios/max-relay/MAXRelay.dylib')),
             'bundle_ids' => array_filter(explode(',', (string) env('STOREFRONT_RELAY_HOOK_BUNDLE_IDS', 'ru.oneme.app'))),
+            // Forces on MAX's native reactions / stories, which are gated behind server feature flags.
+            'features_path' => env('STOREFRONT_RELAY_FEATURES_PATH', base_path('../ios/max-features/MAXFeatures.dylib')),
         ],
 
         'compat_shim' => [

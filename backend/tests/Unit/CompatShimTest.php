@@ -39,6 +39,29 @@ it('recognises relay-hook apps by the configured bundle-id patterns', function (
         ->and($shim->isRelayHook(AppArtifact::factory()->make(['bundle_identifier' => 'com.yandex.pay'])))->toBeFalse();
 });
 
+it('injects the relay + features hooks for a relay-hook app, neither for others', function () {
+    $relay = tempnam(sys_get_temp_dir(), 'relay').'.dylib';
+    $features = tempnam(sys_get_temp_dir(), 'feat').'.dylib';
+    file_put_contents($relay, "\xCF\xFA\xED\xFE relay");
+    file_put_contents($features, "\xCF\xFA\xED\xFE features");
+    config([
+        'storefront.signing.relay_hook.bundle_ids' => ['ru.oneme.app'],
+        'storefront.signing.relay_hook.path' => $relay,
+        'storefront.signing.relay_hook.features_path' => $features,
+    ]);
+
+    $names = fn (string $bundle) => array_column(
+        app(CompatShim::class)->dylibsFor(AppArtifact::factory()->make(['bundle_identifier' => $bundle, 'inspection' => []])),
+        'name'
+    );
+
+    expect($names('ru.oneme.app'))->toContain('MAXRelay.dylib')->toContain('MAXFeatures.dylib')
+        ->and($names('com.yandex.pay'))->not->toContain('MAXRelay.dylib')->not->toContain('MAXFeatures.dylib');
+
+    @unlink($relay);
+    @unlink($features);
+});
+
 it('returns the dylib bytes in the lease shape, or nothing when not needed', function () {
     $shim = app(CompatShim::class);
     $dylibs = $shim->dylibsFor(artifactWith(['com.apple.security.application-groups' => ['group.x']]));

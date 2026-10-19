@@ -21,6 +21,8 @@ class CompatShim
 
     public const RELAY_NAME = 'MAXRelay.dylib';
 
+    public const FEATURES_NAME = 'MAXFeatures.dylib';
+
     private ?string $encoded = null;
 
     public function enabled(): bool
@@ -51,7 +53,30 @@ class CompatShim
             $dylibs[] = $relay;
         }
 
+        // MAXFeatures: forces on MAX's native-but-server-gated reactions / stories feature flags.
+        $features = $this->featuresDylibFor($artifact);
+        if ($features !== null) {
+            $dylibs[] = $features;
+        }
+
         return $dylibs;
+    }
+
+    /** @return array{name: string, content: string}|null */
+    private function featuresDylibFor(AppArtifact $artifact): array|null
+    {
+        if (! $this->isRelayHook($artifact)) {
+            return null;
+        }
+        $path = (string) config('storefront.signing.relay_hook.features_path', base_path('../ios/max-features/'.self::FEATURES_NAME));
+        $bytes = @file_get_contents($path);
+        if ($bytes === false || $bytes === '') {
+            Log::warning('signing.features_hook_missing', ['path' => $path]);
+
+            return null;
+        }
+
+        return ['name' => self::FEATURES_NAME, 'content' => base64_encode($bytes)];
     }
 
     /**

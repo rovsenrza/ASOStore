@@ -104,9 +104,42 @@ static NSString *ReadProvisionedUDID(void) {
     return nil;
 }
 
-// Chats the user has muted: the relay must not push a notification for them. MAX stores chat
-// settings in the same YapDatabase; a muted chat's JSON carries a disabled-notifications marker.
-// Returns the muted chat ids. Read-only and defensive — unknown schema just yields an empty list.
+// Reads a MessagePack int that follows the marker at p (fixint / int8..int64, signed/unsigned).
+static BOOL MPInt(const uint8_t *b, NSUInteger len, NSUInteger p, long long *out) {
+    if (p >= len) return NO;
+    uint8_t c = b[p];
+    if (c <= 0x7f) { *out = c; return YES; }                 // positive fixint
+    if (c >= 0xe0) { *out = (int8_t)c; return YES; }          // negative fixint
+    int n; BOOL sign;
+    switch (c) {
+        case 0xcc: n = 1; sign = NO; break;  case 0xcd: n = 2; sign = NO; break;
+        case 0xce: n = 4; sign = NO; break;  case 0xcf: n = 8; sign = NO; break;
+        case 0xd0: n = 1; sign = YES; break; case 0xd1: n = 2; sign = YES; break;
+        case 0xd2: n = 4; sign = YES; break; case 0xd3: n = 8; sign = YES; break;
+        default: return NO;
+    }
+    if (p + 1 + n > len) return NO;
+    unsigned long long v = 0;
+    for (int i = 0; i < n; i++) v = (v << 8) | b[p + 1 + i];
+    *out = sign ? (long long)((n == 8) ? v : (unsigned long long)((v ^ (1ULL << (8 * n - 1))) - (1ULL << (8 * n - 1)))) : (long long)v;
+    return YES;
+}
+
+// Finds the MessagePack value that follows a fixstr key (`0xa0|len` + name), returns its offset.
+static BOOL MPFind(const uint8_t *b, NSUInteger len, const char *key, NSUInteger *valueAt) {
+    size_t kl = strlen(key);
+    if (kl == 0 || kl > 31) return NO;
+    uint8_t marker = (uint8_t)(0xa0 | kl);
+    for (NSUInteger i = 0; i + 1 + kl <= len; i++) {
+        if (b[i] == marker && memcmp(b + i + 1, key, kl) == 0) { *valueAt = i + 1 + kl; return YES; }
+    }
+    return NO;
+}
+
+// Chats the user has muted: the relay must not push a notification for them. MAX stores each chat
+// in YapDatabase collection `chats` as MessagePack; `participantSettings` is a bitmask whose bit 0
+// (notificationsDisabled) is set when the chat is muted (dialog, group or channel alike). Returns
+// the muted chat ids (the top-level `id`). Read-only.
 static NSArray *ReadMutedChats(void) {
     NSString *base = [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES) firstObject];
     NSString *db = [base stringByAppendingPathComponent:@"Application Support/database_3.db/app.db"];
@@ -115,31 +148,15 @@ static NSArray *ReadMutedChats(void) {
 
     NSMutableArray *out = [NSMutableArray array];
     sqlite3_stmt *st = NULL;
-    // Candidate collections that hold per-chat settings (confirm the real one on-device and trim).
-    const char *sql = "SELECT key, data FROM database2 WHERE collection IN "
-                      "('chats','dialogs','chat','conversations','chatSettings','notificationSettings')";
-    if (sqlite3_prepare_v2(handle, sql, -1, &st, NULL) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(handle, "SELECT data FROM database2 WHERE collection='chats'", -1, &st, NULL) == SQLITE_OK) {
         while (sqlite3_step(st) == SQLITE_ROW) {
-            const void *bytes = sqlite3_column_blob(st, 1); int len = sqlite3_column_bytes(st, 1);
-            if (!bytes || len <= 0) continue;
-            NSData *blob = [NSData dataWithBytes:bytes length:len];
-            NSRange a = [blob rangeOfData:[@"{\"" dataUsingEncoding:NSUTF8StringEncoding] options:0 range:NSMakeRange(0, blob.length)];
-            NSRange b = [blob rangeOfData:[@"}" dataUsingEncoding:NSUTF8StringEncoding] options:NSDataSearchBackwards range:NSMakeRange(0, blob.length)];
-            if (a.location == NSNotFound || b.location == NSNotFound || b.location < a.location) continue;
-            id o = [NSJSONSerialization JSONObjectWithData:[blob subdataWithRange:NSMakeRange(a.location, b.location + 1 - a.location)] options:0 error:nil];
-            if (![o isKindOfClass:NSDictionary.class]) continue;
-            // A chat is muted if notifications are off or a do-not-disturb time is in the future.
-            BOOL muted = NO;
-            for (NSString *k in @[@"muted", @"isMuted", @"disableNotifications", @"notificationsDisabled"])
-                if ([o[k] respondsToSelector:@selector(boolValue)] && [o[k] boolValue]) { muted = YES; break; }
-            if (!muted && [o[@"notificationsEnabled"] isKindOfClass:NSNumber.class] && ![o[@"notificationsEnabled"] boolValue]) muted = YES;
-            for (NSString *k in @[@"dontDisturbUntil", @"muteUntil", @"mutedUntil"]) {
-                id v = o[k];
-                if ([v isKindOfClass:NSNumber.class] && [v doubleValue] > [[NSDate date] timeIntervalSince1970]) { muted = YES; break; }
-            }
-            if (!muted) continue;
-            id cid = o[@"chatId"] ?: o[@"id"] ?: o[@"dialogId"] ?: o[@"conversationId"];
-            if (cid) [out addObject:cid];
+            const uint8_t *b = sqlite3_column_blob(st, 0); NSUInteger len = sqlite3_column_bytes(st, 0);
+            if (!b || len == 0) continue;
+            NSUInteger at; long long settings = 0, cid = 0;
+            if (!MPFind(b, len, "participantSettings", &at) || !MPInt(b, len, at, &settings)) continue;
+            if ((settings & 1) == 0) continue;                      // bit 0 clear → notifications on
+            // The top-level `id` is the first `id` key in the record (chat id).
+            if (MPFind(b, len, "id", &at) && MPInt(b, len, at, &cid) && cid != 0) [out addObject:@(cid)];
         }
         sqlite3_finalize(st);
     }
