@@ -21,25 +21,59 @@ static BOOL ForceGetter(Class c, const char *name) {
     return YES;
 }
 
+// Diagnostic breadcrumb to the app's Documents dir (pulled with devicectl), since NSLog from an
+// injected dylib is hard to read off-device. Safe to leave in; writes a few lines once at launch.
+static void Diag(NSString *line) {
+    @try {
+        NSString *dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+        NSString *path = [dir stringByAppendingPathComponent:@"maxfeatures.txt"];
+        NSFileHandle *h = [NSFileHandle fileHandleForWritingAtPath:path];
+        if (!h) { [@"" writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil]; h = [NSFileHandle fileHandleForWritingAtPath:path]; }
+        [h seekToEndOfFile];
+        [h writeData:[[line stringByAppendingString:@"\n"] dataUsingEncoding:NSUTF8StringEncoding]];
+        [h closeFile];
+    } @catch (__unused id e) {}
+}
+
 __attribute__((constructor))
 static void MAXFeaturesInit(void) {
     @autoreleasepool {
         @try {
+            Diag([NSString stringWithFormat:@"--- launch %@ ---", [NSDate date]]);
             unsigned int count = 0;
             Class *classes = objc_copyClassList(&count);
-            // The global PMS config object is the class that declares BOTH these flags; only it
-            // gets touched, so we never flip an unrelated class's same-named property.
             SEL reactions = sel_registerName("reactionsEnabled");
             SEL stories = sel_registerName("storiesEnabled");
+            SEL comments = sel_registerName("commentsEnabled");
+            SEL channelComments = sel_registerName("channelCommentsEnabled");
+            int touched = 0;
             for (unsigned int i = 0; i < count; i++) {
                 Class c = classes[i];
-                if (!class_getInstanceMethod(c, reactions) || !class_getInstanceMethod(c, stories)) continue;
-                BOOL a = ForceGetter(c, "reactionsEnabled");
-                BOOL b = ForceGetter(c, "storiesEnabled");
-                ForceGetter(c, "reactionsPollingEnabled");
-                NSLog(@"[MAXFeatures] enabled reactions=%d stories=%d on %s", a, b, class_getName(c));
+                BOOL hasR = class_getInstanceMethod(c, reactions) != NULL;
+                BOOL hasS = class_getInstanceMethod(c, stories) != NULL;
+                if (!hasR && !hasS) continue;
+                // Record every class carrying either flag, so the real config object is visible.
+                Diag([NSString stringWithFormat:@"found %s reactions=%d stories=%d", class_getName(c), hasR, hasS]);
+                // Only MAX's PMS config object (OKMAppMessengerProtocol.OMPMSConfigStorage) — not the
+                // unrelated iOS system classes (UIKeyboard…, REMAuxiliary…) that share the name.
+                if (hasR && hasS && strstr(class_getName(c), "PMSConfig")) {
+                    ForceGetter(c, "reactionsEnabled");
+                    ForceGetter(c, "storiesEnabled");
+                    ForceGetter(c, "reactionsPollingEnabled");
+                    if (class_getInstanceMethod(c, comments)) ForceGetter(c, "commentsEnabled");
+                    if (class_getInstanceMethod(c, channelComments)) ForceGetter(c, "channelCommentsEnabled");
+                    touched++;
+                }
             }
             if (classes) free(classes);
+            Diag([NSString stringWithFormat:@"touched %d config class(es)", touched]);
+
+            // Reactions have a SECOND, per-chat gate: MAX fetches OMChatReactionsSettings per chat
+            // from its server and the reaction picker only shows when that chat's settings are
+            // active. Force the per-chat `isActive` getter on so the picker is offered everywhere;
+            // if the picker still does not appear, the gate is server-side (not client-flippable).
+            Class rs = objc_getClass("OMChatReactionsSettings");
+            Diag([NSString stringWithFormat:@"OMChatReactionsSettings isActive forced=%d", rs ? ForceGetter(rs, "isActive") : -1]);
         } @catch (__unused id e) {}
     }
 }

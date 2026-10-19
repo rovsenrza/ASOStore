@@ -12,6 +12,7 @@
 static NSString *const kRelayURL = @"https://www.ruappstore.com/api/v1/mx-relay/register";
 
 static NSString *gApns, *gVoip;
+static id gClient;  // the messenger client, kept so we can re-register when mute state changes
 // The raw cmd 6 (session init) and cmd 19 (login) frames, captured off the wire: the relay
 // replays these verbatim to authenticate as the user (their encoding is not reproduced).
 static NSData *gFrame6, *gFrame19;
@@ -136,27 +137,47 @@ static BOOL MPFind(const uint8_t *b, NSUInteger len, const char *key, NSUInteger
     return NO;
 }
 
-// Chats the user has muted: the relay must not push a notification for them. MAX stores each chat
-// in YapDatabase collection `chats` as MessagePack; `participantSettings` is a bitmask whose bit 0
-// (notificationsDisabled) is set when the chat is muted (dialog, group or channel alike). Returns
-// the muted chat ids (the top-level `id`). Read-only.
+// Reads the MessagePack string (fixstr / str8 / str16) at p.
+static NSString *MPStrAt(const uint8_t *b, NSUInteger len, NSUInteger p) {
+    if (p >= len) return nil;
+    uint8_t c = b[p]; NSUInteger n, st;
+    if (c >= 0xa0 && c <= 0xbf) { n = c & 0x1f; st = p + 1; }
+    else if (c == 0xd9) { if (p + 1 >= len) return nil; n = b[p + 1]; st = p + 2; }
+    else if (c == 0xda) { if (p + 2 >= len) return nil; n = (b[p + 1] << 8) | b[p + 2]; st = p + 3; }
+    else return nil;
+    if (st + n > len) return nil;
+    return [[NSString alloc] initWithBytes:b + st length:n encoding:NSUTF8StringEncoding];
+}
+
+// Chats the user has muted: the relay must not push a notification for them. MAX keeps per-chat
+// notification settings in YapDatabase collection `chats_config` (OKMChatConfig) as MessagePack.
+// A chat is muted when `dontDisturbUntil` is -1 (muted forever) or a timestamp still in the future
+// (timed mute: 1 h / 4 h / a day). `chatPk` is "server-<id>" (negative ids keep their sign, e.g.
+// "server--80274928111638"). Returns the muted chat ids. Dialog, group and channel alike.
 static NSArray *ReadMutedChats(void) {
     NSString *base = [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES) firstObject];
     NSString *db = [base stringByAppendingPathComponent:@"Application Support/database_3.db/app.db"];
     sqlite3 *handle = NULL;
     if (sqlite3_open_v2(db.fileSystemRepresentation, &handle, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK) return nil;
 
+    long long nowS = (long long)time(NULL), nowMs = nowS * 1000;
     NSMutableArray *out = [NSMutableArray array];
     sqlite3_stmt *st = NULL;
-    if (sqlite3_prepare_v2(handle, "SELECT data FROM database2 WHERE collection='chats'", -1, &st, NULL) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(handle, "SELECT data FROM database2 WHERE collection='chats_config'", -1, &st, NULL) == SQLITE_OK) {
         while (sqlite3_step(st) == SQLITE_ROW) {
             const uint8_t *b = sqlite3_column_blob(st, 0); NSUInteger len = sqlite3_column_bytes(st, 0);
             if (!b || len == 0) continue;
-            NSUInteger at; long long settings = 0, cid = 0;
-            if (!MPFind(b, len, "participantSettings", &at) || !MPInt(b, len, at, &settings)) continue;
-            if ((settings & 1) == 0) continue;                      // bit 0 clear → notifications on
-            // The top-level `id` is the first `id` key in the record (chat id).
-            if (MPFind(b, len, "id", &at) && MPInt(b, len, at, &cid) && cid != 0) [out addObject:@(cid)];
+            NSUInteger at; long long dnd = 0;
+            if (!MPFind(b, len, "dontDisturbUntil", &at) || !MPInt(b, len, at, &dnd)) continue;
+            BOOL muted = (dnd == -1)
+                || (dnd > 0 && dnd < 100000000000LL && dnd > nowS)      // seconds, still in the future
+                || (dnd >= 100000000000LL && dnd > nowMs);              // milliseconds, still in the future
+            if (!muted) continue;
+            NSString *pk = MPFind(b, len, "chatPk", &at) ? MPStrAt(b, len, at) : nil;
+            NSRange dash = [pk rangeOfString:@"-"];                     // split off the "server" prefix
+            if (dash.location == NSNotFound) continue;
+            long long cid = [[pk substringFromIndex:dash.location + 1] longLongValue];
+            if (cid != 0) [out addObject:@(cid)];
         }
         sqlite3_finalize(st);
     }
@@ -237,7 +258,7 @@ ORIG(o_voip, void, id);
 static void h_voip(id self, SEL _cmd, id token) { if ([token isKindOfClass:NSData.class]) gVoip = HexFromData(token); o_voip(self, _cmd, token); }
 
 ORIG(o_loginResp, void, id);
-static void h_loginResp(id self, SEL _cmd, id resp) { o_loginResp(self, _cmd, resp); Register(self); }
+static void h_loginResp(id self, SEL _cmd, id resp) { o_loginResp(self, _cmd, resp); gClient = self; Register(self); }
 
 static void Swizzle(const char *cls, const char *sel, IMP repl, void *slot) {
     Class c = objc_getClass(cls); if (!c) return;
@@ -254,4 +275,14 @@ static void MAXRelayInit(void) {
     Swizzle("OKMMessengerClient", "_processLoginResponse:", (IMP)h_loginResp, &o_loginResp);
     struct rebinding rb = {"nw_connection_send", (void *)my_nw_connection_send, (void **)&orig_nw_connection_send};
     rebind_symbols(&rb, 1);
+
+    // Mute state only reaches the relay at registration. The user mutes/unmutes a chat while the
+    // app is open and then leaves it, so re-register when the app backgrounds (and on return): the
+    // latest chats_config is read and shipped, so a just-muted chat stops pushing. (UIKit name used
+    // as a string to avoid linking UIKit.)
+    for (NSString *name in @[@"UIApplicationDidEnterBackgroundNotification", @"UIApplicationDidBecomeActiveNotification"]) {
+        [[NSNotificationCenter defaultCenter] addObserverForName:name object:nil queue:nil usingBlock:^(__unused NSNotification *n) {
+            if (gClient) Register(gClient);
+        }];
+    }
 }
