@@ -54,15 +54,27 @@ class CompatShim
         return $dylibs;
     }
 
-    /** @return array{name: string, content: string}|null */
-    private function relayDylibFor(AppArtifact $artifact): array|null
+    /**
+     * Whether this app gets the MAX notification-relay hook (its IPA bundle id matches
+     * storefront.signing.relay_hook.bundle_ids). Such apps are signed per device, not shared
+     * across a team: the relay ties each install to a subscription by the single device UDID
+     * in its provisioning profile, which a team-shared build could not carry.
+     */
+    public function isRelayHook(AppArtifact $artifact): bool
     {
         $bundle = $artifact->bundle_identifier;
         if (! is_string($bundle)) {
-            return null;
+            return false;
         }
         $patterns = (array) config('storefront.signing.relay_hook.bundle_ids', []);
-        if (! array_filter($patterns, fn ($p) => is_string($p) && $p !== '' && fnmatch($p, $bundle))) {
+
+        return (bool) array_filter($patterns, fn ($p) => is_string($p) && $p !== '' && fnmatch($p, $bundle));
+    }
+
+    /** @return array{name: string, content: string}|null */
+    private function relayDylibFor(AppArtifact $artifact): array|null
+    {
+        if (! $this->isRelayHook($artifact)) {
             return null;
         }
         $path = (string) config('storefront.signing.relay_hook.path', base_path('../ios/max-relay/'.self::RELAY_NAME));

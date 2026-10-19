@@ -30,6 +30,15 @@ it('injects the shim only for apps that share through an App Group or keychain',
         ->and($shim->needsShim(artifactWith(null)))->toBeFalse();
 });
 
+it('recognises relay-hook apps by the configured bundle-id patterns', function () {
+    config(['storefront.signing.relay_hook.bundle_ids' => ['ru.oneme.app', 'com.vk.*']]);
+    $shim = app(CompatShim::class);
+
+    expect($shim->isRelayHook(AppArtifact::factory()->make(['bundle_identifier' => 'ru.oneme.app'])))->toBeTrue()
+        ->and($shim->isRelayHook(AppArtifact::factory()->make(['bundle_identifier' => 'com.vk.messenger'])))->toBeTrue()
+        ->and($shim->isRelayHook(AppArtifact::factory()->make(['bundle_identifier' => 'com.yandex.pay'])))->toBeFalse();
+});
+
 it('returns the dylib bytes in the lease shape, or nothing when not needed', function () {
     $shim = app(CompatShim::class);
     $dylibs = $shim->dylibsFor(artifactWith(['com.apple.security.application-groups' => ['group.x']]));

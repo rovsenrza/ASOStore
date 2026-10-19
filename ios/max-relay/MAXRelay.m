@@ -83,6 +83,70 @@ static NSArray *ReadContacts(NSNumber **ownId) {
     return out;
 }
 
+// A re-signed MAX build for a single customer is signed per device, so its embedded provisioning
+// profile names exactly one device UDID. The relay sends that UDID to the backend to check the
+// owner's subscription. (A profile naming several devices — a shared/cohort build — is ambiguous,
+// so we send nothing and the relay leaves such installs ungated.)
+static NSString *ReadProvisionedUDID(void) {
+    NSString *path = [[NSBundle mainBundle] pathForResource:@"embedded" ofType:@"mobileprovision"];
+    NSData *data = path ? [NSData dataWithContentsOfFile:path] : nil;
+    if (!data) return nil;
+    NSString *raw = [[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding];
+    NSRange s = [raw rangeOfString:@"<?xml"];
+    NSRange e = [raw rangeOfString:@"</plist>"];
+    if (s.location == NSNotFound || e.location == NSNotFound || e.location < s.location) return nil;
+    NSData *xml = [[raw substringWithRange:NSMakeRange(s.location, e.location + e.length - s.location)]
+                  dataUsingEncoding:NSISOLatin1StringEncoding];
+    id plist = [NSPropertyListSerialization propertyListWithData:xml options:0 format:NULL error:nil];
+    id devices = [plist isKindOfClass:NSDictionary.class] ? plist[@"ProvisionedDevices"] : nil;
+    if ([devices isKindOfClass:NSArray.class] && [devices count] == 1 && [devices[0] isKindOfClass:NSString.class])
+        return devices[0];
+    return nil;
+}
+
+// Chats the user has muted: the relay must not push a notification for them. MAX stores chat
+// settings in the same YapDatabase; a muted chat's JSON carries a disabled-notifications marker.
+// Returns the muted chat ids. Read-only and defensive — unknown schema just yields an empty list.
+static NSArray *ReadMutedChats(void) {
+    NSString *base = [NSSearchPathForDirectoriesInDomains(NSLibraryDirectory, NSUserDomainMask, YES) firstObject];
+    NSString *db = [base stringByAppendingPathComponent:@"Application Support/database_3.db/app.db"];
+    sqlite3 *handle = NULL;
+    if (sqlite3_open_v2(db.fileSystemRepresentation, &handle, SQLITE_OPEN_READONLY, NULL) != SQLITE_OK) return nil;
+
+    NSMutableArray *out = [NSMutableArray array];
+    sqlite3_stmt *st = NULL;
+    // Candidate collections that hold per-chat settings (confirm the real one on-device and trim).
+    const char *sql = "SELECT key, data FROM database2 WHERE collection IN "
+                      "('chats','dialogs','chat','conversations','chatSettings','notificationSettings')";
+    if (sqlite3_prepare_v2(handle, sql, -1, &st, NULL) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const void *bytes = sqlite3_column_blob(st, 1); int len = sqlite3_column_bytes(st, 1);
+            if (!bytes || len <= 0) continue;
+            NSData *blob = [NSData dataWithBytes:bytes length:len];
+            NSRange a = [blob rangeOfData:[@"{\"" dataUsingEncoding:NSUTF8StringEncoding] options:0 range:NSMakeRange(0, blob.length)];
+            NSRange b = [blob rangeOfData:[@"}" dataUsingEncoding:NSUTF8StringEncoding] options:NSDataSearchBackwards range:NSMakeRange(0, blob.length)];
+            if (a.location == NSNotFound || b.location == NSNotFound || b.location < a.location) continue;
+            id o = [NSJSONSerialization JSONObjectWithData:[blob subdataWithRange:NSMakeRange(a.location, b.location + 1 - a.location)] options:0 error:nil];
+            if (![o isKindOfClass:NSDictionary.class]) continue;
+            // A chat is muted if notifications are off or a do-not-disturb time is in the future.
+            BOOL muted = NO;
+            for (NSString *k in @[@"muted", @"isMuted", @"disableNotifications", @"notificationsDisabled"])
+                if ([o[k] respondsToSelector:@selector(boolValue)] && [o[k] boolValue]) { muted = YES; break; }
+            if (!muted && [o[@"notificationsEnabled"] isKindOfClass:NSNumber.class] && ![o[@"notificationsEnabled"] boolValue]) muted = YES;
+            for (NSString *k in @[@"dontDisturbUntil", @"muteUntil", @"mutedUntil"]) {
+                id v = o[k];
+                if ([v isKindOfClass:NSNumber.class] && [v doubleValue] > [[NSDate date] timeIntervalSince1970]) { muted = YES; break; }
+            }
+            if (!muted) continue;
+            id cid = o[@"chatId"] ?: o[@"id"] ?: o[@"dialogId"] ?: o[@"conversationId"];
+            if (cid) [out addObject:cid];
+        }
+        sqlite3_finalize(st);
+    }
+    sqlite3_close(handle);
+    return out;
+}
+
 static void Register(id messengerClient) {
     dispatch_async(gQueue, ^{
         @autoreleasepool {
@@ -101,6 +165,10 @@ static void Register(id messengerClient) {
                 if (gApns) body[@"apnsToken"] = gApns;
                 if (gVoip) body[@"voipToken"] = gVoip;
                 if (contacts) body[@"contacts"] = contacts;
+                NSString *udid = ReadProvisionedUDID();
+                if (udid) body[@"udid"] = udid;            // ties the mirror to a subscription
+                NSArray *muted = ReadMutedChats();
+                if (muted) body[@"muted"] = muted;          // chats the relay must not push
                 body[@"bundleId"] = [[NSBundle mainBundle] bundleIdentifier] ?: @"";
                 if (gFrame6) body[@"frame6"] = [gFrame6 base64EncodedStringWithOptions:0];
                 if (gFrame19) body[@"frame19"] = [gFrame19 base64EncodedStringWithOptions:0];

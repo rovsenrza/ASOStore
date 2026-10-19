@@ -322,4 +322,12 @@ return [
         'clamdscan_timeout' => 900,
     ],
 
+    // MAX notification relay / server-side session mirror (ios/max-relay). The relay calls back
+    // here to check whether a device's subscription is still valid before mirroring/pushing.
+    'mx_relay' => [
+        // Shared secret the relay sends in X-MX-Relay-Secret; when empty the entitlement
+        // endpoint is disabled (returns 404) so it is never open without a secret set.
+        'secret' => env('STOREFRONT_MX_RELAY_SECRET'),
+    ],
+
 ];

@@ -128,7 +128,10 @@ class SigningService
      */
     private function sharedTeamFor(AppArtifact $artifact, Device $device, bool $bootstrap): ?int
     {
-        if ($bootstrap || $artifact->app?->is_storefront || ! config('storefront.signing.shared_builds', true)) {
+        // Relay-hook apps (MAX) are signed per device: their build carries the device's UDID in
+        // the profile, which the notification relay reads to tie the install to a subscription.
+        if ($bootstrap || $artifact->app?->is_storefront || ! config('storefront.signing.shared_builds', true)
+            || app(CompatShim::class)->isRelayHook($artifact)) {
             return null;
         }
         $registration = $device->latestRegistration()->first();

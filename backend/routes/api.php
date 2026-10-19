@@ -36,6 +36,7 @@ use App\Http\Controllers\Api\V1\Customer\TokenController;
 use App\Http\Controllers\Api\V1\HealthController;
 use App\Http\Controllers\Api\V1\StoreOfferController;
 use App\Http\Controllers\Api\V1\StoreOrderController;
+use App\Http\Controllers\Api\V1\MxRelayController;
 use App\Http\Controllers\Api\V1\TelemetryController;
 use App\Http\Middleware\RejectStaleBearerToken;
 use Illuminate\Support\Facades\Route;
@@ -50,6 +51,10 @@ Route::get('/health', HealthController::class)->name('api.health');
 
 // Launch reports from the compat shim inside re-signed apps (no credentials; see TelemetryController).
 Route::post('/telemetry/launch', [TelemetryController::class, 'launch'])->middleware('throttle:telemetry')->name('api.telemetry.launch');
+
+// MAX notification relay → subscription check (shared-secret, see MxRelayController). Note: the
+// sibling /v1/mx-relay/register is an nginx exact-match proxy to the relay, not a Laravel route.
+Route::post('/mx-relay/entitlement', [MxRelayController::class, 'entitlement'])->middleware('throttle:telemetry')->name('api.mx-relay.entitlement');
 
 // Plans, prices and payment options for the website's purchase page.
 Route::get('/store/offer', StoreOfferController::class)->name('api.store.offer');
