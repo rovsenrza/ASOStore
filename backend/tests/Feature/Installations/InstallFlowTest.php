@@ -501,6 +501,25 @@ it('refuses preparation for devices that are not eligible or not compatible', fu
     expect(Installation::count())->toBe(0);
 });
 
+it('refuses preparation for devices on iOS above the artifact ceiling', function () {
+    // The legacy build supports up to iOS 25; a device on 26 must be turned away.
+    $this->artifact->forceFill(['max_ios_version' => '25.99'])->save();
+    $this->device->forceFill(['os_version' => '26.2'])->save();
+    forgetGuards();
+    Sanctum::actingAs($this->customer);
+
+    $this->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")
+        ->assertForbidden()
+        ->assertJsonPath('error.code', 'INCOMPATIBLE_DEVICE')
+        ->assertJsonPath('error.details.max_ios_version', '25.99')
+        ->assertJsonPath('error.details.device_os_version', '26.2');
+    expect(Installation::count())->toBe(0);
+
+    // A device within the supported range is still accepted.
+    $this->device->forceFill(['os_version' => '18.6'])->save();
+    $this->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")->assertOk();
+});
+
 it('lets the customer start over when the signed build of a ready installation is gone', function () {
     runnerHeartbeat();
     $token = $this->customer->createToken('ios')->plainTextToken;

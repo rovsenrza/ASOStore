@@ -440,10 +440,15 @@ class InstallationService
         $osVersion = IosVersion::normalize($device->os_version);
         $osTooOld = $osVersion !== null && $artifact->min_ios_version !== null
             && version_compare($osVersion, $artifact->min_ios_version, '<');
+        // Some legacy builds crash on newer iOS (e.g. VK for old iPhones): an artifact
+        // may cap the iOS it supports, and a device above that cap is sent elsewhere.
+        $osTooNew = $osVersion !== null && $artifact->max_ios_version !== null
+            && version_compare($osVersion, $artifact->max_ios_version, '>');
 
-        if (! $supported || $osTooOld) {
+        if (! $supported || $osTooOld || $osTooNew) {
             throw new ApiException(ErrorCode::IncompatibleDevice, details: [
                 'min_ios_version' => $artifact->min_ios_version,
+                'max_ios_version' => $artifact->max_ios_version,
                 'device_os_version' => $osVersion ?? $device->os_version,
             ]);
         }

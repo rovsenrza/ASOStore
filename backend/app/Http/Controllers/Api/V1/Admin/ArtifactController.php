@@ -236,6 +236,7 @@ class ArtifactController extends Controller
             'version' => $artifact->version,
             'build_number' => $artifact->build_number,
             'min_ios_version' => $artifact->min_ios_version,
+            'max_ios_version' => $artifact->max_ios_version,
             'compatibility_issues' => array_column($artifact->inspection['compatibility_issues'] ?? [], 'code'),
             'malware_scan' => $artifact->inspection['malware_scan']['status'] ?? null,
             'uploaded_by' => $artifact->uploader?->email,

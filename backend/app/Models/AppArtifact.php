@@ -25,6 +25,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $version
  * @property string|null $build_number
  * @property string|null $min_ios_version
+ * @property string|null $max_ios_version
  * @property array<string, mixed>|null $inspection
  * @property int|null $app_version_id
  * @property int|null $derived_from_artifact_id
@@ -49,7 +50,7 @@ class AppArtifact extends Model
     protected $fillable = [
         'app_id', 'app_version_id', 'sha256', 'size_bytes', 'storage_disk', 'storage_path', 'original_filename',
         'source_type', 'uploaded_by', 'declaration_version', 'declaration_accepted_at', 'declaration_ip',
-        'status', 'status_reason', 'bundle_identifier', 'version', 'build_number', 'min_ios_version', 'inspection',
+        'status', 'status_reason', 'bundle_identifier', 'version', 'build_number', 'min_ios_version', 'max_ios_version', 'inspection',
         'derived_from_artifact_id', 'cleaning_report',
     ];
 
