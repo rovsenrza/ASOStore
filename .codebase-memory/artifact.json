@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "6944a2baaf89a177420f7cfd00cd2c42a1683d3b",
-    "indexed_at": "2026-10-22T02:19:14Z",
+    "commit": "6169d889cc03873e7f07d947dcf3bdbf7bf384df",
+    "indexed_at": "2026-10-22T22:08:05Z",
     "project": "Users-User-Desktop-untitled-folder",
-    "nodes": 11003,
-    "edges": 36534,
-    "original_size": 40894464,
-    "compressed_size": 6989683,
-    "compression_level": 3
+    "nodes": 11091,
+    "edges": 36811,
+    "original_size": 29229056,
+    "compressed_size": 5167420,
+    "compression_level": 9
 }

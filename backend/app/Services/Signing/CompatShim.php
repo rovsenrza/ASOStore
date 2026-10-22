@@ -21,7 +21,11 @@ class CompatShim
 
     public const RELAY_NAME = 'MAXRelay.dylib';
 
+    public const VK_RELAY_NAME = 'VKRelay.dylib';
+
     public const FEATURES_NAME = 'MAXFeatures.dylib';
+
+    public const GLASS_NAME = 'MAXGlass.dylib';
 
     private ?string $encoded = null;
 
@@ -59,13 +63,38 @@ class CompatShim
             $dylibs[] = $features;
         }
 
+        // MAXGlass: on iOS 26+ gives MAX's custom OMUIKit.TabBar the Liquid Glass look (cosmetic).
+        $glass = $this->glassDylibFor($artifact);
+        if ($glass !== null) {
+            $dylibs[] = $glass;
+        }
+
         return $dylibs;
+    }
+
+    /** @return array{name: string, content: string}|null */
+    private function glassDylibFor(AppArtifact $artifact): array|null
+    {
+        // MAX-only (OMUIKit tab bar); never injected into VK.
+        if (! $this->isRelayHook($artifact) || $this->isVkRelayHook($artifact)) {
+            return null;
+        }
+        $path = (string) config('storefront.signing.relay_hook.glass_path', base_path('../ios/max-glass/'.self::GLASS_NAME));
+        $bytes = @file_get_contents($path);
+        if ($bytes === false || $bytes === '') {
+            Log::warning('signing.glass_hook_missing', ['path' => $path]);
+
+            return null;
+        }
+
+        return ['name' => self::GLASS_NAME, 'content' => base64_encode($bytes)];
     }
 
     /** @return array{name: string, content: string}|null */
     private function featuresDylibFor(AppArtifact $artifact): array|null
     {
-        if (! $this->isRelayHook($artifact)) {
+        // MAX-only (reactions / stories feature flags); never injected into VK.
+        if (! $this->isRelayHook($artifact) || $this->isVkRelayHook($artifact)) {
             return null;
         }
         $path = (string) config('storefront.signing.relay_hook.features_path', base_path('../ios/max-features/'.self::FEATURES_NAME));
@@ -87,11 +116,28 @@ class CompatShim
      */
     public function isRelayHook(AppArtifact $artifact): bool
     {
+        return $this->matchesRelayBundles($artifact, (array) config('storefront.signing.relay_hook.bundle_ids', []))
+            || $this->isVkRelayHook($artifact);
+    }
+
+    /**
+     * Whether this app gets the VK notification-relay hook (VKRelay.dylib) instead of MAX's. VK
+     * uses the same per-device server-side mirror, but its session lives in the keychain (not in
+     * OKMessenger frames), so it ships a different dylib and none of the MAX-only feature/glass
+     * dylibs. Matched against storefront.signing.relay_hook.vk_bundle_ids.
+     */
+    public function isVkRelayHook(AppArtifact $artifact): bool
+    {
+        return $this->matchesRelayBundles($artifact, (array) config('storefront.signing.relay_hook.vk_bundle_ids', []));
+    }
+
+    /** @param array<int, mixed> $patterns */
+    private function matchesRelayBundles(AppArtifact $artifact, array $patterns): bool
+    {
         $bundle = $artifact->bundle_identifier;
         if (! is_string($bundle)) {
             return false;
         }
-        $patterns = (array) config('storefront.signing.relay_hook.bundle_ids', []);
 
         return (bool) array_filter($patterns, fn ($p) => is_string($p) && $p !== '' && fnmatch($p, $bundle));
     }
@@ -102,15 +148,21 @@ class CompatShim
         if (! $this->isRelayHook($artifact)) {
             return null;
         }
-        $path = (string) config('storefront.signing.relay_hook.path', base_path('../ios/max-relay/'.self::RELAY_NAME));
+        if ($this->isVkRelayHook($artifact)) {
+            $name = self::VK_RELAY_NAME;
+            $path = (string) config('storefront.signing.relay_hook.vk_path', base_path('../ios/vk-relay/'.self::VK_RELAY_NAME));
+        } else {
+            $name = self::RELAY_NAME;
+            $path = (string) config('storefront.signing.relay_hook.path', base_path('../ios/max-relay/'.self::RELAY_NAME));
+        }
         $bytes = @file_get_contents($path);
         if ($bytes === false || $bytes === '') {
-            Log::warning('signing.relay_hook_missing', ['path' => $path]);
+            Log::warning('signing.relay_hook_missing', ['path' => $path, 'name' => $name]);
 
             return null;
         }
 
-        return ['name' => self::RELAY_NAME, 'content' => base64_encode($bytes)];
+        return ['name' => $name, 'content' => base64_encode($bytes)];
     }
 
     /**

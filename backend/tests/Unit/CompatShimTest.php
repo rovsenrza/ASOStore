@@ -62,6 +62,35 @@ it('injects the relay + features hooks for a relay-hook app, neither for others'
     @unlink($features);
 });
 
+it('injects VKRelay (and no MAX features/glass) for a VK relay-hook app', function () {
+    $vk = tempnam(sys_get_temp_dir(), 'vkrelay').'.dylib';
+    $features = tempnam(sys_get_temp_dir(), 'feat').'.dylib';
+    $glass = tempnam(sys_get_temp_dir(), 'glass').'.dylib';
+    file_put_contents($vk, "\xCF\xFA\xED\xFE vk");
+    file_put_contents($features, "\xCF\xFA\xED\xFE features");
+    file_put_contents($glass, "\xCF\xFA\xED\xFE glass");
+    config([
+        'storefront.signing.relay_hook.bundle_ids' => ['ru.oneme.app'],
+        'storefront.signing.relay_hook.vk_bundle_ids' => ['com.vk.vkclient', 'com.vk.vkclient1'],
+        'storefront.signing.relay_hook.vk_path' => $vk,
+        'storefront.signing.relay_hook.features_path' => $features,
+        'storefront.signing.relay_hook.glass_path' => $glass,
+    ]);
+
+    $names = fn (string $bundle) => array_column(
+        app(CompatShim::class)->dylibsFor(AppArtifact::factory()->make(['bundle_identifier' => $bundle, 'inspection' => []])),
+        'name'
+    );
+
+    expect($names('com.vk.vkclient'))->toContain('VKRelay.dylib')
+        ->not->toContain('MAXRelay.dylib')->not->toContain('MAXFeatures.dylib')->not->toContain('MAXGlass.dylib')
+        ->and($names('com.vk.vkclient1'))->toContain('VKRelay.dylib');
+
+    @unlink($vk);
+    @unlink($features);
+    @unlink($glass);
+});
+
 it('returns the dylib bytes in the lease shape, or nothing when not needed', function () {
     $shim = app(CompatShim::class);
     $dylibs = $shim->dylibsFor(artifactWith(['com.apple.security.application-groups' => ['group.x']]));

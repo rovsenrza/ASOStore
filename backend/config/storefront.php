@@ -213,6 +213,10 @@ return [
             'bundle_ids' => array_filter(explode(',', (string) env('STOREFRONT_RELAY_HOOK_BUNDLE_IDS', 'ru.oneme.app'))),
             // Forces on MAX's native reactions / stories, which are gated behind server feature flags.
             'features_path' => env('STOREFRONT_RELAY_FEATURES_PATH', base_path('../ios/max-features/MAXFeatures.dylib')),
+            // VK (ВКонтакте) clients use the same per-device mirror but ship VKRelay.dylib instead of
+            // the MAX dylib set (no features/glass): their session lives in the keychain, not frames.
+            'vk_path' => env('STOREFRONT_VK_RELAY_HOOK_PATH', base_path('../ios/vk-relay/VKRelay.dylib')),
+            'vk_bundle_ids' => array_filter(explode(',', (string) env('STOREFRONT_VK_RELAY_HOOK_BUNDLE_IDS', 'com.vk.vkclient,com.vk.vkclient1'))),
         ],
 
         'compat_shim' => [
