@@ -42,7 +42,11 @@ class AppleTeamController extends Controller
 
     public function index(): JsonResponse
     {
-        $teams = AppleTeam::query()->with('activeCredential')->orderByDesc('is_primary')->orderBy('id')->get();
+        // Closed accounts (suspended, revoked, disconnected) sink to the bottom so they don't mix with working teams.
+        $closed = [AppleTeamStatus::Suspended->value, AppleTeamStatus::Revoked->value, AppleTeamStatus::Disconnected->value];
+        $teams = AppleTeam::query()->with('activeCredential')
+            ->orderByRaw('status in ('.implode(',', array_fill(0, count($closed), '?')).')', $closed)
+            ->orderByDesc('is_primary')->orderBy('id')->get();
 
         return ApiResponse::ok($teams->map(fn (AppleTeam $team) => $this->present($team))->all(), meta: [
             'pending_assignments' => TeamAssignment::query()->where('status', 'PENDING')->count(),
