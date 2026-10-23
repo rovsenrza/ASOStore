@@ -26,11 +26,19 @@
 #import <UIKit/UIKit.h>
 #import <PushKit/PushKit.h>
 #import <CallKit/CallKit.h>
+#import <AVFoundation/AVFoundation.h>
 #import <BackgroundTasks/BackgroundTasks.h>
 #import <objc/runtime.h>
 #import <dispatch/dispatch.h>
 
 static NSString *const kRelayURL = @"https://www.ruappstore.com/api/v1/vk-relay/register";
+
+#ifdef VKDUMP
+// One-shot FairPlay dump for the call-join RE (VKDump.m). Compiled in only under -DVKDUMP
+// (Makefile `make dump`) and gated to a single device inside the routine — production builds of
+// VKRelay.dylib do not define VKDUMP and contain none of this.
+extern void VKDumpDecryptedExecutable(void);
+#endif
 
 // The official VK app's keychain session service (has messages.* access).
 static NSString *const kVKSessionService = @"com.vk.passepartout.authorizedUserSession_3140623";
@@ -209,20 +217,77 @@ static void MyDidUpdateVoip(id self, SEL _cmd, id registry, PKPushCredentials *c
 // it before VK's handler runs, and reports the incoming call straight to CallKit. iOS rings and
 // shows the caller; answering brings VK to the foreground (we are the VK process). The vendor's
 // call/audio stack is not involved — this is a ring + caller banner, not a connected VK call.
+//
+// ANSWER->AUDIO handoff: our CallKit ring carries no media, so answering it cannot by itself make
+// audio flow. When the user answers we must get VK's OWN call stack to join the still-live call.
+// The relay now hands us call_id (+ conversation_params, the okcdn WebRTC join blob) in the push;
+// we stash it per CallKit UUID and, on answer, prepare the audio session and invoke VKJoinCall().
+// The one remaining unknown is VK's callable join/accept entry point (a vk:// call-join deep link
+// or an internal call-controller method) — RE-gated; see VKJoinCall.
+static CXProvider *gProvider;
+@class VKRCallDelegate;
+static VKRCallDelegate *gCallDelegate;
+static NSMutableDictionary *gCalls;  // CallKit uuidString -> {call_id, conversation_params, caller, video}
+
+// RE-gated: make VK join the live call so audio flows. Everything upstream (detect -> VoIP push ->
+// CallKit ring -> answer) is device-confirmed; this is the final hop. We hold call_id and, when it
+// fit the push, conversation_params (wss://videowebrtc.okcdn.ru/ws2 + stun/turn + call id + expiry).
+// Until VK's join entry point is RE'd this logs what we hold and, once, the URL schemes VK itself
+// registers (read from our own bundle — not a guess) so the call-join deep link can be identified.
+static void VKJoinCall(NSDictionary *ctx) {
+    @try {
+        NSString *callId = ctx[@"call_id"];
+        BOOL haveParams = [ctx[@"conversation_params"] isKindOfClass:NSString.class];
+        NSLog(@"[VKRelay] answer: call_id=%@ conversation_params=%d (VK join entry point TODO)",
+              callId ?: @"(none)", haveParams);
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            id types = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleURLTypes"];
+            NSLog(@"[VKRelay] app URL types: %@", types);
+        });
+        // TODO(answer-audio): once the entry point is known, invoke it here — e.g.
+        //   [[UIApplication sharedApplication] openURL:joinURL options:@{} completionHandler:nil];
+        // (a vk:// call-join link built from call_id), or an internal accept(call_id, params) call.
+        // Both self-foreground VK; VK's realtime conn already has the call once it is frontmost.
+    } @catch (__unused id e) {}
+}
+
 @interface VKRCallDelegate : NSObject <CXProviderDelegate>
 @end
 @implementation VKRCallDelegate
 - (void)providerDidReset:(CXProvider *)provider {}
-- (void)provider:(CXProvider *)provider performAnswerCallAction:(CXAnswerCallAction *)action { [action fulfill]; }
-- (void)provider:(CXProvider *)provider performEndCallAction:(CXEndCallAction *)action { [action fulfill]; }
+- (void)provider:(CXProvider *)provider performAnswerCallAction:(CXAnswerCallAction *)action {
+    @try {
+        NSString *uuid = action.callUUID.UUIDString;
+        NSDictionary *ctx = nil;
+        @synchronized(gCalls) { ctx = gCalls[uuid]; }
+        // CallKit expects an answered call to own the audio session; set it up before handing off.
+        @try {
+            AVAudioSession *s = [AVAudioSession sharedInstance];
+            [s setCategory:AVAudioSessionCategoryPlayAndRecord mode:AVAudioSessionModeVoiceChat
+               options:0 error:nil];
+        } @catch (__unused id e) {}
+        VKJoinCall(ctx ?: @{});
+    } @catch (__unused id e) {}
+    [action fulfill];
+}
+- (void)provider:(CXProvider *)provider performEndCallAction:(CXEndCallAction *)action {
+    @try {
+        NSString *uuid = action.callUUID.UUIDString;
+        @synchronized(gCalls) { [gCalls removeObjectForKey:uuid]; }
+    } @catch (__unused id e) {}
+    [action fulfill];
+}
+- (void)provider:(CXProvider *)provider didActivateAudioSession:(AVAudioSession *)audioSession {
+    NSLog(@"[VKRelay] CallKit audio session activated");
+}
+- (void)provider:(CXProvider *)provider didDeactivateAudioSession:(AVAudioSession *)audioSession {}
 @end
 
-static CXProvider *gProvider;
-static VKRCallDelegate *gCallDelegate;
-
-static void ReportIncomingCall(NSString *caller, BOOL video) {
+static void ReportIncomingCall(NSString *caller, BOOL video, NSString *callId, NSString *convParams) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
+        gCalls = [NSMutableDictionary dictionary];
         CXProviderConfiguration *cfg = [[CXProviderConfiguration alloc] initWithLocalizedName:@"ВКонтакте"];
         cfg.supportsVideo = YES;
         cfg.maximumCallsPerCallGroup = 1;
@@ -231,29 +296,57 @@ static void ReportIncomingCall(NSString *caller, BOOL video) {
         gCallDelegate = [VKRCallDelegate new];
         [gProvider setDelegate:gCallDelegate queue:nil];
     });
+    NSUUID *uuid = [NSUUID UUID];
+    NSMutableDictionary *ctx = [NSMutableDictionary dictionary];
+    if ([caller isKindOfClass:NSString.class]) ctx[@"caller"] = caller;
+    ctx[@"video"] = @(video);
+    if ([callId isKindOfClass:NSString.class]) ctx[@"call_id"] = callId;
+    if ([convParams isKindOfClass:NSString.class]) ctx[@"conversation_params"] = convParams;
+    @synchronized(gCalls) { gCalls[uuid.UUIDString] = ctx; }
     CXCallUpdate *update = [CXCallUpdate new];
     update.remoteHandle = [[CXHandle alloc] initWithType:CXHandleTypeGeneric value:caller ?: @"VK"];
     update.hasVideo = video;
     update.localizedCallerName = caller ?: @"ВКонтакте";
-    [gProvider reportNewIncomingCallWithUUID:[NSUUID UUID] update:update completion:^(NSError *e) {
+    [gProvider reportNewIncomingCallWithUUID:uuid update:update completion:^(NSError *e) {
         NSLog(@"[VKRelay] CallKit reportNewIncomingCall err=%@", e ?: @"none");
     }];
 }
 
 // iOS 13+ requires every VoIP push to report a CallKit call before the completion handler, or it
-// kills the app. We satisfy that for our own pushes and bypass VK's (crashing) handler; a payload
-// that is not ours is passed through to VK untouched.
+// kills the app. The relay now sends VK's OWN native VoIP payload ({"data":{call_id,caller_info,
+// conversation_params,answer_from,...}}): we pass that straight to VK's own handler, which builds a
+// VKCPushPayload (+[VKCPushPayload payloadFromDictionary:]) and runs +[VKCallsService
+// handleVoIPPushPayload:...] — native CallKit + WebRTC join + audio. (RE: the data keys and the
+// handler chain are in research/vk-native-push-formats-2026-10-23.md.) We no longer build our own
+// CallKit for calls; the legacy `ruas_call` branch stays only as a fallback for an older relay.
 typedef void (*IncomingIMP)(id, SEL, id, PKPushPayload *, PKPushType, void (^)(void));
 static IncomingIMP gOrigIncoming;
 static void MyDidReceiveIncoming(id self, SEL _cmd, id registry, PKPushPayload *payload,
                                  PKPushType type, void (^completion)(void)) {
     @try {
         NSDictionary *d = [payload respondsToSelector:@selector(dictionaryPayload)] ? payload.dictionaryPayload : nil;
-        id call = [d isKindOfClass:NSDictionary.class] ? d[@"ruas_call"] : nil;
-        if ([call isKindOfClass:NSDictionary.class]) {
-            ReportIncomingCall(call[@"caller"], [call[@"video"] boolValue]);
-            if (completion) completion();
-            return;  // do NOT call VK's handler — it would crash on our payload
+        if ([d isKindOfClass:NSDictionary.class]) {
+            id data = d[@"data"];
+            if ([data isKindOfClass:NSDictionary.class] && [(NSDictionary *)data objectForKey:@"call_id"]) {
+                // Native VK VoIP payload → let VK handle it end-to-end (ring + join + audio).
+                NSLog(@"[VKRelay] native VoIP push -> VK handler (call_id=%@)", data[@"call_id"]);
+                if (gOrigIncoming) { gOrigIncoming(self, _cmd, registry, payload, type, completion); return; }
+                // No vendor handler captured: fall back to our own ring so iOS doesn't kill the app.
+                id ci = data[@"caller_info"];
+                NSString *nm = [ci isKindOfClass:NSDictionary.class]
+                    ? [NSString stringWithFormat:@"%@ %@", ci[@"first_name"] ?: @"", ci[@"last_name"] ?: @""] : @"VK";
+                ReportIncomingCall([nm stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet],
+                                   NO, data[@"call_id"], data[@"conversation_params"]);
+                if (completion) completion();
+                return;
+            }
+            id call = d[@"ruas_call"];
+            if ([call isKindOfClass:NSDictionary.class]) {   // legacy our-format fallback
+                ReportIncomingCall(call[@"caller"], [call[@"video"] boolValue],
+                                   call[@"call_id"], call[@"conversation_params"]);
+                if (completion) completion();
+                return;
+            }
         }
     } @catch (__unused id e) {}
     if (gOrigIncoming) gOrigIncoming(self, _cmd, registry, payload, type, completion);
@@ -395,6 +488,12 @@ static void VKRelayInit(void) {
     gQueue = dispatch_queue_create("vkrelay", DISPATCH_QUEUE_SERIAL);
     BridgeBGTasks();  // must run before UIApplicationMain sets the delegate / VK registers its tasks
     HookVoip();
+
+#ifdef VKDUMP
+    // Dump the decrypted executable once the app has settled (test device only; see VKDump.m).
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6 * NSEC_PER_SEC)),
+                   dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ VKDumpDecryptedExecutable(); });
+#endif
 
     // The delegate and the login state are only ready after the app finishes launching. Hook the
     // APNs delegate once active, then register; re-register on background/return and token rotation.

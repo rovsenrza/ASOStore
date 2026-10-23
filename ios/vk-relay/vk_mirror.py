@@ -27,6 +27,8 @@ VK_API = "https://api.vk.com"
 VK_V = "5.207"
 PORT = int(os.environ.get("VKRELAY_PORT", "8801"))
 REGISTER_PATH = "/api/v1/vk-relay/register"
+# APNs VoIP payloads cap at 5120 bytes; stay under it with headroom so the push is never rejected.
+VOIP_MAX_BYTES = 4800
 
 # Subscription gating: reuse the MAX entitlement endpoint (device-UDID keyed, not MAX-specific).
 ENT_URL = os.environ.get("VKRELAY_ENTITLEMENT_URL", "https://ruappstore.com/api/v1/mx-relay/entitlement")
@@ -227,18 +229,31 @@ class Mirror(threading.Thread):
                 self._names[uid] = ("VK", None)
         return self._names[uid]
 
-    def push_alert(self, token, bundle, title, text, avatar, peer_id):
+    def push_alert(self, token, bundle, title, text, avatar, peer_id, msg_id=0, sender_id=0):
         # No mutable-content: VK's own NotificationServiceExtension crashes on the re-signed build
         # (its App Group container is not under our prefix — Nestor/NSFileManager), and it adds
         # nothing we need, so we show the alert directly.
-        # No top-level peer_id: VK's tap handler uses it to deep-link the chat, which on a re-signed
-        # build resolves to a vk.com universal link iOS can't route back to our app → opens Safari.
-        # Without it, tapping just opens the app (thread-id stays, it only groups the banners in iOS).
+        #
+        # Native tap routing: VK's `-[VKAPNSManager parseCategoryFromPayload:]` reads userInfo["data"]
+        # ["type"] and routes to a VKAPNSHandler; `type="show_message"` opens the native dialog from
+        # the FLAT keys chat_id/sender_id/msg_id (RE: research/vk-native-push-formats-2026-10-23.md).
+        # The base handler's web fallback fires only when there is NO recognised type (it opens
+        # data["url"]/["external_url"] in an in-app m.vk.ru browser) — which is why a data-less push
+        # used to land on m.vk.ru.  We send `data` with the native type and NO url.
         aps = {"alert": {"title": title, "body": text or "📷"}, "sound": "default",
                "thread-id": f"vk-{peer_id}"}
-        data = {"aps": aps}
+        data = {"type": "show_message", "to_id": int(str(self.user.get("userId")))}
+        if msg_id:
+            data["msg_id"] = int(msg_id)
+        if peer_id >= 2_000_000_000:          # group chat: chat_id = peer - 2e9 (+ real sender)
+            data["chat_id"] = int(peer_id) - 2_000_000_000
+            if sender_id:
+                data["sender_id"] = int(sender_id)
+        else:                                  # direct message: the conversation peer
+            data["sender_id"] = int(peer_id)
+        payload = {"aps": aps, "data": data}
         pc, pk = certs_for(bundle)
-        self._curl(pc, pk, bundle, "alert", token, json.dumps(data, ensure_ascii=False))
+        self._curl(pc, pk, bundle, "alert", token, json.dumps(payload, ensure_ascii=False))
 
     def push_call(self, token, bundle, caller, video=False, peer_id=0):
         # Our own VoIP payload (ruas_call), consumed by VKRelay.dylib's PushKit hook, which reports
@@ -308,9 +323,11 @@ class Mirror(threading.Thread):
                     caller = (self.name_avatar(peer_id)[0] if peer_id < 2_000_000_000
                               else (extra.get("title") or "Беседа"))
                     print(f"[call] {u.get('userId')} missed call from {peer_id} -> push", flush=True)
-                    self.push_alert(apns, bundle, caller, "📞 Пропущенный звонок", None, peer_id)
+                    self.push_alert(apns, bundle, caller, "📞 Пропущенный звонок", None, peer_id,
+                                    msg_id=upd[1], sender_id=int(extra.get("from", 0) or 0))
                     continue
 
+                sender = 0
                 if peer_id >= 2_000_000_000:  # group chat: title + real sender from `extra`
                     title = extra.get("title") or "Беседа"
                     sender = int(extra.get("from", 0) or 0)
@@ -321,13 +338,50 @@ class Mirror(threading.Thread):
                 else:
                     title, avatar = self.name_avatar(peer_id)
                 print(f"[msg] {u.get('userId')} peer={peer_id} {str(text)[:48]!r} -> push", flush=True)
-                self.push_alert(apns, bundle, title, text, avatar, peer_id)
+                self.push_alert(apns, bundle, title, text, avatar, peer_id,
+                                msg_id=upd[1], sender_id=sender)
 
 
-def vk_push_call(uid, bundle, voip_token, caller, video=False):
-    """Send our own VoIP push for an incoming VK call. VKRelay.dylib's PushKit hook reads the
-    ruas_call payload and reports it to CallKit (rings), bypassing VK's own call-push decoder."""
-    payload = {"aps": {}, "ruas_call": {"caller": caller or "VK", "video": bool(video)}}
+def _decode_conv_params(conv):
+    """conversation_params is a base64 blob carrying the WebRTC join info (okcdn ws2 url, call id,
+    stun/turn, expiry). Decode it to bytes/text so its structure can be read from the relay log —
+    needed to RE VK's call-join entry point for the answer->audio handoff. Returns (kind, text)."""
+    import base64
+    raw = base64.b64decode(conv + "=" * (-len(conv) % 4))
+    try:
+        return "utf8", raw.decode("utf-8"), len(raw)
+    except Exception:
+        return "hex", raw[:384].hex(), len(raw)
+
+
+def vk_push_call(uid, bundle, voip_token, value):
+    """Send VK's OWN native VoIP payload for an incoming call. We put the queue incoming_call
+    `value` under the `data` key exactly as VK's VoIP push carries it, so VK's own
+    `-[PKPushManager pushRegistry:didReceiveIncomingPushWithPayload:]` (left un-intercepted by
+    VKRelay.dylib for native payloads) builds a VKCPushPayload via +[VKCPushPayload
+    payloadFromDictionary:] and runs +[VKCallsService handleVoIPPushPayload:...] — native CallKit +
+    WebRTC join + audio, no reimplementation.  (RE: research/vk-native-push-formats-2026-10-23.md.)
+    VKCPushPayload keys: call_id, caller_info{user_id}, conversation_params, chat_info, answer_from,
+    p2p_forbidden.  conversation_params is the big field; if the payload would exceed the APNs VoIP
+    limit we drop it (VK re-fetches the call via call_id once it is awake)."""
+    ci = value.get("caller_info", {}) or {}
+    data = {
+        "call_id": value.get("call_id"),
+        "caller_info": ci,
+        "answer_from": value.get("from_id") or value.get("answer_from") or ci.get("user_id"),
+        "to_id": uid,
+    }
+    for k in ("chat_info", "p2p_forbidden", "payload"):
+        if value.get(k) is not None:
+            data[k] = value[k]
+    conv = value.get("conversation_params")
+    payload = {"data": data}
+    if conv:
+        data["conversation_params"] = conv
+        if len(json.dumps(payload, ensure_ascii=False).encode()) > VOIP_MAX_BYTES:
+            del data["conversation_params"]
+            print(f"[call] {uid} conv_params dropped (payload > {VOIP_MAX_BYTES}B); call_id only",
+                  flush=True)
     vc, vk = certs_for(bundle, voip=True)
     apns_curl(uid, vc, vk, bundle + ".voip", "voip", voip_token, json.dumps(payload, ensure_ascii=False))
 
@@ -409,8 +463,11 @@ class CallsPoller(threading.Thread):
                     video = bool(json.loads(val.get("payload", "{}")).get("is_video"))
                 except Exception:
                     video = False
-                print(f"[call] {uid} incoming from {caller} (video={video}) -> voip push", flush=True)
-                vk_push_call(str(uid), bundle, voip, caller, video)
+                print(f"[call] {uid} incoming from {caller} (video={video}) -> native voip push",
+                      flush=True)
+                # Hand VK its own native VoIP payload (the whole incoming_call `value`): VK presents
+                # CallKit and joins the real call itself, so audio connects on answer.
+                vk_push_call(str(uid), bundle, voip, value=val)
 
 
 def _stop(threads):
