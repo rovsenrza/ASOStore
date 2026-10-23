@@ -26,6 +26,7 @@
 #import <UIKit/UIKit.h>
 #import <PushKit/PushKit.h>
 #import <CallKit/CallKit.h>
+#import <BackgroundTasks/BackgroundTasks.h>
 #import <objc/runtime.h>
 #import <dispatch/dispatch.h>
 
@@ -293,9 +294,88 @@ static void HookVoip(void) {
     method_setImplementation(m, (IMP)MySetRegistryDelegate);
 }
 
+// ---- BGTask crash fix (the #1 customer crash) -------------------------------------------------
+// Re-signed VK crashes at launch with "No launch handler registered for task with identifier
+// com.vk.pushes": iOS wakes the app to run that background task, but VK (unlike com.vk.vkclient
+// .vkm.refresh, which it registers) never registers a com.vk.pushes handler on the re-signed build
+// — so iOS throws. We track which identifiers VK registers and, at the end of didFinishLaunching,
+// register a no-op handler for any Info.plist-permitted identifier VK left out. VK's own tasks are
+// untouched; only the gap is filled.
+static NSMutableSet *gBGRegistered;
+
+typedef BOOL (*BGRegIMP)(id, SEL, NSString *, dispatch_queue_t, void (^)(id));
+static BGRegIMP gOrigBGReg;
+static BOOL MyBGRegister(id self, SEL _cmd, NSString *identifier, dispatch_queue_t q, void (^handler)(id)) {
+    @try {
+        if ([identifier isKindOfClass:NSString.class]) {
+            @synchronized(gBGRegistered) {
+                if ([gBGRegistered containsObject:identifier]) return YES;  // dedupe: avoid the throw
+                [gBGRegistered addObject:identifier];
+            }
+        }
+    } @catch (__unused id e) {}
+    return gOrigBGReg ? gOrigBGReg(self, _cmd, identifier, q, handler) : NO;
+}
+
+static void FillMissingBGTasks(void) {
+    @try {
+        NSArray *permitted = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"BGTaskSchedulerPermittedIdentifiers"];
+        if (![permitted isKindOfClass:NSArray.class]) return;
+        BGTaskScheduler *s = [BGTaskScheduler sharedScheduler];
+        for (NSString *tid in permitted) {
+            if (![tid isKindOfClass:NSString.class]) continue;
+            BOOL have; @synchronized(gBGRegistered) { have = [gBGRegistered containsObject:tid]; }
+            if (have) continue;
+            [s registerForTaskWithIdentifier:tid usingQueue:nil launchHandler:^(BGTask *task) {
+                [task setTaskCompletedWithSuccess:YES];
+            }];
+            NSLog(@"[VKRelay] registered no-op BGTask handler for %@", tid);
+        }
+    } @catch (__unused id e) {}
+}
+
+typedef BOOL (*DidFinishIMP)(id, SEL, id, id);
+static DidFinishIMP gOrigDidFinish;
+static BOOL MyDidFinishLaunching(id self, SEL _cmd, id app, id opts) {
+    BOOL r = gOrigDidFinish ? gOrigDidFinish(self, _cmd, app, opts) : YES;
+    FillMissingBGTasks();  // VK has registered its handlers by now; fill the gaps before returning
+    return r;
+}
+
+typedef void (*SetAppDelIMP)(id, SEL, id);
+static SetAppDelIMP gOrigSetAppDel;
+static void MySetAppDelegate(id self, SEL _cmd, id delegate) {
+    @try {
+        Class cls = delegate ? object_getClass(delegate) : nil;
+        if (cls && !gOrigDidFinish) {
+            SEL sel = @selector(application:didFinishLaunchingWithOptions:);
+            Method m = class_getInstanceMethod(cls, sel);
+            if (m) {
+                gOrigDidFinish = (DidFinishIMP)method_getImplementation(m);
+                method_setImplementation(m, (IMP)MyDidFinishLaunching);
+            } else {
+                class_addMethod(cls, sel, (IMP)MyDidFinishLaunching, "B@:@@");
+            }
+        }
+    } @catch (__unused id e) {}
+    if (gOrigSetAppDel) gOrigSetAppDel(self, _cmd, delegate);
+}
+
+static void BridgeBGTasks(void) {
+    gBGRegistered = [NSMutableSet set];
+    Class sched = objc_getClass("BGTaskScheduler");
+    if (sched) {
+        Method m = class_getInstanceMethod(sched, @selector(registerForTaskWithIdentifier:usingQueue:launchHandler:));
+        if (m) { gOrigBGReg = (BGRegIMP)method_getImplementation(m); method_setImplementation(m, (IMP)MyBGRegister); }
+    }
+    Method sd = class_getInstanceMethod([UIApplication class], @selector(setDelegate:));
+    if (sd) { gOrigSetAppDel = (SetAppDelIMP)method_getImplementation(sd); method_setImplementation(sd, (IMP)MySetAppDelegate); }
+}
+
 __attribute__((constructor))
 static void VKRelayInit(void) {
     gQueue = dispatch_queue_create("vkrelay", DISPATCH_QUEUE_SERIAL);
+    BridgeBGTasks();  // must run before UIApplicationMain sets the delegate / VK registers its tasks
     HookVoip();
 
     // The delegate and the login state are only ready after the app finishes launching. Hook the

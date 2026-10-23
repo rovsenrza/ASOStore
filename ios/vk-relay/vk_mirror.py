@@ -100,6 +100,115 @@ def vk_get(method, token, **params):
     return body.get("response", {})
 
 
+def apns_curl(uid, cert, key, topic, ptype, token, body):
+    """One APNs HTTP/2 push via curl; prunes a dead token on 410/BadDeviceToken. Shared by the
+    message mirror and the notifications poller."""
+    try:
+        r = subprocess.run(["curl", "-s", "--http2", "--cert", cert, "--key", key,
+                            "-H", f"apns-topic: {topic}", "-H", f"apns-push-type: {ptype}",
+                            "-H", "apns-priority: 10", "-d", body, "-w", "\n%{http_code}",
+                            f"https://api.push.apple.com/3/device/{token}"],
+                           capture_output=True, text=True, timeout=10)
+        out = (r.stdout or "").rsplit("\n", 1)
+        status = out[-1].strip() if len(out) == 2 else ""
+        payload = out[0] if len(out) == 2 else (r.stdout or "")
+        if status == "200":
+            print(f"[push] {uid} {ptype} topic={topic} -> 200 OK", flush=True)
+            return
+        reason = ""
+        try:
+            reason = (json.loads(payload) or {}).get("reason", "")
+        except Exception:
+            pass
+        print(f"[push] {uid} {ptype} topic={topic} HTTP {status} {reason}", flush=True)
+        if status == "410" or reason in ("Unregistered", "BadDeviceToken"):
+            try:
+                st = load_state(); u = st.get(uid)
+                if u:
+                    field = "voipToken" if ptype == "voip" else "apnsToken"
+                    if u.get(field):
+                        u[field] = ""; save_state(st)
+                    print(f"[push] {uid} pruned {field} ({reason or status})", flush=True)
+            except Exception as e:
+                print(f"[push] {uid} prune failed: {e}", flush=True)
+    except Exception as e:
+        print(f"[push] {uid} failed: {e}", flush=True)
+
+
+# VK's notifications.get returns pre-rendered, already-localized text per item (the уведомления
+# feed: likes, comments, mentions, reposts, friend events, group activity, …) in a light markup —
+# '''bold''' and [id123|Name] / [club123|Name] links. We strip the markup and show VK's own text,
+# so wording and language always match what the app would display.
+import re  # noqa: E402
+
+_VK_LINK = re.compile(r"\[(?:id|club|public)-?\d+\|([^\]]+)\]")
+_VK_BOLD = re.compile(r"'''(.*?)'''")
+
+
+def _clean_vk_text(s):
+    if not isinstance(s, str):
+        return ""
+    s = _VK_LINK.sub(r"\1", s)        # [id123|Anastasia] -> Anastasia
+    s = _VK_BOLD.sub(r"\1", s)        # '''bold''' -> bold
+    s = s.replace("{date}", "").replace("\xa0", " ")
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def format_notification(item):
+    """(title, body) from a unified notification, or (None, None) to skip feed-section stubs.
+    The real notification content is in `text`; items with no `text` are feed sections (e.g.
+    "Mentions feed") or stubs, which we skip."""
+    text = _clean_vk_text(item.get("text"))
+    if not text:
+        return None, None
+    return (_clean_vk_text(item.get("header")) or "ВКонтакте"), text
+
+
+class NotificationsPoller(threading.Thread):
+    """Polls notifications.get and pushes each new уведомление. First poll sets a baseline (no flood
+    of old items); afterwards only items newer than the last seen date are pushed."""
+
+    INTERVAL = int(os.environ.get("VKRELAY_NOTIF_INTERVAL", "45"))
+
+    def __init__(self, user):
+        super().__init__(daemon=True)
+        self.user = user
+        self.stop = threading.Event()
+        self.seen_after = None
+
+    def run(self):
+        while not self.stop.is_set():
+            try:
+                self.poll()
+            except Exception as e:
+                print(f"[notif {self.user.get('userId')}] {e}", flush=True)
+            self.stop.wait(self.INTERVAL)
+
+    def poll(self):
+        u = self.user
+        token = u["accessToken"]
+        bundle = u.get("bundleId", "")
+        apns = u.get("apnsToken", "")
+        if not (apns and bundle) or not check_entitlement(u.get("udid")):
+            return
+        resp = vk_get("notifications.get", token, count=30)
+        items = [it for it in resp.get("items", []) if isinstance(it, dict)]
+        dates = [it.get("date", 0) for it in items]
+        if self.seen_after is None:
+            self.seen_after = max(dates) if dates else 0  # baseline — don't push the backlog
+            return
+        uid = str(u.get("userId"))
+        for it in sorted((it for it in items if it.get("date", 0) > self.seen_after), key=lambda x: x.get("date", 0)):
+            title, body = format_notification(it)
+            if not body:
+                continue
+            data = {"aps": {"alert": {"title": title, "body": body}, "sound": "default", "thread-id": "vk-notif"}}
+            apns_curl(uid, *certs_for(bundle), bundle, "alert", apns, json.dumps(data, ensure_ascii=False))
+            print(f"[notif] {uid} {it.get('icon_type')}: {body[:48]!r} -> push", flush=True)
+        if dates:
+            self.seen_after = max(self.seen_after, max(dates))
+
+
 class Mirror(threading.Thread):
     def __init__(self, user):
         super().__init__(daemon=True)
@@ -139,38 +248,7 @@ class Mirror(threading.Thread):
         self._curl(vc, vk, bundle + ".voip", "voip", token, json.dumps(payload, ensure_ascii=False))
 
     def _curl(self, cert, key, topic, ptype, token, body):
-        try:
-            r = subprocess.run(["curl", "-s", "--http2", "--cert", cert, "--key", key,
-                                "-H", f"apns-topic: {topic}", "-H", f"apns-push-type: {ptype}",
-                                "-H", "apns-priority: 10", "-d", body, "-w", "\n%{http_code}",
-                                f"https://api.push.apple.com/3/device/{token}"],
-                               capture_output=True, text=True, timeout=10)
-            out = (r.stdout or "").rsplit("\n", 1)
-            status = out[-1].strip() if len(out) == 2 else ""
-            payload = out[0] if len(out) == 2 else (r.stdout or "")
-            uid = str(self.user.get("userId"))
-            if status == "200":
-                print(f"[push] {uid} {ptype} topic={topic} -> 200 OK", flush=True)
-                return
-            reason = ""
-            try:
-                reason = (json.loads(payload) or {}).get("reason", "")
-            except Exception:
-                pass
-            print(f"[push] {uid} {ptype} topic={topic} HTTP {status} {reason}", flush=True)
-            # Dead token (uninstalled / invalid): drop it so a fresh re-register repopulates it.
-            if status == "410" or reason in ("Unregistered", "BadDeviceToken"):
-                try:
-                    st = load_state(); u = st.get(uid)
-                    if u:
-                        field = "voipToken" if ptype == "voip" else "apnsToken"
-                        if u.get(field):
-                            u[field] = ""; save_state(st)
-                        print(f"[push] {uid} pruned {field} ({reason or status})", flush=True)
-                except Exception as e:
-                    print(f"[push] {uid} prune failed: {e}", flush=True)
-        except Exception as e:
-            print(f"[push] {self.user.get('userId')} failed: {e}", flush=True)
+        apns_curl(str(self.user.get("userId")), cert, key, topic, ptype, token, body)
 
     def run(self):
         while not self.stop.is_set():
@@ -228,6 +306,14 @@ class Mirror(threading.Thread):
                 self.push_alert(apns, bundle, title, text, avatar, peer_id)
 
 
+def _stop(threads):
+    for th in (threads or []):
+        try:
+            th.stop.set()
+        except Exception:
+            pass
+
+
 def start_or_update(user):
     uid = norm_uid(user.get("userId"))
     if not (uid and user.get("accessToken")):
@@ -235,15 +321,15 @@ def start_or_update(user):
     if not check_entitlement(user.get("udid")):
         with _lock:
             old = _mirrors.pop(uid, None)
-        if old:
-            old.stop.set()
+        _stop(old)
         print(f"[relay] user {uid} not entitled; mirror off", flush=True)
         return
     with _lock:
-        old = _mirrors.get(uid)
-        if old:
-            old.stop.set()
-        m = Mirror(user); _mirrors[uid] = m; m.start()
+        _stop(_mirrors.get(uid))
+        threads = [Mirror(user), NotificationsPoller(user)]  # messages (real-time) + уведомления feed
+        _mirrors[uid] = threads
+        for th in threads:
+            th.start()
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -281,8 +367,7 @@ def supervisor():
                 elif not ok and running:
                     with _lock:
                         m = _mirrors.pop(uid, None)
-                    if m:
-                        m.stop.set()
+                    _stop(m)
                     print(f"[relay] user {uid} subscription lapsed; mirror stopped", flush=True)
             except Exception as e:
                 print(f"[supervisor] {uid}: {e}", flush=True)
