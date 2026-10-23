@@ -25,6 +25,7 @@
 #import <Security/Security.h>
 #import <UIKit/UIKit.h>
 #import <PushKit/PushKit.h>
+#import <CallKit/CallKit.h>
 #import <objc/runtime.h>
 #import <dispatch/dispatch.h>
 
@@ -82,14 +83,19 @@ static NSDictionary *ReadVKSession(void) {
 
         NSString *access  = DigString(json, @[@"accessToken", @"token", @"value"]);
         NSString *refresh = DigString(json, @[@"refreshToken", @"token", @"value"]);
-        id userID         = DigString(json, @[@"accessToken", @"userID"]) ?: it[(__bridge id)kSecAttrAccount];
+        // VK stores userID wrapped as {"value": <int>}; fall back to the keychain account attr.
+        id userID         = DigString(json, @[@"accessToken", @"userID", @"value"])
+                            ?: DigString(json, @[@"accessToken", @"userID"])
+                            ?: it[(__bridge id)kSecAttrAccount];
+        if ([userID isKindOfClass:NSDictionary.class]) userID = userID[@"value"];
         id expiry         = DigString(json, @[@"accessToken", @"expirationDate"]);
         if (![access isKindOfClass:NSString.class] || access.length == 0) continue;
 
         NSMutableDictionary *out = [NSMutableDictionary dictionary];
         out[@"accessToken"] = access;
         if ([refresh isKindOfClass:NSString.class]) out[@"refreshToken"] = refresh;
-        if (userID) out[@"userId"] = [userID isKindOfClass:NSString.class] ? @([userID longLongValue]) : userID;
+        if ([userID isKindOfClass:NSNumber.class]) out[@"userId"] = userID;
+        else if ([userID isKindOfClass:NSString.class]) out[@"userId"] = @([userID longLongValue]);
         if (expiry) out[@"accessTokenExpiry"] = expiry;
         return out;
     }
@@ -195,17 +201,87 @@ static void MyDidUpdateVoip(id self, SEL _cmd, id registry, PKPushCredentials *c
     Register();
 }
 
+// ---- CallKit: present the incoming call ourselves ---------------------------------------------
+// VK's own PushKit handler decodes the vendor's VoIP payload and crashes on anything else (its
+// Swift decoder feeds a nil into +[NSSet setWithObject:] — device-confirmed). We never reproduce
+// that payload: our relay sends a VoIP push carrying OUR own "ruas_call" dict, this hook catches
+// it before VK's handler runs, and reports the incoming call straight to CallKit. iOS rings and
+// shows the caller; answering brings VK to the foreground (we are the VK process). The vendor's
+// call/audio stack is not involved — this is a ring + caller banner, not a connected VK call.
+@interface VKRCallDelegate : NSObject <CXProviderDelegate>
+@end
+@implementation VKRCallDelegate
+- (void)providerDidReset:(CXProvider *)provider {}
+- (void)provider:(CXProvider *)provider performAnswerCallAction:(CXAnswerCallAction *)action { [action fulfill]; }
+- (void)provider:(CXProvider *)provider performEndCallAction:(CXEndCallAction *)action { [action fulfill]; }
+@end
+
+static CXProvider *gProvider;
+static VKRCallDelegate *gCallDelegate;
+
+static void ReportIncomingCall(NSString *caller, BOOL video) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        CXProviderConfiguration *cfg = [[CXProviderConfiguration alloc] initWithLocalizedName:@"ВКонтакте"];
+        cfg.supportsVideo = YES;
+        cfg.maximumCallsPerCallGroup = 1;
+        cfg.supportedHandleTypes = [NSSet setWithObject:@(CXHandleTypeGeneric)];
+        gProvider = [[CXProvider alloc] initWithConfiguration:cfg];
+        gCallDelegate = [VKRCallDelegate new];
+        [gProvider setDelegate:gCallDelegate queue:nil];
+    });
+    CXCallUpdate *update = [CXCallUpdate new];
+    update.remoteHandle = [[CXHandle alloc] initWithType:CXHandleTypeGeneric value:caller ?: @"VK"];
+    update.hasVideo = video;
+    update.localizedCallerName = caller ?: @"ВКонтакте";
+    [gProvider reportNewIncomingCallWithUUID:[NSUUID UUID] update:update completion:^(NSError *e) {
+        NSLog(@"[VKRelay] CallKit reportNewIncomingCall err=%@", e ?: @"none");
+    }];
+}
+
+// iOS 13+ requires every VoIP push to report a CallKit call before the completion handler, or it
+// kills the app. We satisfy that for our own pushes and bypass VK's (crashing) handler; a payload
+// that is not ours is passed through to VK untouched.
+typedef void (*IncomingIMP)(id, SEL, id, PKPushPayload *, PKPushType, void (^)(void));
+static IncomingIMP gOrigIncoming;
+static void MyDidReceiveIncoming(id self, SEL _cmd, id registry, PKPushPayload *payload,
+                                 PKPushType type, void (^completion)(void)) {
+    @try {
+        NSDictionary *d = [payload respondsToSelector:@selector(dictionaryPayload)] ? payload.dictionaryPayload : nil;
+        id call = [d isKindOfClass:NSDictionary.class] ? d[@"ruas_call"] : nil;
+        if ([call isKindOfClass:NSDictionary.class]) {
+            ReportIncomingCall(call[@"caller"], [call[@"video"] boolValue]);
+            if (completion) completion();
+            return;  // do NOT call VK's handler — it would crash on our payload
+        }
+    } @catch (__unused id e) {}
+    if (gOrigIncoming) gOrigIncoming(self, _cmd, registry, payload, type, completion);
+    else if (completion) completion();
+}
+
 typedef void (*SetDelegateIMP)(id, SEL, id);
 static SetDelegateIMP gOrigSetDelegate;
 static void MySetRegistryDelegate(id self, SEL _cmd, id delegate) {
     if (gOrigSetDelegate) gOrigSetDelegate(self, _cmd, delegate);
     @try {
         Class cls = delegate ? object_getClass(delegate) : nil;
-        SEL sel = @selector(pushRegistry:didUpdatePushCredentials:forType:);
-        if (cls && class_getInstanceMethod(cls, sel) && !gOrigVoip) {
-            Method m = class_getInstanceMethod(cls, sel);
+        if (!cls) return;
+        SEL credSel = @selector(pushRegistry:didUpdatePushCredentials:forType:);
+        if (class_getInstanceMethod(cls, credSel) && !gOrigVoip) {
+            Method m = class_getInstanceMethod(cls, credSel);
             gOrigVoip = (VoipIMP)method_getImplementation(m);
             method_setImplementation(m, (IMP)MyDidUpdateVoip);
+        }
+        // Intercept the incoming-push delegate so our own call payload never reaches VK's decoder.
+        SEL inSel = @selector(pushRegistry:didReceiveIncomingPushWithPayload:forType:withCompletionHandler:);
+        if (!gOrigIncoming) {
+            Method m = class_getInstanceMethod(cls, inSel);
+            if (m) {
+                gOrigIncoming = (IncomingIMP)method_getImplementation(m);
+                method_setImplementation(m, (IMP)MyDidReceiveIncoming);
+            } else {
+                class_addMethod(cls, inSel, (IMP)MyDidReceiveIncoming, "v@:@@q@?");
+            }
         }
     } @catch (__unused id e) {}
 }

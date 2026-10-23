@@ -48,6 +48,14 @@ def certs_for(bundle, voip=False):
     return (VOIP_CERT, VOIP_KEY) if voip else (PUSH_CERT, PUSH_KEY)
 
 
+def norm_uid(v):
+    # VK wraps the id as {"value": N}; older hook builds posted that dict verbatim. Coerce to a
+    # plain string key so one user never maps to two entries across hook versions.
+    if isinstance(v, dict):
+        v = v.get("value")
+    return str(v) if v is not None else ""
+
+
 def load_state():
     try:
         return json.load(open(STATE))
@@ -111,13 +119,24 @@ class Mirror(threading.Thread):
         return self._names[uid]
 
     def push_alert(self, token, bundle, title, text, avatar, peer_id):
+        # No mutable-content: VK's own NotificationServiceExtension crashes on the re-signed build
+        # (its App Group container is not under our prefix — Nestor/NSFileManager), and it adds
+        # nothing we need, so we show the alert directly.
         aps = {"alert": {"title": title, "body": text or "📷"}, "sound": "default",
-               "mutable-content": 1, "thread-id": f"vk-{peer_id}"}
+               "thread-id": f"vk-{peer_id}"}
         data = {"aps": aps, "peer_id": peer_id}
-        if avatar:
-            data["avatar_url"] = avatar
         pc, pk = certs_for(bundle)
         self._curl(pc, pk, bundle, "alert", token, json.dumps(data, ensure_ascii=False))
+
+    def push_call(self, token, bundle, caller, video=False, peer_id=0):
+        # Our own VoIP payload (ruas_call), consumed by VKRelay.dylib's PushKit hook, which reports
+        # the call to CallKit itself — VK's vendor call-push decoder is bypassed (it crashes on any
+        # non-vendor payload). DETECTION of an incoming VK call (which LongPoll code, or a separate
+        # channel) is still unconfirmed and must be wired before this is called from the loop.
+        payload = {"aps": {"content-available": 1},
+                   "ruas_call": {"caller": caller or "VK", "video": bool(video), "peer_id": peer_id}}
+        vc, vk = certs_for(bundle, voip=True)
+        self._curl(vc, vk, bundle + ".voip", "voip", token, json.dumps(payload, ensure_ascii=False))
 
     def _curl(self, cert, key, topic, ptype, token, body):
         try:
@@ -131,6 +150,7 @@ class Mirror(threading.Thread):
             payload = out[0] if len(out) == 2 else (r.stdout or "")
             uid = str(self.user.get("userId"))
             if status == "200":
+                print(f"[push] {uid} {ptype} topic={topic} -> 200 OK", flush=True)
                 return
             reason = ""
             try:
@@ -204,11 +224,12 @@ class Mirror(threading.Thread):
                     _, avatar = (None, None)
                 else:
                     title, avatar = self.name_avatar(peer_id)
+                print(f"[msg] {u.get('userId')} peer={peer_id} {str(text)[:48]!r} -> push", flush=True)
                 self.push_alert(apns, bundle, title, text, avatar, peer_id)
 
 
 def start_or_update(user):
-    uid = str(user.get("userId") or "")
+    uid = norm_uid(user.get("userId"))
     if not (uid and user.get("accessToken")):
         return
     if not check_entitlement(user.get("udid")):
@@ -237,9 +258,10 @@ class Handler(BaseHTTPRequestHandler):
             user = json.loads(self.rfile.read(n))
         except Exception:
             self.send_response(400); self.end_headers(); return
-        uid = str(user.get("userId") or "")
+        uid = norm_uid(user.get("userId"))
         if not uid:
             self.send_response(422); self.end_headers(); return
+        user["userId"] = uid
         state = load_state(); state[uid] = {**user, "updatedAt": time.time()}; save_state(state)
         start_or_update(state[uid])
         print(f"[relay] registered user {uid} bundle={user.get('bundleId')} "
