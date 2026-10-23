@@ -361,6 +361,11 @@ static void MySetAppDelegate(id self, SEL _cmd, id delegate) {
     if (gOrigSetAppDel) gOrigSetAppDel(self, _cmd, delegate);
 }
 
+// The identifiers VK leaves unregistered on re-signed builds (device-confirmed: com.vk.pushes).
+// Pre-registered in the constructor so a handler always exists, independent of when/whether VK's
+// own registration runs — the crash fires on BACKGROUND launches where VK's init is skipped.
+static NSArray *MissingBGTaskIds(void) { return @[@"com.vk.pushes"]; }
+
 static void BridgeBGTasks(void) {
     gBGRegistered = [NSMutableSet set];
     Class sched = objc_getClass("BGTaskScheduler");
@@ -368,6 +373,19 @@ static void BridgeBGTasks(void) {
         Method m = class_getInstanceMethod(sched, @selector(registerForTaskWithIdentifier:usingQueue:launchHandler:));
         if (m) { gOrigBGReg = (BGRegIMP)method_getImplementation(m); method_setImplementation(m, (IMP)MyBGRegister); }
     }
+    // Primary fix: register the no-op handler now, before UIApplicationMain. Our register swizzle
+    // dedupes, so if VK later registers the same id its call is skipped (no "already registered"
+    // throw); VK's other tasks (vkm.refresh) register normally and keep working.
+    @try {
+        BGTaskScheduler *s = [BGTaskScheduler sharedScheduler];
+        for (NSString *tid in MissingBGTaskIds()) {
+            BOOL ok = [s registerForTaskWithIdentifier:tid usingQueue:nil launchHandler:^(BGTask *task) {
+                [task setTaskCompletedWithSuccess:YES];
+            }];
+            NSLog(@"[VKRelay] pre-registered BGTask no-op %@ ok=%d", tid, ok);
+        }
+    } @catch (id e) { NSLog(@"[VKRelay] BGTask pre-register threw %@", e); }
+    // Secondary / future-proof: also fill any other permitted id VK skips, at end of launch.
     Method sd = class_getInstanceMethod([UIApplication class], @selector(setDelegate:));
     if (sd) { gOrigSetAppDel = (SetAppDelIMP)method_getImplementation(sd); method_setImplementation(sd, (IMP)MySetAppDelegate); }
 }
