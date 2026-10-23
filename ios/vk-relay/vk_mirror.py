@@ -395,12 +395,15 @@ class CallsPoller(threading.Thread):
                 if data.get("type") != "incoming_call":
                     continue
                 val = data.get("value", {}) or {}
+                ci = val.get("caller_info", {}) or {}
+                # Skip our OWN outgoing call (the queue echoes it back): the caller is ourselves.
+                if str(ci.get("user_id")) == str(uid) or str(val.get("from_id")) == str(uid):
+                    continue
                 cid = val.get("call_id")
                 if cid and cid in self._rung:
                     continue
                 if cid:
                     self._rung.add(cid)
-                ci = val.get("caller_info", {}) or {}
                 caller = f"{ci.get('first_name', '')} {ci.get('last_name', '')}".strip() or "VK"
                 try:
                     video = bool(json.loads(val.get("payload", "{}")).get("is_video"))
