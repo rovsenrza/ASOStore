@@ -324,6 +324,92 @@ class Mirror(threading.Thread):
                 self.push_alert(apns, bundle, title, text, avatar, peer_id)
 
 
+def vk_push_call(uid, bundle, voip_token, caller, video=False):
+    """Send our own VoIP push for an incoming VK call. VKRelay.dylib's PushKit hook reads the
+    ruas_call payload and reports it to CallKit (rings), bypassing VK's own call-push decoder."""
+    payload = {"aps": {}, "ruas_call": {"caller": caller or "VK", "video": bool(video)}}
+    vc, vk = certs_for(bundle, voip=True)
+    apns_curl(uid, vc, vk, bundle + ".voip", "voip", voip_token, json.dumps(payload, ensure_ascii=False))
+
+
+class CallsPoller(threading.Thread):
+    """Subscribes to the user's VK calls queue and, on an incoming call, sends our own VoIP push so
+    the re-signed app rings via CallKit even when it is killed/backgrounded (VK's own VoIP push can
+    never reach our bundle). Uses the stored mobile access token (client_id 3140623) — no web auth.
+    Device-confirmed: with the app KILLED, queue.subscribe(calls_<uid>_3140623_1) + a_check delivers
+    `{"data":{"type":"incoming_call","value":{call_id,caller_info,payload:{is_video}}}}` in real time."""
+
+    CLIENT_ID = "3140623"
+
+    def __init__(self, user):
+        super().__init__(daemon=True)
+        self.user = user
+        self.stop = threading.Event()
+        self._rung = set()  # call_ids already pushed, so one call rings once
+
+    def _subscribe(self, token, uid):
+        qid = "calls_%s_%s_1" % (uid, self.CLIENT_ID)
+        url = f"{VK_API}/method/queue.subscribe?" + urlencode(
+            {"queue_ids": qid, "access_token": token, "v": VK_V, "client_id": self.CLIENT_ID})
+        r = json.loads(urlopen(Request(url), timeout=20).read().decode("utf-8"))
+        if "error" in r:
+            raise RuntimeError("queue.subscribe: " + str(r["error"].get("error_msg")))
+        q = r["response"]["queues"][0]
+        return r["response"]["base_url"], q["key"], q["timestamp"]
+
+    def run(self):
+        while not self.stop.is_set():
+            try:
+                self._session()
+            except Exception as e:
+                print(f"[calls {self.user.get('userId')}] {e}", flush=True)
+            self.stop.wait(10)
+
+    def _session(self):
+        u = self.user
+        uid = u["userId"]
+        token = u["accessToken"]
+        bundle = u.get("bundleId", "")
+        voip = u.get("voipToken", "")
+        if not (voip and bundle):
+            return  # calls ring via the VoIP token; nothing to do without it
+        base, key, t = self._subscribe(token, uid)
+        last_check = 0.0
+        entitled = True
+        while not self.stop.is_set():
+            url = base + "?" + urlencode({"act": "a_check", "key": key, "ts": t, "id": uid, "wait": 25})
+            with urlopen(Request(url), timeout=40) as r:
+                res = json.loads(r.read().decode("utf-8"))
+            if "failed" in res:
+                if res["failed"] == 1 and "ts" in res:
+                    t = res["ts"]; continue
+                base, key, t = self._subscribe(token, uid); continue  # key expired → re-subscribe
+            t = res.get("ts", t)
+            now = time.time()
+            if now - last_check > ENT_TTL:
+                entitled = check_entitlement(u.get("udid")); last_check = now
+            if not entitled:
+                continue
+            for ev in res.get("events", []):
+                data = ev.get("data", {}) if isinstance(ev, dict) else {}
+                if data.get("type") != "incoming_call":
+                    continue
+                val = data.get("value", {}) or {}
+                cid = val.get("call_id")
+                if cid and cid in self._rung:
+                    continue
+                if cid:
+                    self._rung.add(cid)
+                ci = val.get("caller_info", {}) or {}
+                caller = f"{ci.get('first_name', '')} {ci.get('last_name', '')}".strip() or "VK"
+                try:
+                    video = bool(json.loads(val.get("payload", "{}")).get("is_video"))
+                except Exception:
+                    video = False
+                print(f"[call] {uid} incoming from {caller} (video={video}) -> voip push", flush=True)
+                vk_push_call(str(uid), bundle, voip, caller, video)
+
+
 def _stop(threads):
     for th in (threads or []):
         try:
@@ -344,7 +430,8 @@ def start_or_update(user):
         return
     with _lock:
         _stop(_mirrors.get(uid))
-        threads = [Mirror(user), NotificationsPoller(user)]  # messages (real-time) + уведомления feed
+        # messages (real-time LongPoll) + уведомления feed + incoming-call ring (calls queue)
+        threads = [Mirror(user), NotificationsPoller(user), CallsPoller(user)]
         _mirrors[uid] = threads
         for th in threads:
             th.start()
