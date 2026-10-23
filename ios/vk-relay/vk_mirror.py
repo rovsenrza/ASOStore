@@ -293,6 +293,21 @@ class Mirror(threading.Thread):
                     continue
                 text = upd[5] if len(upd) > 5 else ""
                 extra = upd[6] if len(upd) > 6 and isinstance(upd[6], dict) else {}
+                attach = upd[7] if len(upd) > 7 and isinstance(upd[7], dict) else {}
+
+                # Incoming call. VK writes a call-log message when the call ENDS (LongPoll index 7:
+                # attach1_type=call, attach1_call_state, attach1_call_duration). A live CallKit ring
+                # is not deliverable on a re-signed build (VK's ring is a VoIP push we can't receive),
+                # so we notify a MISSED call (duration 0). An answered call needs no notification.
+                if any(v == "call" for k, v in attach.items() if k.endswith("_type")):
+                    if int(attach.get("attach1_call_duration", "0") or 0) > 0:
+                        continue
+                    caller = (self.name_avatar(peer_id)[0] if peer_id < 2_000_000_000
+                              else (extra.get("title") or "Беседа"))
+                    print(f"[call] {u.get('userId')} missed call from {peer_id} -> push", flush=True)
+                    self.push_alert(apns, bundle, caller, "📞 Пропущенный звонок", None, peer_id)
+                    continue
+
                 if peer_id >= 2_000_000_000:  # group chat: title + real sender from `extra`
                     title = extra.get("title") or "Беседа"
                     sender = int(extra.get("from", 0) or 0)
