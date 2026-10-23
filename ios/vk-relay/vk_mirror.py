@@ -355,35 +355,32 @@ def _decode_conv_params(conv):
 
 
 def vk_push_call(uid, bundle, voip_token, value):
-    """Send VK's OWN native VoIP payload for an incoming call. We put the queue incoming_call
-    `value` under the `data` key exactly as VK's VoIP push carries it, so VK's own
-    `-[PKPushManager pushRegistry:didReceiveIncomingPushWithPayload:]` (left un-intercepted by
-    VKRelay.dylib for native payloads) builds a VKCPushPayload via +[VKCPushPayload
-    payloadFromDictionary:] and runs +[VKCallsService handleVoIPPushPayload:...] — native CallKit +
-    WebRTC join + audio, no reimplementation.  (RE: research/vk-native-push-formats-2026-10-23.md.)
-    VKCPushPayload keys: call_id, caller_info{user_id}, conversation_params, chat_info, answer_from,
-    p2p_forbidden.  conversation_params is the big field; if the payload would exceed the APNs VoIP
-    limit we drop it (VK re-fetches the call via call_id once it is awake)."""
+    """Send our own VoIP push (ruas_call) for an incoming VK call. VKRelay.dylib's PushKit hook reads
+    it and reports the call to CallKit itself (rings even when the app is killed). We carry call_id +
+    conversation_params so a later answer->audio hand-off can drive VK's own stack.
+
+    NOTE: feeding VK its NATIVE VoIP payload ({"data":{call_id,caller_info,conversation_params,
+    user_id,answer_from,...}}) so VK's own +[VKCallsService handleVoIPPushPayload:] rings+joins was
+    tried and crashes deep in VK Swift (VKCCallSessionManager incomingCallWithPayload -> nil in an
+    NSSet built while enumerating a payload-derived dict). Our payload matches every VKCPushPayload
+    key VK reads, so the missing/mis-typed field is internal and needs more offline RE against the
+    decrypted binary (research/vk-native-push-formats-2026-10-23.md). Until then we ring via our own
+    CallKit (no crash) and solve audio separately."""
     ci = value.get("caller_info", {}) or {}
-    # VK's VoIP parser (+[VKCPushPayload payloadFromDictionary:]) reads a TOP-LEVEL `user_id` = the
-    # RECIPIENT (this logged-in account); without it VK builds a nil-element NSSet and crashes
-    # (NSInvalidArgumentException __NSPlaceholderSet initWithObjects:count:). `answer_from` is the
-    # caller. See research/vk-native-push-formats-2026-10-23.md.
-    data = {
-        "call_id": value.get("call_id"),
-        "caller_info": ci,
-        "user_id": int(uid),
-        "answer_from": int(value.get("from_id") or value.get("answer_from") or ci.get("user_id") or 0),
-    }
-    for k in ("chat_info", "p2p_forbidden", "payload"):
-        if value.get(k) is not None:
-            data[k] = value[k]
+    caller = f"{ci.get('first_name', '')} {ci.get('last_name', '')}".strip() or "VK"
+    try:
+        video = bool(json.loads(value.get("payload", "{}")).get("is_video"))
+    except Exception:
+        video = False
+    call = {"caller": caller, "video": video}
+    if value.get("call_id"):
+        call["call_id"] = value["call_id"]
     conv = value.get("conversation_params")
-    payload = {"data": data}
+    payload = {"aps": {"content-available": 1}, "ruas_call": call}
     if conv:
-        data["conversation_params"] = conv
+        call["conversation_params"] = conv
         if len(json.dumps(payload, ensure_ascii=False).encode()) > VOIP_MAX_BYTES:
-            del data["conversation_params"]
+            del call["conversation_params"]
             print(f"[call] {uid} conv_params dropped (payload > {VOIP_MAX_BYTES}B); call_id only",
                   flush=True)
     vc, vk = certs_for(bundle, voip=True)
@@ -467,10 +464,8 @@ class CallsPoller(threading.Thread):
                     video = bool(json.loads(val.get("payload", "{}")).get("is_video"))
                 except Exception:
                     video = False
-                print(f"[call] {uid} incoming from {caller} (video={video}) -> native voip push",
+                print(f"[call] {uid} incoming from {caller} (video={video}) -> voip push (ring)",
                       flush=True)
-                # Hand VK its own native VoIP payload (the whole incoming_call `value`): VK presents
-                # CallKit and joins the real call itself, so audio connects on answer.
                 vk_push_call(str(uid), bundle, voip, value=val)
 
 
