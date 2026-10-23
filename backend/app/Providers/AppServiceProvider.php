@@ -23,6 +23,9 @@ class AppServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->singleton(UdidHasher::class, fn () => new UdidHasher(config('storefront.udid_hmac_key')));
+        // One settings instance per request, so a write (which flushes its cache) is seen by every
+        // reader in the same request (e.g. admin edit vs. the bot screens reading it back).
+        $this->app->singleton(\App\Services\TelegramStore\StoreSettings::class);
 
         $this->app->singleton(AppleIntegration::class, fn ($app) => match (config('storefront.apple.driver')) {
             'fake' => new FakeAppleIntegration($app['cache']->store(), (int) config('storefront.apple.fake_processing_seconds'), $app->isProduction()),

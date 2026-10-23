@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\Admin\AppMediaController;
 use App\Http\Controllers\Api\V1\Admin\AppVersionController;
 use App\Http\Controllers\Api\V1\Admin\ArtifactController;
 use App\Http\Controllers\Api\V1\Admin\AuditLogController;
+use App\Http\Controllers\Api\V1\Admin\BotContentController;
 use App\Http\Controllers\Api\V1\Admin\DeviceController as AdminDeviceController;
 use App\Http\Controllers\Api\V1\Admin\InstallationController as AdminInstallationController;
 use App\Http\Controllers\Api\V1\Admin\JobController;
@@ -222,6 +223,13 @@ Route::prefix('admin')->name('api.admin.')->group(function () {
         Route::post('/quota-assignments/{assignment}/approve', [TeamAssignmentController::class, 'approve'])->can('teams.manage')->middleware('idempotent')->name('quota-assignments.approve');
         Route::post('/quota-assignments/{assignment}/reject', [TeamAssignmentController::class, 'reject'])->can('teams.manage')->middleware('idempotent')->name('quota-assignments.reject');
         Route::get('/metrics', [OperationsController::class, 'metrics'])->can('jobs.view')->name('metrics');
+        Route::get('/purchases', [OperationsController::class, 'purchases'])->can('activation-codes.view')->name('purchases');
+        // Telegram bot content a store admin can edit on the fly (greeting, brand, banner image).
+        Route::get('/bot-content', [BotContentController::class, 'show'])->can('activation-codes.view')->name('bot-content.show');
+        Route::put('/bot-content', [BotContentController::class, 'update'])->can('activation-codes.manage')->name('bot-content.update');
+        Route::get('/bot-content/banner', [BotContentController::class, 'banner'])->can('activation-codes.view')->name('bot-content.banner');
+        Route::post('/bot-content/banner', [BotContentController::class, 'uploadBanner'])->can('activation-codes.manage')->name('bot-content.banner.upload');
+        Route::delete('/bot-content/banner', [BotContentController::class, 'resetBanner'])->can('activation-codes.manage')->name('bot-content.banner.reset');
         Route::get('/storage', [OperationsController::class, 'storage'])->can('jobs.view')->name('storage');
         Route::get('/support-tickets', [OperationsController::class, 'tickets'])->can('users.view')->name('support-tickets.index');
         Route::post('/support-tickets/{ticket}/close', [OperationsController::class, 'closeTicket'])->can('users.view')->name('support-tickets.close');

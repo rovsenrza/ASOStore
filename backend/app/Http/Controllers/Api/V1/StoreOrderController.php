@@ -128,6 +128,9 @@ class StoreOrderController extends Controller
             'duration_days' => $order->duration_days,
             'amount' => $order->amount_due_rub,
             'currency' => 'RUB',
+            // For the Yandex.Metrika purchase goal on the success page: is this the buyer's 1st or Nth?
+            'is_repeat' => $order->status === TelegramStoreOrder::PAID
+                && app(\App\Services\TelegramStore\PurchaseAnalytics::class)->isRepeatBuyer($order),
             'expires_at' => $order->expires_at->toIso8601ZuluString(),
             'paid_at' => $order->paid_at?->toIso8601ZuluString(),
             'bot_url' => $order->isWeb() ? null : $this->botUrl(),

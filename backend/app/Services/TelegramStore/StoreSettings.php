@@ -2,15 +2,74 @@
 
 namespace App\Services\TelegramStore;
 
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Admin-editable values (prices, referral share) over config defaults.
+ * Admin-editable values (prices, referral share, bot greeting/brand/banner) over config defaults.
  */
 class StoreSettings
 {
     /** @var array<string, mixed>|null */
     private ?array $cache = null;
+
+    /**
+     * Bot greeting override. Blank = fall back to the generated welcome text
+     * (CustomerScreens::welcomeText). HTML is allowed (Telegram HTML parse mode).
+     */
+    public function welcomeText(): ?string
+    {
+        $value = $this->get('welcome_text');
+
+        return is_string($value) && trim($value) !== '' ? $value : null;
+    }
+
+    public function setWelcomeText(?string $text): void
+    {
+        $this->set('welcome_text', $text !== null && trim($text) !== '' ? $text : null);
+    }
+
+    /** Brand name shown across the bot; config default when unset. */
+    public function brand(): string
+    {
+        $value = $this->get('brand');
+
+        return is_string($value) && trim($value) !== '' ? $value : (string) config('telegram_store.brand', 'Ru App Store');
+    }
+
+    public function setBrand(?string $brand): void
+    {
+        $this->set('brand', $brand !== null && trim($brand) !== '' ? $brand : null);
+    }
+
+    /** Banner image path shown as every message's photo; config default when unset. */
+    public function welcomeBanner(): ?string
+    {
+        $value = $this->get('welcome_banner');
+        $path = is_string($value) && trim($value) !== '' ? $value : (string) config('telegram_store.welcome_banner');
+
+        return $path !== '' && is_file($path) ? $path : null;
+    }
+
+    public function setWelcomeBanner(?string $path): void
+    {
+        $this->set('welcome_banner', $path !== null && trim($path) !== '' ? $path : null);
+        // Messenger caches Telegram's file_id per banner path+size+mtime; a new banner is a new key,
+        // so nothing stale is served, but clear any entry for this exact path to be safe.
+        if ($path !== null && is_file($path)) {
+            Cache::forget('telegram_store.banner_file_id.'.md5($path.'|'.filesize($path).'|'.filemtime($path)));
+        }
+    }
+
+    /** @return array{welcome_text: ?string, brand: string, welcome_banner: ?string} */
+    public function botContent(): array
+    {
+        return [
+            'welcome_text' => $this->welcomeText(),
+            'brand' => $this->brand(),
+            'welcome_banner' => $this->welcomeBanner(),
+        ];
+    }
 
     /**
      * @return array<string, array{months: int, days: int, price: int}>

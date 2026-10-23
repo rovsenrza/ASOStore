@@ -17,6 +17,31 @@ const rub = (value) => `${value.toLocaleString('ru-RU')} ₽`;
 const FAST_POLLS = 40; // every 3 s for two minutes, then every 15 s
 let polls = 0;
 
+// Yandex.Metrika counter (injected site-wide in vite.config.js). On a confirmed payment we fire a
+// `purchase` goal, plus a `repeat_purchase` goal when the server marks this a returning buyer, so
+// first-time and repeat conversions can be tracked separately in Metrika/Direct. Define matching
+// goals (type: «JavaScript-событие», identifiers `purchase` / `repeat_purchase`) in Metrika.
+const METRIKA_ID = 113565588;
+let purchaseReported = false;
+
+function reportPurchase(order) {
+  if (purchaseReported || order.status !== 'PAID' || typeof window.ym !== 'function') return;
+  purchaseReported = true;
+  const params = {
+    order_id: order.reference,
+    amount: order.amount,
+    repeat: !!order.is_repeat,
+    channel: order.channel,
+    plan: order.plan ?? null,
+  };
+  try {
+    window.ym(METRIKA_ID, 'reachGoal', 'purchase', params);
+    if (order.is_repeat) window.ym(METRIKA_ID, 'reachGoal', 'repeat_purchase', params);
+  } catch {
+    /* Metrika blocked or not loaded — nothing else to do. */
+  }
+}
+
 function notice(tone, title, text) {
   const block = document.createElement('div');
   block.className = tone;
@@ -70,6 +95,7 @@ function render(order) {
   switch (order.status) {
     case 'PAID':
       lead.textContent = 'Оплата получена. Спасибо!';
+      reportPurchase(order);
       if (order.channel === 'web') {
         blocks = [notice('notice notice--ok', 'Доступ включён', [
           summary,

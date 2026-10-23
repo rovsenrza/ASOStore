@@ -23,6 +23,17 @@ class OperationsController extends Controller
         return ApiResponse::ok($metrics->latest());
     }
 
+    /** Repeat-purchase analytics over paid store orders (bot + website). */
+    public function purchases(Request $request, \App\Services\TelegramStore\PurchaseAnalytics $analytics): JsonResponse
+    {
+        $data = $request->validate(['days' => ['nullable', 'integer', 'min:1', 'max:3650']]);
+
+        return ApiResponse::ok([
+            'all_time' => $analytics->summary(null),
+            'window' => $analytics->summary($data['days'] ?? 30),
+        ]);
+    }
+
     /** Where the bytes are: signed builds against their budget, originals, disk and cache. */
     public function storage(StorageJanitor $janitor): JsonResponse
     {

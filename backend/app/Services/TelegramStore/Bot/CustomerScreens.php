@@ -25,6 +25,10 @@ class CustomerScreens
 
     public function welcomeText(): string
     {
+        if ($override = $this->settings->welcomeText()) {
+            return $override;
+        }
+
         return sprintf(
             "<b>%s</b> — приложения и игры для iPhone в одной подписке.\n\n"
             ."💎 Подписка от <b>%s в месяц</b>\n"
@@ -453,7 +457,7 @@ class CustomerScreens
 
     private function brand(): string
     {
-        return (string) config('telegram_store.brand', 'Ru App Store');
+        return $this->settings->brand();
     }
 
     private function brandHtml(): string

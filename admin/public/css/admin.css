@@ -407,3 +407,15 @@ ol.home-list .home-row::before { counter-increment: banner; content: counter(ban
 .promo-canvas { width: 100%; height: auto; display: block; border-radius: 10px; box-shadow: 0 10px 30px rgba(40,60,100,.15); }
 .promo-controls { display: flex; gap: 16px; align-items: center; }
 .promo-scrub { flex: 1; }
+
+/* Sales analytics + bot-content pages */
+.row { display: flex; flex-wrap: wrap; gap: var(--space-3); align-items: center; }
+.button--line { background: var(--surface); color: var(--ink); border: 1px solid var(--line); }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: var(--space-4); }
+.stat-card { display: flex; flex-direction: column; gap: 2px; padding: var(--space-4); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+.stat-label { font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-soft); }
+.stat-value { font: 700 1.6rem var(--font-display); }
+.plain-list { margin: var(--space-3) 0 0; padding-left: var(--space-5); color: var(--ink-soft); }
+.plain-list li { margin: 2px 0; }
+.bot-banner-wrap { max-width: 420px; background: var(--surface-muted); border: 1px solid var(--line); border-radius: 12px; padding: var(--space-2); }
+.bot-banner { display: block; width: 100%; height: auto; border-radius: 8px; }

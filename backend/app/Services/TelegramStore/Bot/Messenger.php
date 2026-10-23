@@ -24,6 +24,7 @@ class Messenger
     public function __construct(
         private readonly TelegramApi $api,
         private readonly CustomerScreens $screens,
+        private readonly \App\Services\TelegramStore\StoreSettings $settings,
     ) {}
 
     /**
@@ -195,8 +196,7 @@ class Messenger
 
     private function bannerPath(): ?string
     {
-        $path = (string) config('telegram_store.welcome_banner');
-
-        return $path !== '' && is_file($path) ? $path : null;
+        // Admin-set banner (StoreSettings) overrides the config default.
+        return $this->settings->welcomeBanner();
     }
 }
