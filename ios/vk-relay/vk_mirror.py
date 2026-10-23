@@ -365,11 +365,15 @@ def vk_push_call(uid, bundle, voip_token, value):
     p2p_forbidden.  conversation_params is the big field; if the payload would exceed the APNs VoIP
     limit we drop it (VK re-fetches the call via call_id once it is awake)."""
     ci = value.get("caller_info", {}) or {}
+    # VK's VoIP parser (+[VKCPushPayload payloadFromDictionary:]) reads a TOP-LEVEL `user_id` = the
+    # RECIPIENT (this logged-in account); without it VK builds a nil-element NSSet and crashes
+    # (NSInvalidArgumentException __NSPlaceholderSet initWithObjects:count:). `answer_from` is the
+    # caller. See research/vk-native-push-formats-2026-10-23.md.
     data = {
         "call_id": value.get("call_id"),
         "caller_info": ci,
-        "answer_from": value.get("from_id") or value.get("answer_from") or ci.get("user_id"),
-        "to_id": uid,
+        "user_id": int(uid),
+        "answer_from": int(value.get("from_id") or value.get("answer_from") or ci.get("user_id") or 0),
     }
     for k in ("chat_info", "p2p_forbidden", "payload"):
         if value.get(k) is not None:
