@@ -231,9 +231,12 @@ class Mirror(threading.Thread):
         # No mutable-content: VK's own NotificationServiceExtension crashes on the re-signed build
         # (its App Group container is not under our prefix — Nestor/NSFileManager), and it adds
         # nothing we need, so we show the alert directly.
+        # No top-level peer_id: VK's tap handler uses it to deep-link the chat, which on a re-signed
+        # build resolves to a vk.com universal link iOS can't route back to our app → opens Safari.
+        # Without it, tapping just opens the app (thread-id stays, it only groups the banners in iOS).
         aps = {"alert": {"title": title, "body": text or "📷"}, "sound": "default",
                "thread-id": f"vk-{peer_id}"}
-        data = {"aps": aps, "peer_id": peer_id}
+        data = {"aps": aps}
         pc, pk = certs_for(bundle)
         self._curl(pc, pk, bundle, "alert", token, json.dumps(data, ensure_ascii=False))
 
