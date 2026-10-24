@@ -95,7 +95,7 @@ it('reads every published article with what search engines need', function () {
     config(['seo.blog_path' => resource_path('blog')]);
     $posts = app(Blog::class)->all();
 
-    expect($posts)->toHaveCount(48);
+    expect($posts)->toHaveCount(58);
     foreach ($posts as $post) {
         expect(mb_strlen($post->metaTitle))->toBeLessThanOrEqual(70, $post->slug)
             ->and(mb_strlen($post->description))->toBeBetween(120, 200)
