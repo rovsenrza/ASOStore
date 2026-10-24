@@ -1,10 +1,12 @@
 // MAXRelay.dylib — production hook injected into re-signed MAX. After the user logs in,
 // it captures what the server-side notification mirror needs — the messenger session token,
 // device id, the APNs + VoIP push tokens, the user's own id, and the contact list
-// (id -> name + avatar) — and registers them with our relay over HTTPS. Read-only: it never
-// changes the app's behaviour. One registration per launch (and whenever the push tokens change).
+// (id -> name + avatar) — and registers them with our relay over HTTPS. Almost read-only: the ONLY
+// behaviour it changes is clearing our relay's delivered notifications + the badge when the app
+// becomes active (see ClearDeliveredAndBadge). One registration per launch (and on token change).
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
+#import <objc/message.h>
 #import <dispatch/dispatch.h>
 #import <sqlite3.h>
 #import "fishhook.h"
@@ -267,6 +269,32 @@ static void Swizzle(const char *cls, const char *sel, IMP repl, void *slot) {
     method_setImplementation(m, repl);
 }
 
+// MAX's own read->removeDeliveredNotifications cleanup only tracks notifications it posted from its
+// own message store; the banners OUR relay posts are not in that store, so MAX never clears them and
+// they pile up after the user has read the chat (customer complaint: the notification stays after you
+// open it). When the user opens MAX (app becomes active) clear the delivered banners and reset the
+// badge — the unread state still lives in-app. Done via the runtime so we link no extra framework.
+// (This is the one place the hook is not purely read-only; everything else only observes.)
+static void ClearDeliveredAndBadge(void) {
+    @try {
+        Class unc = NSClassFromString(@"UNUserNotificationCenter");
+        if (unc) {
+            id center = ((id (*)(id, SEL))objc_msgSend)((id)unc, sel_registerName("currentNotificationCenter"));
+            if (center) {
+                ((void (*)(id, SEL))objc_msgSend)(center, sel_registerName("removeAllDeliveredNotifications"));
+                SEL setBadge = sel_registerName("setBadgeCount:withCompletionHandler:");  // iOS 16+, no UIKit
+                if ([center respondsToSelector:setBadge])
+                    ((void (*)(id, SEL, long, id))objc_msgSend)(center, setBadge, 0, (id)nil);
+            }
+        }
+        Class ua = NSClassFromString(@"UIApplication");  // older-iOS badge reset
+        if (ua) {
+            id app = ((id (*)(id, SEL))objc_msgSend)((id)ua, sel_registerName("sharedApplication"));
+            if (app) ((void (*)(id, SEL, long))objc_msgSend)(app, sel_registerName("setApplicationIconBadgeNumber:"), 0);
+        }
+    } @catch (__unused id e) {}
+}
+
 __attribute__((constructor))
 static void MAXRelayInit(void) {
     gQueue = dispatch_queue_create("mxrelay", DISPATCH_QUEUE_SERIAL);
@@ -281,8 +309,10 @@ static void MAXRelayInit(void) {
     // latest chats_config is read and shipped, so a just-muted chat stops pushing. (UIKit name used
     // as a string to avoid linking UIKit.)
     for (NSString *name in @[@"UIApplicationDidEnterBackgroundNotification", @"UIApplicationDidBecomeActiveNotification"]) {
+        BOOL active = [name isEqualToString:@"UIApplicationDidBecomeActiveNotification"];
         [[NSNotificationCenter defaultCenter] addObserverForName:name object:nil queue:nil usingBlock:^(__unused NSNotification *n) {
             if (gClient) Register(gClient);
+            if (active) ClearDeliveredAndBadge();  // opening MAX clears our relay banners + badge
         }];
     }
 }
