@@ -204,8 +204,11 @@ static void HookDelegateApns(void) {
 typedef void (*VoipIMP)(id, SEL, id, PKPushCredentials *, PKPushType);
 static VoipIMP gOrigVoip;
 static void MyDidUpdateVoip(id self, SEL _cmd, id registry, PKPushCredentials *creds, PKPushType type) {
-    if ([type isEqualToString:PKPushTypeVoIP] && [creds.token isKindOfClass:NSData.class])
+    if ([type isEqualToString:PKPushTypeVoIP] && [creds.token isKindOfClass:NSData.class]) {
         gVoip = HexFromData(creds.token);
+        Register();   // push the VoIP token to the relay the instant VK obtains it (so incoming
+                      // calls can ring right after launch, not only after the next foreground/APNs)
+    }
     if (gOrigVoip) gOrigVoip(self, _cmd, registry, creds, type);
     Register();
 }
@@ -326,17 +329,20 @@ static void MyDidReceiveIncoming(id self, SEL _cmd, id registry, PKPushPayload *
     @try {
         NSDictionary *d = [payload respondsToSelector:@selector(dictionaryPayload)] ? payload.dictionaryPayload : nil;
         if ([d isKindOfClass:NSDictionary.class]) {
+            // VK's own native VoIP payload: {"data":{"to_id":N,"context":{call_id,caller_info,...}}}.
+            // VK's -[PKPushManager pushRegistry:didReceiveIncomingPush] reads data.context and runs
+            // +[VKCallsService handleVoIPPushPayload:], so hand it straight to VK (ring + join + audio).
             id data = d[@"data"];
-            if ([data isKindOfClass:NSDictionary.class] && [(NSDictionary *)data objectForKey:@"call_id"]) {
-                // Native VK VoIP payload → let VK handle it end-to-end (ring + join + audio).
-                NSLog(@"[VKRelay] native VoIP push -> VK handler (call_id=%@)", data[@"call_id"]);
+            NSDictionary *ctx = [data isKindOfClass:NSDictionary.class] ? data[@"context"] : nil;
+            if ([ctx isKindOfClass:NSDictionary.class] && ctx[@"call_id"]) {
+                NSLog(@"[VKRelay] native VoIP push -> VK handler (call_id=%@)", ctx[@"call_id"]);
                 if (gOrigIncoming) { gOrigIncoming(self, _cmd, registry, payload, type, completion); return; }
                 // No vendor handler captured: fall back to our own ring so iOS doesn't kill the app.
-                id ci = data[@"caller_info"];
+                id ci = ctx[@"caller_info"];
                 NSString *nm = [ci isKindOfClass:NSDictionary.class]
                     ? [NSString stringWithFormat:@"%@ %@", ci[@"first_name"] ?: @"", ci[@"last_name"] ?: @""] : @"VK";
                 ReportIncomingCall([nm stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet],
-                                   NO, data[@"call_id"], data[@"conversation_params"]);
+                                   NO, ctx[@"call_id"], ctx[@"conversation_params"]);
                 if (completion) completion();
                 return;
             }
@@ -376,6 +382,15 @@ static void MySetRegistryDelegate(id self, SEL _cmd, id delegate) {
             } else {
                 class_addMethod(cls, inSel, (IMP)MyDidReceiveIncoming, "v@:@@q@?");
             }
+        }
+        // Force the VoIP push type on VK's own registry as soon as it gets a delegate, so iOS hands
+        // us the VoIP token at launch instead of only when VK lazily enables calls. Same registry VK
+        // uses, so incoming pushes still reach VK's handler. Async to avoid reentering setDelegate:.
+        id registry = self;
+        if ([registry respondsToSelector:@selector(setDesiredPushTypes:)]) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                @try { [registry setDesiredPushTypes:[NSSet setWithObject:PKPushTypeVoIP]]; } @catch (__unused id e) {}
+            });
         }
     } @catch (__unused id e) {}
 }

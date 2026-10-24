@@ -355,34 +355,40 @@ def _decode_conv_params(conv):
 
 
 def vk_push_call(uid, bundle, voip_token, value):
-    """Send our own VoIP push (ruas_call) for an incoming VK call. VKRelay.dylib's PushKit hook reads
-    it and reports the call to CallKit itself (rings even when the app is killed). We carry call_id +
-    conversation_params so a later answer->audio hand-off can drive VK's own stack.
+    """Send VK's OWN native VoIP push so VK presents CallKit and joins the real call itself (ring +
+    audio), no reimplementation. VKRelay.dylib leaves a `data`-shaped payload for VK's own
+    `-[PKPushManager pushRegistry:didReceiveIncomingPush]` to handle.
 
-    NOTE: feeding VK its NATIVE VoIP payload ({"data":{call_id,caller_info,conversation_params,
-    user_id,answer_from,...}}) so VK's own +[VKCallsService handleVoIPPushPayload:] rings+joins was
-    tried and crashes deep in VK Swift (VKCCallSessionManager incomingCallWithPayload -> nil in an
-    NSSet built while enumerating a payload-derived dict). Our payload matches every VKCPushPayload
-    key VK reads, so the missing/mis-typed field is internal and needs more offline RE against the
-    decrypted binary (research/vk-native-push-formats-2026-10-23.md). Until then we ring via our own
-    CallKit (no crash) and solve audio separately."""
+    EXACT shape VK parses (RE of VKClient 8.183, research/vk-native-push-formats-2026-10-23.md):
+      pushRegistry   -> payload["data"]
+      AppSessionManager receivedVoipPushPayload -> data["context"] + data["to_id"]
+      VKCallsService handleVoIPPushPayload(context) -> +[VKCPushPayload payloadFromDictionary:context]
+      payloadFromDictionary reads context["caller_info"], ["call_id"], ["conversation_params"],
+        ["answer_from"] (STRING), ["chat_info"], ["p2p_forbidden"], ["payload"]; callerId =
+        caller_info["user_id"].
+    We used to send these flat under `data` (no `context`), so VK read context=nil -> callerInfo=nil
+    -> `[NSSet setWithObjects: callerInfo]` crashed (NSPlaceholderSet nil object). Now wrapped in
+    `context` with to_id alongside, and answer_from as a string."""
     ci = value.get("caller_info", {}) or {}
-    caller = f"{ci.get('first_name', '')} {ci.get('last_name', '')}".strip() or "VK"
-    try:
-        video = bool(json.loads(value.get("payload", "{}")).get("is_video"))
-    except Exception:
-        video = False
-    call = {"caller": caller, "video": video}
-    if value.get("call_id"):
-        call["call_id"] = value["call_id"]
+    context = {
+        "call_id": value.get("call_id"),
+        "caller_info": ci,
+        "answer_from": str(value.get("from_id") or value.get("answer_from") or ci.get("user_id") or ""),
+        "p2p_forbidden": bool(value.get("p2p_forbidden", False)),
+    }
+    if value.get("payload") is not None:
+        context["payload"] = value["payload"]          # "{\"is_video\":false,...}" (JSON string)
+    if value.get("chat_info") is not None:
+        context["chat_info"] = value["chat_info"]
     conv = value.get("conversation_params")
-    payload = {"aps": {"content-available": 1}, "ruas_call": call}
     if conv:
-        call["conversation_params"] = conv
-        if len(json.dumps(payload, ensure_ascii=False).encode()) > VOIP_MAX_BYTES:
-            del call["conversation_params"]
-            print(f"[call] {uid} conv_params dropped (payload > {VOIP_MAX_BYTES}B); call_id only",
-                  flush=True)
+        context["conversation_params"] = conv
+    payload = {"data": {"to_id": int(uid), "context": context}}
+    # VoIP pushes cap at ~5 KB; conversation_params is the big field. If over, drop it (VK re-fetches
+    # the call by call_id once it is awake).
+    if conv and len(json.dumps(payload, ensure_ascii=False).encode()) > VOIP_MAX_BYTES:
+        del context["conversation_params"]
+        print(f"[call] {uid} conv_params dropped (payload > {VOIP_MAX_BYTES}B); call_id only", flush=True)
     vc, vk = certs_for(bundle, voip=True)
     apns_curl(uid, vc, vk, bundle + ".voip", "voip", voip_token, json.dumps(payload, ensure_ascii=False))
 
