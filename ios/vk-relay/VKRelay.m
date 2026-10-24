@@ -450,6 +450,13 @@ static BOOL MyDidFinishLaunching(id self, SEL _cmd, id app, id opts) {
     return r;
 }
 
+// Disable VK's in-app Face-ID/PIN app-lock on re-signed builds. Its PIN/biometry secret lives in
+// the keychain under VK's ORIGINAL access group; a re-signed build can't read it back, so the lock
+// is never satisfied and -[AppDelegate showBiometricsIfNeeded] re-presents the BiometricsKit overlay
+// (biometry_setup_failure) → Face ID loops endlessly (customer complaints). The phone's own Face ID/
+// passcode still protects the device; we only stop the unusable in-app lock loop. No-op the trigger.
+static void MyNoShowBiometrics(__unused id self, __unused SEL _cmd) { }
+
 typedef void (*SetAppDelIMP)(id, SEL, id);
 static SetAppDelIMP gOrigSetAppDel;
 static void MySetAppDelegate(id self, SEL _cmd, id delegate) {
@@ -464,6 +471,9 @@ static void MySetAppDelegate(id self, SEL _cmd, id delegate) {
             } else {
                 class_addMethod(cls, sel, (IMP)MyDidFinishLaunching, "B@:@@");
             }
+            // Kill the re-sign Face-ID app-lock loop (see MyNoShowBiometrics).
+            Method bm = class_getInstanceMethod(cls, @selector(showBiometricsIfNeeded));
+            if (bm) { method_setImplementation(bm, (IMP)MyNoShowBiometrics); NSLog(@"[VKRelay] app-lock biometrics loop disabled"); }
         }
     } @catch (__unused id e) {}
     if (gOrigSetAppDel) gOrigSetAppDel(self, _cmd, delegate);
