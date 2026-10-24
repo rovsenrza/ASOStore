@@ -76,11 +76,15 @@ static id DigString(id obj, NSArray<NSString *> *path) {
 // user has logged in. MatchLimitAll + no access-group constraint so we see VK's item under the
 // shared re-sign group; we pick the one whose service is the 3140623 session.
 static NSDictionary *ReadVKSession(void) {
+    // kSecUseAuthenticationUISkip: this is a broad MatchLimitAll + ReturnData read, so if any item
+    // in the shared group carries a biometric access-control it would make iOS show Face ID on every
+    // foreground. Skip auth-requiring items instead of prompting — VK never legitimately needs them.
     NSDictionary *query = @{
-        (__bridge id)kSecClass:            (__bridge id)kSecClassGenericPassword,
-        (__bridge id)kSecMatchLimit:       (__bridge id)kSecMatchLimitAll,
-        (__bridge id)kSecReturnAttributes: @YES,
-        (__bridge id)kSecReturnData:       @YES,
+        (__bridge id)kSecClass:             (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecMatchLimit:        (__bridge id)kSecMatchLimitAll,
+        (__bridge id)kSecReturnAttributes:  @YES,
+        (__bridge id)kSecReturnData:        @YES,
+        (__bridge id)kSecUseAuthenticationUI: (__bridge id)kSecUseAuthenticationUISkip,
     };
     CFTypeRef result = NULL;
     OSStatus st = SecItemCopyMatching((__bridge CFDictionaryRef)query, &result);
