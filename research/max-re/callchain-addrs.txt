@@ -1,0 +1,8 @@
+# CallKitController didActivateAudioSession handler + answer + begin
+0x100bb0950
+0x100bb0110
+0x100fae71c
+0x100fb0b70
+# VoIPPushRegistry native processing chain
+0x10001b3dc
+0x10001bb34
