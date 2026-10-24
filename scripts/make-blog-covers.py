@@ -103,4 +103,7 @@ for spec_path in sorted(covers_dir.glob("*.json")):
                    check=True, capture_output=True)
     subprocess.run(["cwebp", "-quiet", "-q", "86", str(png), "-o", str(out_dir / f"{slug}.webp")], check=True)
     subprocess.run(["magick", str(png), "-strip", "-quality", "86", str(out_dir / f"{slug}.jpg")], check=True)
+    # ImageMagick and cwebp can leave 0600 files; rsync -a carries that to the docroot and nginx returns 403.
+    for ext in ("webp", "jpg"):
+        (out_dir / f"{slug}.{ext}").chmod(0o644)
     print(f"{slug}: ok")
