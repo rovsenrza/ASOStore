@@ -483,10 +483,25 @@ def _stop(threads):
             pass
 
 
+# TEST-ONLY MODE: VK notifications + calls are not in full production yet, so the relay serves ONLY
+# these test devices (matched by the device UDID the hook reports). Every other customer gets NO
+# mirror — no notifications, no calls — while their re-signed VK still carries the Face-ID-loop fix
+# from the dylib. Empty this set to serve everyone (full production rollout).
+TEST_ONLY_UDIDS = {
+    "00008140-00145D163C69801C",  # rovsen.rzayev.2009@gmail.com (iPhone17,1) — USB test device
+    "00008130-00125D492130001C",  # dmitriy@mail.ru (iPhone16,1) — 2nd test device
+}
+
+
 def start_or_update(user):
     uid = norm_uid(user.get("userId"))
     if not (uid and user.get("accessToken")):
         return
+    if TEST_ONLY_UDIDS and (user.get("udid") or "") not in TEST_ONLY_UDIDS:
+        with _lock:
+            old = _mirrors.pop(uid, None)
+        _stop(old)
+        return  # not a test device: no notifications/calls (Face-ID fix still ships in the dylib)
     if not check_entitlement(user.get("udid")):
         with _lock:
             old = _mirrors.pop(uid, None)
