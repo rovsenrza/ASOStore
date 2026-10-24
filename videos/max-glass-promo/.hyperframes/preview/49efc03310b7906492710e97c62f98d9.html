@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head><script data-hf-gsap-fallback>
+(function(){
+  var cdnBase="https://cdn.jsdelivr.net/npm/gsap@3.15.0/dist/";
+  var loaded={};
+  function loadFallback(file){
+    if(loaded[file])return loaded[file];
+    return loaded[file]=new Promise(function(ok,fail){
+      var s=document.createElement("script");
+      s.src=cdnBase+file;s.hfGsapFallback=true;s.onload=ok;s.onerror=fail;
+      document.head.appendChild(s);
+    });
+  }
+  document.addEventListener("error",function(e){
+    var t=e.target;
+    if(!t||t.tagName!=="SCRIPT"||!t.src||t.hfGsapFallback)return;
+    var m=t.src.match(/gsap[^/]*\/dist\/(.+\.js)/);
+    if(m)loadFallback(m[1]).catch(function(){
+      reportError(new Error("GSAP could not load from "+t.src+" or "+cdnBase+m[1]+", so this preview's animations will not play."));
+    });
+  },true);
+})();
+</script>
+<meta name="hyperframes-studio-preview"><script>(function(){var seen=window.__hfPreviewErrors=[];
+addEventListener("error",function(e){seen.push(e.message||String(e))});})();</script>
+<base href="/api/projects/max-glass-promo/preview/"><style data-hf-scene-fonts="">@font-face { font-family: "Unbounded"; src: url("assets/fonts/unbounded-cyrillic.woff2") format("woff2-variations"); font-weight: 200 900; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: "Unbounded"; src: url("assets/fonts/unbounded-latin.woff2") format("woff2-variations"); font-weight: 200 900; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Onest"; src: url("assets/fonts/onest-cyrillic.woff2") format("woff2-variations"); font-weight: 100 900; unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116; }
+@font-face { font-family: "Onest"; src: url("assets/fonts/onest-latin.woff2") format("woff2-variations"); font-weight: 100 900; unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }</style><style data-hyperframes-text-rendering="true">html,body,*{text-rendering:geometricPrecision}</style><script data-hf-after-fonts-fallback="">document.addEventListener("DOMContentLoaded", function () {
+  if (window.__hfAfterFontsClaimed) return;
+  var T = "text/hf-after-fonts";
+  var all = [].slice.call(document.querySelectorAll('script[type="text/hf-after-fonts"], script[type="text/hf-after-fonts+module"]'));
+  if (!all.length) return;
+  console.warn("[hyperframes] the runtime has no web-font gate; composition scripts run without waiting for fonts");
+  var late = function (el) { return el.type !== T || el.matches('[defer][src], [defer][data-hf-inlined-src]'); };
+  var queue = all.filter(function (el) { return !late(el); }).concat(all.filter(late));
+  (function next() {
+    var el = queue.shift();
+    if (!el) return;
+    var s = document.createElement("script");
+    for (var i = 0; i < el.attributes.length; i++) s.setAttribute(el.attributes[i].name, el.attributes[i].value);
+    if (el.type === T) s.removeAttribute("type"); else s.type = "module";
+    s.async = el.hasAttribute("async");
+    s.text = el.text;
+    var waits = s.type !== "module" && s.hasAttribute("src") && !s.async && !s.noModule;
+    if (waits) { s.addEventListener("load", next); s.addEventListener("error", next); }
+    el.replaceWith(s);
+    if (!waits) next();
+  })();
+});
+//# sourceURL=hyperframes://after-fonts-fallback</script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1080, height=1920">
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      :root { --ink: #03050c; --steel: #8a96b4; --sky: #239cf8; --sky-text: #7cc6ff; --blue: #0b45e6; --red: #ff3b30; --green: #34c759; }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--ink); }
+      #root { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--ink); font-family: "Onest", sans-serif; }
+
+      /* ── background ─────────────────────────────────────────── */
+      #bg { position: absolute; inset: 0; overflow: hidden; background: radial-gradient(ellipse at 50% 34%, #0a1430 0%, var(--ink) 70%); }
+      #beam { position: absolute; width: 1500px; height: 1500px; left: -210px; top: 360px; border-radius: 50%; background: radial-gradient(circle, rgba(11,69,230,0.40), rgba(11,69,230,0) 62%); will-change: transform, opacity; }
+      #beam2 { position: absolute; width: 1100px; height: 1100px; right: -260px; top: 980px; border-radius: 50%; background: radial-gradient(circle, rgba(35,156,248,0.26), rgba(35,156,248,0) 64%); }
+      #grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(138,150,180,0.06) 2px, transparent 2px), linear-gradient(90deg, rgba(138,150,180,0.06) 2px, transparent 2px); background-size: 120px 120px; }
+      #ghost { position: absolute; left: -40px; top: 1140px; width: 1600px; font-family: "Unbounded", sans-serif; font-weight: 900; font-size: 560px; line-height: 1; letter-spacing: -0.05em; color: rgba(255,255,255,0.04); white-space: nowrap; }
+      #vignette { position: absolute; inset: 0; background: radial-gradient(ellipse at 50% 52%, rgba(0,0,0,0) 44%, rgba(0,0,0,0.78) 100%); }
+
+      /* ── scene wrapper ──────────────────────────────────────── */
+      .scene { position: absolute; inset: 0; opacity: 0; will-change: opacity, transform; }
+
+      /* ── intro ──────────────────────────────────────────────── */
+      #intro { display: flex; flex-direction: column; justify-content: center; padding: 0 84px; }
+      #intro .tag { font-family: "Unbounded", sans-serif; font-weight: 600; font-size: 30px; letter-spacing: 0.22em; color: var(--steel); text-transform: uppercase; }
+      #intro .tag b { color: var(--sky); }
+      #intro h1 { margin-top: 20px; font-family: "Unbounded", sans-serif; font-weight: 900; font-size: 196px; line-height: 0.92; letter-spacing: -0.05em; color: #fff; text-transform: uppercase; }
+      #intro h1 .ac { color: var(--sky); }
+      #intro .ln { display: block; overflow: hidden; }
+      #intro .ln > span { display: block; will-change: transform; }
+      #intro .bar { margin-top: 44px; width: 100%; height: 6px; background: linear-gradient(90deg, var(--sky), var(--blue)); transform-origin: left center; }
+      #intro .sub { margin-top: 30px; font-size: 40px; font-weight: 500; color: #aeb8d2; }
+
+      /* ── device frame ───────────────────────────────────────── */
+      #stage { position: absolute; inset: 0; }
+      .phone { position: absolute; left: 50%; top: 50%; width: 604px; height: 1283px; }
+      .phone .shell { position: absolute; inset: 0; border-radius: 86px; background: #0b0e16; box-shadow: 0 60px 140px rgba(0,0,0,0.75), 0 0 0 14px #11151f, 0 0 0 16px #2a3142, inset 0 0 0 2px rgba(255,255,255,0.05); }
+      .phone .screen { position: absolute; inset: 14px; border-radius: 72px; overflow: hidden; background: #000; }
+      .phone .screen img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
+      .phone .notch { position: absolute; left: 50%; top: 26px; width: 150px; height: 34px; background: #05070d; border-radius: 20px; transform: translateX(-50%); z-index: 6; }
+      .phone .shot { position: absolute; inset: 0; opacity: 0; will-change: opacity, transform; }
+      .phone .shot img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; object-fit: cover; object-position: top center; }
+
+      /* highlight ring callouts */
+      .ring { position: absolute; border: 5px solid var(--sky); border-radius: 999px; box-shadow: 0 0 44px rgba(35,156,248,0.7), inset 0 0 22px rgba(35,156,248,0.35); opacity: 0; will-change: opacity, transform; }
+      .tap { position: absolute; width: 96px; height: 96px; border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,0.55), rgba(255,255,255,0) 68%); opacity: 0; transform: scale(0.3); will-change: opacity, transform; }
+
+      /* floating labels per feature */
+      .flabel { position: absolute; left: 50%; transform: translateX(-50%); font-family: "Unbounded", sans-serif; font-weight: 800; letter-spacing: -0.02em; color: #fff; text-align: center; opacity: 0; will-change: opacity, transform; }
+      .flabel .k { display: block; font-size: 30px; font-weight: 600; letter-spacing: 0.18em; color: var(--sky-text); text-transform: uppercase; margin-bottom: 14px; }
+      .flabel .v { display: block; font-size: 86px; line-height: 0.98; text-transform: uppercase; }
+      #lab-top { top: 150px; }
+      #lab-bot { bottom: 150px; }
+
+      /* reaction chips that pop near the phone */
+      .chip { position: absolute; display: flex; align-items: center; gap: 12px; padding: 18px 26px; border-radius: 999px; background: rgba(12,18,34,0.82); border: 2px solid rgba(124,198,255,0.5); backdrop-filter: blur(14px); font-size: 48px; opacity: 0; transform: scale(0.4); will-change: opacity, transform; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+      .chip .n { font-family: "Unbounded", sans-serif; font-weight: 800; font-size: 34px; color: #fff; }
+
+      /* ── closed: notification + call ─────────────────────────── */
+      #closed { }
+      #closed .head { position: absolute; left: 84px; right: 84px; top: 150px; opacity: 0; will-change: opacity, transform; }
+      #closed .head .k { font-family: "Unbounded", sans-serif; font-weight: 600; font-size: 30px; letter-spacing: 0.18em; color: var(--sky-text); text-transform: uppercase; }
+      #closed .head .v { margin-top: 16px; font-family: "Unbounded", sans-serif; font-weight: 900; font-size: 92px; line-height: 0.98; letter-spacing: -0.03em; color: #fff; text-transform: uppercase; }
+      #closed .head .v b { color: var(--sky); }
+      .banner { position: absolute; left: 70px; right: 70px; display: flex; align-items: center; gap: 26px; padding: 30px 34px; border-radius: 40px; background: rgba(22,27,40,0.78); border: 1.5px solid rgba(255,255,255,0.12); backdrop-filter: blur(26px); box-shadow: 0 26px 70px rgba(0,0,0,0.55); opacity: 0; will-change: opacity, transform; }
+      .banner .ic { width: 96px; height: 96px; border-radius: 24px; flex: none; background-size: cover; background-position: center; box-shadow: 0 8px 20px rgba(0,0,0,0.4); }
+      .banner .tx { flex: 1; }
+      .banner .tx .t { font-weight: 700; font-size: 38px; color: #fff; }
+      .banner .tx .m { margin-top: 6px; font-size: 34px; color: #c7d0e4; }
+      .banner .tm { font-size: 28px; color: #8a96b4; align-self: flex-start; }
+      #callcard { position: absolute; left: 90px; right: 90px; top: 1120px; padding: 48px 44px; border-radius: 56px; background: rgba(16,21,34,0.82); border: 1.5px solid rgba(255,255,255,0.12); backdrop-filter: blur(30px); box-shadow: 0 34px 90px rgba(0,0,0,0.6); opacity: 0; will-change: opacity, transform; text-align: center; }
+      #callcard .av { width: 150px; height: 150px; border-radius: 50%; margin: 0 auto; background: linear-gradient(135deg, #6a7cff, #8e5bff); display: flex; align-items: center; justify-content: center; font-family: "Unbounded", sans-serif; font-weight: 800; font-size: 60px; color: #fff; }
+      #callcard .nm { margin-top: 26px; font-weight: 700; font-size: 52px; color: #fff; }
+      #callcard .st { margin-top: 10px; font-size: 34px; color: #9fb0ff; }
+      #callcard .btns { margin-top: 40px; display: flex; justify-content: center; gap: 120px; }
+      #callcard .b { width: 128px; height: 128px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 60px; }
+      #callcard .b.dec { background: var(--red); }
+      #callcard .b.acc { background: var(--green); }
+      #callcard .b.acc.ring { animation: none; }
+
+      /* ── end card ───────────────────────────────────────────── */
+      #end { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 84px; text-align: center; }
+      #end-logo { width: 240px; height: 240px; border-radius: 56px; display: block; box-shadow: 0 34px 90px rgba(0,0,0,0.7), 0 0 0 2px rgba(255,255,255,0.12); opacity: 0; will-change: opacity, transform; }
+      #end h2 { margin-top: 48px; font-family: "Unbounded", sans-serif; font-weight: 900; font-size: 128px; line-height: 0.92; letter-spacing: -0.04em; color: #fff; text-transform: uppercase; opacity: 0; will-change: opacity, transform; }
+      #end .sub { margin-top: 30px; font-size: 44px; font-weight: 600; color: #cdd6ec; opacity: 0; will-change: opacity, transform; }
+      #end .sub b { color: var(--sky-text); }
+      #end .pills { margin-top: 44px; display: flex; gap: 20px; flex-wrap: wrap; justify-content: center; opacity: 0; will-change: opacity, transform; }
+      #end .pills span { padding: 18px 34px; border-radius: 999px; border: 2px solid rgba(124,198,255,0.4); font-family: "Unbounded", sans-serif; font-weight: 600; font-size: 34px; color: #dbe6ff; }
+      #end .url { margin-top: 56px; font-family: "Unbounded", sans-serif; font-weight: 800; font-size: 60px; letter-spacing: -0.02em; color: #fff; opacity: 0; will-change: opacity, transform; }
+      #end .url b { color: var(--sky); }
+      #flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+    </style>
+  
+<script data-hyperframes-preview-runtime="1" src="/api/runtime.js"></script>
+<meta name="hyperframes-project-signature" content="36eec1bc8aeec7c23683d743">
+</head>
+  <body>
+    <div data-hf-id="hf-8fw5" id="root" style="isolation: isolate" data-composition-id="main" data-start="0" data-duration="22" data-width="1080" data-height="1920">
+      <div data-hf-id="hf-2xc0" id="bg">
+        <div data-hf-id="hf-tgow" id="beam"></div>
+        <div data-hf-id="hf-z759" id="beam2" data-layout-ignore=""></div>
+        <div data-hf-id="hf-gs5t" id="grid"></div>
+        <div data-hf-id="hf-a3im" id="ghost" data-layout-ignore="" aria-hidden="true">MAX</div>
+        <div data-hf-id="hf-h7i3" id="vignette"></div>
+      </div>
+
+      <!-- 1 ─ intro slam -->
+      <div data-hf-id="hf-bbac" id="intro" class="scene">
+        <div data-hf-id="hf-naii" class="tag">Ru App Store · <b data-hf-id="hf-kyod">обновление</b></div>
+        <h1 data-hf-id="hf-m3fm">
+          <span data-hf-id="hf-smev" class="ln"><span data-hf-id="hf-17ik">Новый</span></span>
+          <span data-hf-id="hf-oupj" class="ln"><span data-hf-id="hf-ybtx" class="ac">MAX</span></span>
+        </h1>
+        <div data-hf-id="hf-ufsv" class="bar"></div>
+        <div data-hf-id="hf-9xxm" class="sub">Полностью новый дизайн на iOS&#160;26</div>
+      </div>
+
+      <!-- shared device stage (scenes 2-3) -->
+      <div data-hf-id="hf-3t0k" id="stage" class="scene">
+        <div data-hf-id="hf-kda4" class="phone">
+          <div data-hf-id="hf-fh3a" class="shell"></div>
+          <div data-hf-id="hf-cdmk" class="screen">
+            <div data-hf-id="hf-isfd" class="shot" id="sh-chats"><img data-hf-id="hf-vb11" src="assets/shots/chat-header.png" alt=""></div>
+            <div data-hf-id="hf-n7nz" class="shot" id="sh-stories"><img data-hf-id="hf-nf5z" src="assets/shots/chats-search-stories.png" alt=""></div>
+            <div data-hf-id="hf-3yex" class="shot" id="sh-react"><img data-hf-id="hf-l9oo" src="assets/shots/chat-reactions.png" alt=""></div>
+            <div data-hf-id="hf-uu8j" class="shot" id="sh-settings"><img data-hf-id="hf-hbd9" src="assets/shots/settings-glass.png" alt=""></div>
+          </div>
+          <div data-hf-id="hf-8kjy" class="notch"></div>
+          <!-- callouts (positioned over the chats shot) -->
+          <div data-hf-id="hf-jrnk" class="ring" id="r-tabbar" style="left:70px; bottom:40px; width:464px; height:96px; border-radius:60px;"></div>
+          <div data-hf-id="hf-igfz" class="ring" id="r-btns" style="right:40px; top:120px; width:210px; height:96px;"></div>
+          <div data-hf-id="hf-a288" class="tap" id="tap1" style="right:300px; bottom:70px;"></div>
+        </div>
+        <div data-hf-id="hf-4uc5" class="flabel" id="lab-top"><span data-hf-id="hf-y7de" class="k">iOS 26 · Liquid Glass</span><span data-hf-id="hf-ra9x" class="v">Жидкое<br data-hf-id="hf-x5px">стекло</span></div>
+        <div data-hf-id="hf-vp0z" class="flabel" id="lab-bot"><span data-hf-id="hf-jvg3" class="k">Статусы · Комментарии</span><span data-hf-id="hf-07di" class="v">Реакции</span></div>
+        <div data-hf-id="hf-f5tx" class="chip" id="chip1" data-layout-ignore="" style="left:120px; top:560px;">❤️ <span data-hf-id="hf-e3y0" class="n">1</span></div>
+        <div data-hf-id="hf-wvcq" class="chip" id="chip2" data-layout-ignore="" style="right:120px; top:720px;">🔥 <span data-hf-id="hf-dbby" class="n">3</span></div>
+        <div data-hf-id="hf-u5cn" class="chip" id="chip3" data-layout-ignore="" style="left:150px; top:980px;">😍 <span data-hf-id="hf-x3dc" class="n">1</span></div>
+      </div>
+
+      <!-- 4 ─ works when closed -->
+      <div data-hf-id="hf-1xkq" id="closed" class="scene">
+        <div data-hf-id="hf-z992" class="head"><div data-hf-id="hf-psvw" class="k">Даже когда приложение закрыто</div><div data-hf-id="hf-s7pg" class="v">Звонки и <b data-hf-id="hf-dnp3">уведомления</b></div></div>
+        <div data-hf-id="hf-o2ja" class="banner" id="bn1" style="top:430px;"><div data-hf-id="hf-ntrc" class="ic" style="background-image:url('assets/brand/logo.png')"></div><div data-hf-id="hf-xias" class="tx"><div data-hf-id="hf-waka" class="t">MAX</div><div data-hf-id="hf-1u6a" class="m">Дима: давай первым пищи 🚀</div></div><div data-hf-id="hf-qgt8" class="tm">сейчас</div></div>
+        <div data-hf-id="hf-qa54" class="banner" id="bn2" style="top:620px;"><div data-hf-id="hf-71b4" class="ic" style="background-image:url('assets/brand/logo.png')"></div><div data-hf-id="hf-onfg" class="tx"><div data-hf-id="hf-olr2" class="t">MAX</div><div data-hf-id="hf-4m1i" class="m">Пропущенный звонок</div></div><div data-hf-id="hf-q3dg" class="tm">сейчас</div></div>
+        <div data-hf-id="hf-5kuz" id="callcard">
+          <div data-hf-id="hf-mobh" class="av">RR</div>
+          <div data-hf-id="hf-rycz" class="nm">Rovshan Rzayev</div>
+          <div data-hf-id="hf-bywg" class="st">Входящий звонок · MAX</div>
+          <div data-hf-id="hf-5u2b" class="btns"><div data-hf-id="hf-tgq9" class="b dec">✕</div><div data-hf-id="hf-1wnd" class="b acc">✆</div></div>
+        </div>
+      </div>
+
+      <!-- 5 ─ end card -->
+      <div data-hf-id="hf-0cv1" id="end" class="scene">
+        <img data-hf-id="hf-zdiu" id="end-logo" src="assets/brand/logo.png" alt="Ru App Store">
+        <h2 data-hf-id="hf-mdvu">Ru App<br data-hf-id="hf-rsrt">Store</h2>
+        <div data-hf-id="hf-4s0c" class="sub"><b data-hf-id="hf-gjw6">Новый MAX</b> — только здесь.</div>
+        <div data-hf-id="hf-c9cw" class="pills"><span data-hf-id="hf-u1tf">Уведомления</span><span data-hf-id="hf-5p8f">Звонки</span><span data-hf-id="hf-8wop">Статусы</span><span data-hf-id="hf-gwdy">Реакции</span></div>
+        <div data-hf-id="hf-mzmq" class="url">ruappstore<b data-hf-id="hf-0zgi">.com</b></div>
+      </div>
+
+      <div data-hf-id="hf-hmg5" id="flash"></div>
+
+      <!-- audio: music bed + iOS-style sfx -->
+      <audio data-hf-id="hf-q8px" id="a-music" src="assets/audio/dark.mp3" data-start="0" data-duration="22" data-track-index="1" data-volume="0.7" data-fade-out="1.2" data-end="22"></audio>
+      <audio data-hf-id="hf-xaei" id="a-whoosh1" src="assets/audio/whoosh.mp3" data-start="0.2" data-duration="0.57" data-track-index="2" data-volume="0.5" data-end="0.77"></audio>
+      <audio data-hf-id="hf-jtz0" id="a-impact1" src="assets/audio/impact-bass-1.mp3" data-start="0.35" data-duration="1.6" data-track-index="3" data-volume="0.7" data-end="1.9500000000000002"></audio>
+      <audio data-hf-id="hf-7dpw" id="a-whoosh2" src="assets/audio/whoosh.mp3" data-start="3.4" data-duration="0.57" data-track-index="2" data-volume="0.5" data-end="3.9699999999999998"></audio>
+      <audio data-hf-id="hf-fuuk" id="a-sparkle1" src="assets/audio/sparkle.mp3" data-start="4.0" data-duration="1.4" data-track-index="4" data-volume="0.4" data-end="5.4"></audio>
+      <audio data-hf-id="hf-kbjo" id="a-chip1" src="assets/audio/tick.mp3" data-start="9.1" data-duration="0.12" data-track-index="5" data-volume="0.8" data-end="9.219999999999999"></audio>
+      <audio data-hf-id="hf-fp61" id="a-chip2" src="assets/audio/tick.mp3" data-start="9.7" data-duration="0.12" data-track-index="5" data-volume="0.8" data-end="9.819999999999999"></audio>
+      <audio data-hf-id="hf-y9mo" id="a-chip3" src="assets/audio/tick.mp3" data-start="10.3" data-duration="0.12" data-track-index="5" data-volume="0.8" data-end="10.42"></audio>
+      <audio data-hf-id="hf-g2h2" id="a-whoosh3" src="assets/audio/whoosh.mp3" data-start="12.9" data-duration="0.57" data-track-index="2" data-volume="0.5" data-end="13.47"></audio>
+      <audio data-hf-id="hf-0mgy" id="a-chime1" src="assets/audio/chime.mp3" data-start="13.6" data-duration="0.9" data-track-index="6" data-volume="0.8" data-end="14.5"></audio>
+      <audio data-hf-id="hf-auqx" id="a-buzz1" src="assets/audio/buzz.mp3" data-start="13.6" data-duration="0.42" data-track-index="7" data-volume="0.5" data-end="14.02"></audio>
+      <audio data-hf-id="hf-mmoj" id="a-chime2" src="assets/audio/chime.mp3" data-start="14.4" data-duration="0.9" data-track-index="9" data-volume="0.8" data-end="15.3"></audio>
+      <audio data-hf-id="hf-vsm1" id="a-buzz2" src="assets/audio/buzz.mp3" data-start="14.4" data-duration="0.42" data-track-index="10" data-volume="0.5" data-end="14.82"></audio>
+      <audio data-hf-id="hf-19ng" id="a-ring" src="assets/audio/ringtone.mp3" data-start="15.2" data-duration="2.6" data-track-index="8" data-volume="0.75" data-end="17.8"></audio>
+      <audio data-hf-id="hf-kxwz" id="a-whoosh4" src="assets/audio/whoosh.mp3" data-start="17.5" data-duration="0.57" data-track-index="2" data-volume="0.55" data-end="18.07"></audio>
+      <audio data-hf-id="hf-4op5" id="a-impact2" src="assets/audio/impact-bass-1.mp3" data-start="17.7" data-duration="1.6" data-track-index="3" data-volume="0.75" data-end="19.3"></audio>
+      <audio data-hf-id="hf-d5fk" id="a-sparkle2" src="assets/audio/sparkle.mp3" data-start="18.4" data-duration="1.4" data-track-index="4" data-volume="0.4" data-end="19.799999999999997"></audio>
+
+      
+    </div>
+  <script type="text/hf-after-fonts">const tl = gsap.timeline({ paused: true });
+const set = (t, el, v) => tl.set(el, v, t);
+tl.to("#beam", { xPercent: 10, yPercent: -8, duration: 22, ease: "none" }, 0);
+tl.to("#ghost", { xPercent: -6, duration: 22, ease: "none" }, 0);
+tl.set(".phone", { xPercent: -50, yPercent: -50 }, 0);
+tl.set("#intro", { opacity: 1 }, 0);
+tl.fromTo("#intro h1", { scale: 1.14, filter: "blur(14px)" }, { scale: 1, filter: "blur(0px)", duration: 0.55, ease: "power4.out" }, 0);
+tl.fromTo("#intro .ln:nth-child(2) > span", { yPercent: 118 }, { yPercent: 0, duration: 0.5, ease: "power4.out" }, 0.18);
+tl.fromTo("#intro .tag", { opacity: 0.2, y: -12 }, { opacity: 1, y: 0, duration: 0.4 }, 0);
+tl.fromTo("#intro .bar", { scaleX: 0 }, { scaleX: 1, duration: 0.6, ease: "power3.inOut" }, 0.55);
+tl.fromTo("#intro .sub", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5 }, 0.8);
+tl.to("#intro", { scale: 1.06, duration: 2.4, ease: "power1.in" }, 1);
+tl.to("#intro", { opacity: 0, duration: 0.4 }, 3.1);
+tl.set("#stage", { opacity: 1 }, 3.3);
+tl.set("#sh-chats", { opacity: 1 }, 3.3);
+tl.fromTo(".phone", { opacity: 0, y: 120, rotateX: 18, scale: 0.9, xPercent: -50, yPercent: -50 }, { opacity: 1, y: 0, rotateX: 0, scale: 1, xPercent: -50, yPercent: -50, duration: 0.7, ease: "power3.out" }, 3.4);
+tl.fromTo("#lab-top", { opacity: 0, y: -30 }, { opacity: 1, y: 0, duration: 0.5 }, 3.8);
+tl.to(".phone", { scale: 1.16, y: 150, duration: 2, ease: "power2.inOut" }, 4.4);
+tl.fromTo("#r-tabbar", { opacity: 0, scale: 1.25 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(2)" }, 5);
+tl.fromTo("#r-btns", { opacity: 0, scale: 1.25 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(2)" }, 5.5);
+tl.to(["#r-tabbar", "#r-btns"], { opacity: 0, duration: 0.4 }, 6.6);
+tl.to(".phone", { scale: 1, y: 0, duration: 0.8, ease: "power2.inOut" }, 6.7);
+tl.to("#lab-top", { opacity: 0, duration: 0.4 }, 6.8);
+tl.fromTo("#lab-bot", { opacity: 0, y: 30 }, { opacity: 1, y: 0, duration: 0.5 }, 7);
+tl.set("#sh-stories", { opacity: 0 }, 0);
+tl.to("#sh-chats", { opacity: 0, duration: 0.45 }, 7.2);
+tl.to("#sh-stories", { opacity: 1, duration: 0.45 }, 7.2);
+tl.fromTo("#tap1", { opacity: 0, scale: 0.3 }, { opacity: 0.9, scale: 1, duration: 0.3, ease: "power2.out" }, 7.6);
+tl.to("#tap1", { opacity: 0, duration: 0.3 }, 7.9);
+tl.to("#sh-stories", { opacity: 0, duration: 0.45 }, 8.8);
+tl.to("#sh-react", { opacity: 1, duration: 0.45 }, 8.8);
+tl.set("#sh-react", { opacity: 0 }, 0);
+tl.to(".phone", { scale: 1.12, duration: 3.1, ease: "none", overwrite: "auto" }, 7.5);
+tl.fromTo("#chip1", { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(2.4)" }, 9.1);
+tl.fromTo("#chip2", { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(2.4)" }, 9.7);
+tl.fromTo("#chip3", { opacity: 0, scale: 0.4 }, { opacity: 1, scale: 1, duration: 0.4, ease: "back.out(2.4)" }, 10.3);
+tl.to(["#chip1", "#chip2", "#chip3"], { y: -24, duration: 2, ease: "sine.inOut" }, 10.6);
+tl.to("#stage", { opacity: 0, duration: 0.5 }, 12.4);
+tl.to(["#chip1", "#chip2", "#chip3", "#lab-bot"], { opacity: 0, duration: 0.4 }, 12.3);
+tl.set("#closed", { opacity: 1 }, 12.9);
+tl.fromTo("#closed .head", { opacity: 0, y: -24 }, { opacity: 1, y: 0, duration: 0.5 }, 13);
+tl.fromTo("#bn1", { opacity: 0, y: -60, scale: 0.94 }, { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "power3.out" }, 13.6);
+tl.fromTo("#bn2", { opacity: 0, y: -60, scale: 0.94 }, { opacity: 1, y: 0, scale: 1, duration: 0.5, ease: "power3.out" }, 14.4);
+tl.fromTo("#callcard", { opacity: 0, y: 80, scale: 0.92 }, { opacity: 1, y: 0, scale: 1, duration: 0.6, ease: "power3.out" }, 15.1);
+tl.fromTo("#callcard .b.acc", { boxShadow: "0 0 0 0 rgba(52,199,89,0.7)" }, { boxShadow: "0 0 0 40px rgba(52,199,89,0)", duration: 0.9, repeat: 2, ease: "power2.out" }, 15.4);
+tl.to("#closed", { opacity: 0, duration: 0.5 }, 17);
+tl.to("#flash", { opacity: 0.85, duration: 0.12 }, 17.55);
+tl.to("#flash", { opacity: 0, duration: 0.5 }, 17.7);
+tl.set("#end", { opacity: 1 }, 17.6);
+tl.fromTo("#end-logo", { opacity: 0, scale: 0.6, y: 20 }, { opacity: 1, scale: 1, y: 0, duration: 0.6, ease: "back.out(1.8)" }, 17.7);
+tl.fromTo("#end h2", { opacity: 0, y: 40 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 18);
+tl.fromTo("#end .sub", { opacity: 0, y: 28 }, { opacity: 1, y: 0, duration: 0.5 }, 18.3);
+tl.fromTo("#end .pills", { opacity: 0, y: 24 }, { opacity: 1, y: 0, duration: 0.5 }, 18.7);
+tl.fromTo("#end .url", { opacity: 0, scale: 0.9 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(2)" }, 19.2);
+tl.to("#end .url", { scale: 1.04, duration: 1.2, yoyo: true, repeat: 1, ease: "sine.inOut" }, 20);
+tl.to("#end-logo", { y: -10, duration: 2, yoyo: true, repeat: 1, ease: "sine.inOut" }, 19.8);
+window.__timelines["main"] = tl;</script></body>
+</html>

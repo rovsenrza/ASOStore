@@ -1,0 +1,6 @@
+--- launch 2026-10-19 14:48:59 +0000 ---
+hooked boolValueFor:default: on _TtC19OMPMSStorageFactoryP33_DFE07766E3FE11ECFF01F53AB6A0629A29OMPMSConfigStorageComposition
+hooked 1 storage class(es)
+bool story def=0 orig=0 -> 1
+bool clear-dialog-history-for-all-enabled def=0 orig=0 -> 1
+bool story def=0 orig=0 -> 1

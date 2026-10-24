@@ -64,3 +64,6 @@ secrets/
 *.p8
 # Built IPAs (scripts/build-storefront-ipa.sh)
 ios/build/
+
+# Local RE artifacts (extracted IPAs, large binaries)
+research/vk-ipa/

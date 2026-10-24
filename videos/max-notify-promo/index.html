@@ -1,0 +1,1245 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1080, height=1920" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/DRACOLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.147.0/examples/js/loaders/GLTFLoader.js"></script>
+    <style>
+      @font-face {
+        font-family: "Unbounded";
+        src: url("assets/fonts/unbounded-cyrillic.woff2") format("woff2-variations");
+        font-weight: 200 900;
+        unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+      }
+      @font-face {
+        font-family: "Unbounded";
+        src: url("assets/fonts/unbounded-latin.woff2") format("woff2-variations");
+        font-weight: 200 900;
+        unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      @font-face {
+        font-family: "Onest";
+        src: url("assets/fonts/onest-cyrillic.woff2") format("woff2-variations");
+        font-weight: 100 900;
+        unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+      }
+      @font-face {
+        font-family: "Onest";
+        src: url("assets/fonts/onest-latin.woff2") format("woff2-variations");
+        font-weight: 100 900;
+        unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+      }
+      :root {
+        --navy: #06164d;
+        --navy-2: #0a2170;
+        --blue: #0b45e6;
+        --sky: #239cf8;
+        --sky-text: #7cc6ff;
+        --mist: #e3ecff;
+      }
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1080px;
+        height: 1920px;
+        overflow: hidden;
+        background: var(--navy);
+      }
+      #root {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: var(--navy);
+        font-family: "Onest", sans-serif;
+      }
+
+      /* ── background ───────────────────────────────────────────── */
+      #bg {
+        position: absolute;
+        inset: 0;
+        overflow: hidden;
+        background: var(--navy);
+      }
+      .glow {
+        position: absolute;
+        border-radius: 50%;
+        display: block;
+      }
+      #glow-a {
+        width: 1300px;
+        height: 1300px;
+        left: -110px;
+        top: 620px;
+        background: radial-gradient(circle, rgba(11, 69, 230, 0.75), rgba(11, 69, 230, 0) 65%);
+      }
+      #glow-b {
+        width: 900px;
+        height: 900px;
+        left: 520px;
+        top: -260px;
+        background: radial-gradient(circle, rgba(35, 156, 248, 0.42), rgba(35, 156, 248, 0) 65%);
+      }
+      #glow-c {
+        width: 800px;
+        height: 800px;
+        left: -380px;
+        top: 1300px;
+        background: radial-gradient(circle, rgba(116, 66, 255, 0.4), rgba(116, 66, 255, 0) 65%);
+      }
+      #ghost {
+        position: absolute;
+        left: -40px;
+        top: 760px;
+        width: 1400px;
+        font-family: "Unbounded", sans-serif;
+        font-weight: 900;
+        font-size: 520px;
+        line-height: 1;
+        letter-spacing: -0.04em;
+        color: rgba(255, 255, 255, 0.07);
+        white-space: nowrap;
+      }
+      #rings {
+        position: absolute;
+        left: 40px;
+        top: 540px;
+        width: 1000px;
+        height: 1000px;
+      }
+      #rings span {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        border: 3px solid rgba(124, 198, 255, 0.16);
+        display: block;
+      }
+      #rings span:nth-child(2) {
+        inset: 130px;
+        border-color: rgba(124, 198, 255, 0.12);
+      }
+      #rings span:nth-child(3) {
+        inset: -170px;
+        border-color: rgba(124, 198, 255, 0.1);
+      }
+
+      #theater {
+        position: absolute;
+        inset: 0;
+        width: 1080px;
+        height: 1920px;
+        display: block;
+      }
+
+      /* ── headlines ────────────────────────────────────────────── */
+      .hl {
+        position: absolute;
+        left: 72px;
+        right: 72px;
+        top: 112px;
+      }
+      .kicker {
+        display: inline-flex;
+        align-items: center;
+        gap: 14px;
+        padding: 10px 22px 10px 12px;
+        border-radius: 999px;
+        background: rgba(227, 236, 255, 0.12);
+        border: 2px solid rgba(227, 236, 255, 0.2);
+        color: var(--mist);
+        font-weight: 600;
+        font-size: 28px;
+        letter-spacing: 0.02em;
+      }
+      .kicker img {
+        width: 40px;
+        height: 40px;
+        border-radius: 11px;
+        display: block;
+      }
+      .hl h1 {
+        margin-top: 26px;
+        font-family: "Unbounded", sans-serif;
+        font-weight: 800;
+        font-size: 80px;
+        line-height: 1.06;
+        letter-spacing: -0.02em;
+        color: #fff;
+      }
+      .ln {
+        display: block;
+        overflow: hidden;
+        padding-bottom: 6px;
+      }
+      .ln > span {
+        display: block;
+      }
+      .ln.accent > span {
+        color: var(--sky-text);
+      }
+      .hl p {
+        margin-top: 18px;
+        max-width: 860px;
+        font-size: 36px;
+        font-weight: 500;
+        line-height: 1.3;
+        color: #c9d8ff;
+      }
+
+      /* ── end card ─────────────────────────────────────────────── */
+      #end {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 150px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+      }
+      #end-logo {
+        width: 240px;
+        height: 240px;
+        border-radius: 56px;
+        display: block;
+        box-shadow:
+          0 30px 80px rgba(0, 10, 60, 0.6),
+          0 0 0 2px rgba(255, 255, 255, 0.12);
+      }
+      #end h2 {
+        margin-top: 44px;
+        font-family: "Unbounded", sans-serif;
+        font-weight: 800;
+        font-size: 92px;
+        line-height: 1;
+        letter-spacing: -0.02em;
+        color: #fff;
+      }
+      #end p {
+        margin-top: 26px;
+        max-width: 860px;
+        font-size: 38px;
+        font-weight: 500;
+        line-height: 1.3;
+        color: #c9d8ff;
+      }
+      #end p b {
+        color: #fff;
+        font-weight: 700;
+      }
+      #cta {
+        position: relative;
+        margin-top: 44px;
+        padding: 26px 56px;
+        border-radius: 999px;
+        background: var(--blue);
+        color: #fff;
+        font-family: "Unbounded", sans-serif;
+        font-weight: 700;
+        font-size: 44px;
+        letter-spacing: -0.01em;
+        overflow: hidden;
+        box-shadow: 0 20px 60px rgba(11, 69, 230, 0.55);
+      }
+      #cta-sheen {
+        position: absolute;
+        top: -20px;
+        bottom: -20px;
+        left: 0;
+        width: 120px;
+        display: block;
+        background: linear-gradient(100deg, rgba(255, 255, 255, 0), rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0));
+      }
+
+      /* ── phone screen (authored at 390×844, rendered at 2×) ───── */
+      #phone-html {
+        width: 780px;
+        height: 1688px;
+        overflow: hidden;
+        background: #000;
+      }
+      .scr {
+        zoom: 2;
+        position: relative;
+        width: 390px;
+        height: 844px;
+        background: #000;
+        font-family: "Onest", sans-serif;
+        color: #fff;
+      }
+      .display {
+        position: absolute;
+        inset: 6px;
+        border-radius: 52px;
+        overflow: hidden;
+        background: #0a1a5c;
+      }
+      .wall {
+        position: absolute;
+        inset: -40px;
+        background:
+          radial-gradient(circle at 18% 22%, rgba(64, 120, 255, 0.95), rgba(64, 120, 255, 0) 42%),
+          radial-gradient(circle at 92% 48%, rgba(53, 176, 255, 0.85), rgba(53, 176, 255, 0) 40%),
+          radial-gradient(circle at 26% 86%, rgba(124, 70, 255, 0.9), rgba(124, 70, 255, 0) 45%),
+          radial-gradient(circle at 80% 96%, rgba(255, 92, 170, 0.55), rgba(255, 92, 170, 0) 38%),
+          linear-gradient(180deg, #0b1f7a, #10115a 60%, #1a0f55);
+      }
+      .island {
+        position: absolute;
+        z-index: 20;
+        top: 11px;
+        left: 50%;
+        width: 124px;
+        height: 36px;
+        margin-left: -62px;
+        border-radius: 20px;
+        background: #000;
+      }
+      .home-ind {
+        position: absolute;
+        z-index: 20;
+        bottom: 8px;
+        left: 50%;
+        width: 136px;
+        height: 5px;
+        margin-left: -68px;
+        border-radius: 3px;
+        background: rgba(255, 255, 255, 0.92);
+      }
+      .layer {
+        position: absolute;
+        inset: 0;
+        isolation: isolate;
+      }
+      .status {
+        position: absolute;
+        z-index: 10;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 54px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 30px 0 34px;
+        font-size: 16px;
+        font-weight: 650;
+        letter-spacing: 0;
+      }
+      .st-right {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .sig {
+        display: flex;
+        align-items: flex-end;
+        gap: 2px;
+        height: 12px;
+      }
+      .sig i {
+        display: block;
+        width: 3px;
+        border-radius: 1px;
+        background: #fff;
+      }
+      .wifi {
+        width: 17px;
+        height: 12px;
+        display: block;
+      }
+      .batt {
+        position: relative;
+        width: 25px;
+        height: 12px;
+        border-radius: 4px;
+        border: 1.2px solid rgba(255, 255, 255, 0.5);
+        padding: 1.5px;
+      }
+      .batt i {
+        display: block;
+        width: 80%;
+        height: 100%;
+        border-radius: 2px;
+        background: #fff;
+      }
+
+      /* lock screen */
+      .lock-ico {
+        position: absolute;
+        top: 64px;
+        left: 50%;
+        width: 16px;
+        height: 22px;
+        margin-left: -8px;
+      }
+      .date {
+        position: absolute;
+        top: 96px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font-size: 19px;
+        font-weight: 600;
+        color: rgba(255, 255, 255, 0.9);
+      }
+      .clock {
+        position: absolute;
+        top: 112px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font-size: 104px;
+        font-weight: 600;
+        letter-spacing: -3px;
+        line-height: 1.1;
+        color: rgba(255, 255, 255, 0.96);
+      }
+      .notifs {
+        position: absolute;
+        left: 10px;
+        right: 10px;
+        top: 292px;
+        height: 400px;
+      }
+      .nt {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        height: 76px;
+        display: flex;
+        align-items: center;
+        gap: 11px;
+        padding: 0 14px 0 12px;
+        border-radius: 22px;
+        background: rgba(246, 247, 252, 0.84);
+        color: #0d0f19;
+        box-shadow: 0 6px 18px rgba(4, 8, 40, 0.22);
+        opacity: 0;
+      }
+      .nt img {
+        width: 40px;
+        height: 40px;
+        border-radius: 10px;
+        flex: none;
+        display: block;
+      }
+      .nt-tx {
+        flex: 1;
+        min-width: 0;
+      }
+      .nt-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 8px;
+      }
+      .nt-top b {
+        font-size: 15.5px;
+        font-weight: 700;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .nt-top span {
+        flex: none;
+        font-size: 13px;
+        color: rgba(13, 15, 25, 0.5);
+      }
+      .nt-body {
+        margin-top: 2px;
+        font-size: 15px;
+        line-height: 1.25;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .qbtn {
+        position: absolute;
+        bottom: 46px;
+        width: 50px;
+        height: 50px;
+        border-radius: 25px;
+        background: rgba(0, 0, 20, 0.32);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .qbtn svg {
+        width: 22px;
+        height: 22px;
+        display: block;
+      }
+
+      /* incoming call */
+      #call {
+        z-index: 2;
+        opacity: 0;
+        overflow: hidden;
+      }
+      .call-bg {
+        position: absolute;
+        inset: -60px;
+        background:
+          radial-gradient(circle at 50% 38%, rgba(84, 120, 255, 0.85), rgba(84, 120, 255, 0) 55%),
+          radial-gradient(circle at 20% 90%, rgba(124, 70, 255, 0.8), rgba(124, 70, 255, 0) 50%),
+          linear-gradient(180deg, #13246e, #0b0f3d);
+      }
+      .call-dim {
+        position: absolute;
+        inset: 0;
+        background: rgba(2, 4, 24, 0.28);
+      }
+      .call-app {
+        position: absolute;
+        top: 104px;
+        left: 0;
+        right: 0;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 7px;
+        font-size: 15px;
+        font-weight: 500;
+        color: rgba(255, 255, 255, 0.78);
+      }
+      .call-app img {
+        width: 20px;
+        height: 20px;
+        border-radius: 5px;
+        display: block;
+      }
+      .call-name {
+        position: absolute;
+        top: 130px;
+        left: 0;
+        right: 0;
+        text-align: center;
+        font-size: 38px;
+        font-weight: 500;
+        letter-spacing: -0.5px;
+      }
+      .avatar-wrap {
+        position: absolute;
+        top: 290px;
+        left: 50%;
+        width: 150px;
+        height: 150px;
+        margin-left: -75px;
+      }
+      .avatar {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        background: linear-gradient(160deg, #ffb27a, #ff5f8f);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 64px;
+        font-weight: 600;
+        color: #fff;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+      }
+      .pulse {
+        position: absolute;
+        inset: 0;
+        border-radius: 50%;
+        border: 2px solid rgba(255, 255, 255, 0.5);
+        display: block;
+      }
+      .call-mini {
+        position: absolute;
+        bottom: 206px;
+        left: 0;
+        right: 0;
+        display: flex;
+        justify-content: space-between;
+        padding: 0 62px;
+      }
+      .mini {
+        width: 76px;
+        text-align: center;
+        font-size: 13px;
+        color: rgba(255, 255, 255, 0.85);
+      }
+      .mini i {
+        display: flex;
+        width: 30px;
+        height: 30px;
+        margin: 0 auto 6px;
+        align-items: center;
+        justify-content: center;
+      }
+      .mini svg {
+        width: 26px;
+        height: 26px;
+        display: block;
+      }
+      .call-btns {
+        position: absolute;
+        bottom: 78px;
+        left: 0;
+        right: 0;
+        display: flex;
+        justify-content: space-between;
+        padding: 0 50px;
+      }
+      .cbtn {
+        width: 100px;
+        text-align: center;
+        font-size: 15px;
+        color: #fff;
+      }
+      .cbtn i {
+        display: flex;
+        width: 76px;
+        height: 76px;
+        margin: 0 auto 9px;
+        border-radius: 50%;
+        align-items: center;
+        justify-content: center;
+      }
+      .cbtn svg {
+        width: 34px;
+        height: 34px;
+        display: block;
+      }
+      .decline i {
+        background: #ff3b30;
+      }
+      .decline svg {
+        transform: rotate(135deg);
+      }
+      .accept i {
+        background: #34c759;
+      }
+
+      /* home screen */
+      #home {
+        opacity: 0;
+      }
+      .home-dim {
+        position: absolute;
+        inset: 0;
+        background: rgba(4, 8, 40, 0.18);
+      }
+      .grid {
+        position: absolute;
+        top: 72px;
+        left: 22px;
+        right: 22px;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        row-gap: 22px;
+      }
+      .app {
+        position: relative;
+        text-align: center;
+      }
+      .app img {
+        display: block;
+        width: 62px;
+        height: 62px;
+        margin: 0 auto 6px;
+        border-radius: 15px;
+        box-shadow: 0 4px 12px rgba(0, 0, 30, 0.25);
+      }
+      .app .lb {
+        font-size: 11.5px;
+        font-weight: 500;
+        line-height: 1.15;
+        white-space: nowrap;
+        color: #fff;
+        text-shadow: 0 1px 4px rgba(0, 0, 30, 0.5);
+      }
+      .badge {
+        position: absolute;
+        top: -6px;
+        left: 61px;
+        min-width: 23px;
+        height: 23px;
+        padding: 0 6px;
+        border-radius: 12px;
+        background: #ff3b30;
+        color: #fff;
+        font-size: 14px;
+        font-weight: 600;
+        line-height: 23px;
+        text-align: center;
+        font-variant-numeric: tabular-nums;
+        display: block;
+      }
+      #max-badge {
+        opacity: 0;
+      }
+      .search {
+        position: absolute;
+        bottom: 122px;
+        left: 50%;
+        width: 96px;
+        height: 32px;
+        margin-left: -48px;
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.22);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        font-size: 13px;
+        font-weight: 600;
+      }
+      .dock {
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        bottom: 14px;
+        height: 92px;
+        border-radius: 36px;
+        background: rgba(255, 255, 255, 0.24);
+        display: flex;
+        align-items: center;
+        justify-content: space-around;
+        padding: 0 10px;
+      }
+      .dock .app img {
+        margin: 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" style="isolation: isolate" data-composition-id="main" data-start="0" data-duration="15" data-width="1080" data-height="1920">
+      <!-- background -->
+      <div id="bg">
+        <div id="glow-b" class="glow"></div>
+        <div id="glow-a" class="glow"></div>
+        <div id="glow-c" class="glow"></div>
+        <div id="rings"><span></span><span></span><span></span></div>
+        <div id="ghost" data-layout-ignore>MAX</div>
+      </div>
+
+      <!-- live phone screen, captured into the 3D model every frame -->
+      <canvas
+        id="cap-phone"
+        data-layout-ignore
+        layoutsubtree
+        width="780"
+        height="1688"
+        style="position: absolute; top: 0; left: 0; width: 780px; height: 1688px; z-index: -1; pointer-events: none"
+      >
+        <div id="phone-html">
+          <div class="scr">
+            <div class="display">
+              <div id="wall" class="wall"></div>
+
+              <!-- LOCK SCREEN -->
+              <div id="lock" class="layer">
+                <div class="status">
+                  <span>МТС</span>
+                  <div class="st-right">
+                    <div class="sig"><i style="height: 4px"></i><i style="height: 6px"></i><i style="height: 9px"></i><i style="height: 12px"></i></div>
+                    <svg class="wifi" viewBox="0 0 17 12"><path fill="#fff" d="M8.5 2.3c2.4 0 4.6.9 6.3 2.5l1.2-1.2C14 1.6 11.4.6 8.5.6S3 1.6 1 3.6l1.2 1.2c1.7-1.6 3.9-2.5 6.3-2.5zm0 3.4c1.5 0 2.8.5 3.9 1.5l1.2-1.2C12.2 4.6 10.4 3.9 8.5 3.9S4.8 4.6 3.4 6l1.2 1.2c1.1-1 2.4-1.5 3.9-1.5zm0 3.4c.6 0 1.1.2 1.5.6L8.5 11.2 7 9.7c.4-.4.9-.6 1.5-.6z" /></svg>
+                    <div class="batt"><i></i></div>
+                  </div>
+                </div>
+                <svg class="lock-ico" viewBox="0 0 16 22"><path d="M4 9V6a4 4 0 0 1 8 0v3" fill="none" stroke="#fff" stroke-width="2" /><rect x="1" y="9" width="14" height="12" rx="3" fill="#fff" /></svg>
+                <div class="date">пятница, 17 октября</div>
+                <div class="clock">9:41</div>
+                <div class="notifs">
+                  <div id="nt1" class="nt"><img src="assets/apps/max.webp" alt="" /><div class="nt-tx"><div class="nt-top"><b>Мама</b><span>сейчас</span></div><div class="nt-body">Ты где? Ужин уже на столе</div></div></div>
+                  <div id="nt2" class="nt"><img src="assets/apps/max.webp" alt="" /><div class="nt-tx"><div class="nt-top"><b>Работа · Алексей</b><span>сейчас</span></div><div class="nt-body">Созвон через 5 минут, ссылка в чате</div></div></div>
+                  <div id="nt3" class="nt"><img src="assets/apps/max.webp" alt="" /><div class="nt-tx"><div class="nt-top"><b>Аня</b><span>сейчас</span></div><div class="nt-body">Отправила фото с выходных</div></div></div>
+                  <div id="nt4" class="nt"><img src="assets/apps/max.webp" alt="" /><div class="nt-tx"><div class="nt-top"><b>Семья · Папа</b><span>сейчас</span></div><div class="nt-body">Кто заберёт посылку сегодня?</div></div></div>
+                </div>
+                <div class="qbtn" style="left: 44px">
+                  <svg viewBox="0 0 24 24"><path fill="#fff" d="M8 2h8v4l-2 3v12a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V9L8 6z" /></svg>
+                </div>
+                <div class="qbtn" style="right: 44px">
+                  <svg viewBox="0 0 24 24"><path fill="#fff" d="M9 4h6l1.5 2H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3.5zM12 9a4 4 0 1 0 0 8 4 4 0 0 0 0-8z" /></svg>
+                </div>
+              </div>
+
+              <!-- INCOMING CALL -->
+              <div id="call" class="layer">
+                <div class="call-bg"></div>
+                <div class="call-dim"></div>
+                <div class="status">
+                  <span>9:41</span>
+                  <div class="st-right">
+                    <div class="sig"><i style="height: 4px"></i><i style="height: 6px"></i><i style="height: 9px"></i><i style="height: 12px"></i></div>
+                    <div class="batt"><i></i></div>
+                  </div>
+                </div>
+                <div class="call-app"><img src="assets/apps/max.webp" alt="" />Аудиозвонок MAX</div>
+                <div class="call-name">Мама</div>
+                <div class="avatar-wrap">
+                  <span id="pulse1" class="pulse"></span>
+                  <span id="pulse2" class="pulse"></span>
+                  <div class="avatar">М</div>
+                </div>
+                <div class="call-mini">
+                  <div class="mini">
+                    <i><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8" fill="none" stroke="#fff" stroke-width="2" /><path d="M12 9v4l3 2" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" /></svg></i>Напомнить
+                  </div>
+                  <div class="mini">
+                    <i><svg viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4z" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round" /></svg></i>Сообщение
+                  </div>
+                </div>
+                <div class="call-btns">
+                  <div class="cbtn decline">
+                    <i><svg viewBox="0 0 24 24"><path fill="#fff" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z" /></svg></i>Отклонить
+                  </div>
+                  <div class="cbtn accept">
+                    <i id="accept-btn"><svg viewBox="0 0 24 24"><path fill="#fff" d="M6.6 10.8a15.1 15.1 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.57 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.57 3.57a1 1 0 0 1-.25 1z" /></svg></i>Принять
+                  </div>
+                </div>
+              </div>
+
+              <!-- HOME SCREEN -->
+              <div id="home" class="layer">
+                <div class="home-dim"></div>
+                <div class="status">
+                  <span>9:41</span>
+                  <div class="st-right">
+                    <div class="sig"><i style="height: 4px"></i><i style="height: 6px"></i><i style="height: 9px"></i><i style="height: 12px"></i></div>
+                    <svg class="wifi" viewBox="0 0 17 12"><path fill="#fff" d="M8.5 2.3c2.4 0 4.6.9 6.3 2.5l1.2-1.2C14 1.6 11.4.6 8.5.6S3 1.6 1 3.6l1.2 1.2c1.7-1.6 3.9-2.5 6.3-2.5zm0 3.4c1.5 0 2.8.5 3.9 1.5l1.2-1.2C12.2 4.6 10.4 3.9 8.5 3.9S4.8 4.6 3.4 6l1.2 1.2c1.1-1 2.4-1.5 3.9-1.5zm0 3.4c.6 0 1.1.2 1.5.6L8.5 11.2 7 9.7c.4-.4.9-.6 1.5-.6z" /></svg>
+                    <div class="batt"><i></i></div>
+                  </div>
+                </div>
+                <div id="grid" class="grid">
+                  <div class="app"><img src="assets/apps/gosuslugi.webp" alt="" /><div class="lb">Госуслуги</div></div>
+                  <div class="app"><img src="assets/apps/yandexgo.webp" alt="" /><div class="lb">Яндекс Go</div></div>
+                  <div class="app"><img src="assets/apps/ozon.webp" alt="" /><div class="lb">Ozon</div></div>
+                  <div class="app"><img src="assets/apps/wb.webp" alt="" /><div class="lb">Wildberries</div></div>
+                  <div class="app"><img src="assets/apps/vk.webp" alt="" /><span class="badge">3</span><div class="lb">VK</div></div>
+                  <div class="app"><img src="assets/apps/avito.webp" alt="" /><div class="lb">Авито</div></div>
+                  <div class="app"><img src="assets/apps/ymaps.webp" alt="" /><div class="lb">Карты</div></div>
+                  <div class="app"><img src="assets/apps/mailru.webp" alt="" /><span class="badge">12</span><div class="lb">Почта</div></div>
+                  <div class="app"><img src="assets/apps/instagram.webp" alt="" /><div class="lb">Instagram</div></div>
+                  <div class="app" id="max-app"><img src="assets/apps/max.webp" alt="" /><span id="max-badge" class="badge">5</span><div class="lb">MAX</div></div>
+                  <div class="app"><img src="assets/apps/tiktok.webp" alt="" /><div class="lb">TikTok</div></div>
+                  <div class="app"><img src="assets/apps/ymusic.webp" alt="" /><div class="lb">Музыка</div></div>
+                  <div class="app"><img src="assets/apps/vkvideo.webp" alt="" /><div class="lb">VK Видео</div></div>
+                  <div class="app"><img src="assets/apps/rutube.webp" alt="" /><div class="lb">RUTUBE</div></div>
+                  <div class="app"><img src="assets/apps/okko.webp" alt="" /><div class="lb">Okko</div></div>
+                  <div class="app"><img src="assets/apps/netflix.webp" alt="" /><div class="lb">Netflix</div></div>
+                  <div class="app"><img src="assets/apps/mts.webp" alt="" /><div class="lb">Мой МТС</div></div>
+                  <div class="app"><img src="assets/apps/pyaterochka.webp" alt="" /><div class="lb">Пятёрочка</div></div>
+                  <div class="app"><img src="assets/apps/ymarket.webp" alt="" /><div class="lb">Маркет</div></div>
+                  <div class="app"><img src="assets/brand/logo.png" alt="" /><div class="lb">Ru App Store</div></div>
+                </div>
+                <div class="search">
+                  <svg width="11" height="11" viewBox="0 0 12 12"><circle cx="5" cy="5" r="3.8" fill="none" stroke="#fff" stroke-width="1.6" /><path d="M8 8l3 3" stroke="#fff" stroke-width="1.6" stroke-linecap="round" /></svg>Поиск
+                </div>
+                <div class="dock">
+                  <div class="app"><img src="assets/icons/phone.jpg" alt="" /></div>
+                  <div class="app"><img src="assets/icons/messages.jpg" alt="" /></div>
+                  <div class="app"><img src="assets/icons/photos.jpg" alt="" /></div>
+                  <div class="app"><img src="assets/icons/music.jpg" alt="" /></div>
+                </div>
+              </div>
+
+              <div class="island"></div>
+              <div class="home-ind"></div>
+            </div>
+          </div>
+        </div>
+      </canvas>
+
+      <canvas id="theater" data-layout-allow-overflow width="1080" height="1920"></canvas>
+
+      <!-- headlines -->
+      <div id="hl-a" class="hl">
+        <div class="kicker"><img src="assets/apps/max.webp" alt="" />MAX · уведомления</div>
+        <h1><span class="ln"><span>Сообщения</span></span><span class="ln accent"><span>приходят сразу</span></span></h1>
+        <p>даже когда приложение закрыто</p>
+      </div>
+      <div id="hl-b" class="hl">
+        <div class="kicker"><img src="assets/apps/max.webp" alt="" />MAX · звонки</div>
+        <h1><span class="ln"><span>Звонки</span></span><span class="ln accent"><span>не пропустишь</span></span></h1>
+        <p>прямо на экране блокировки</p>
+      </div>
+      <div id="hl-c" class="hl">
+        <div class="kicker"><img src="assets/apps/max.webp" alt="" />MAX · счётчик</div>
+        <h1><span class="ln"><span>Всё видно</span></span><span class="ln accent"><span>на иконке</span></span></h1>
+        <p>счётчик непрочитанных сообщений</p>
+      </div>
+
+      <!-- end card -->
+      <div id="end">
+        <img id="end-logo" src="assets/brand/logo.png" alt="Ru App Store" />
+        <h2 id="end-title">Ru App Store</h2>
+        <p id="end-sub"><b>MAX с уведомлениями и звонками</b> — устанавливайте на iPhone</p>
+        <div id="cta">ruappstore.com<span id="cta-sheen"></span></div>
+      </div>
+
+      <!-- audio -->
+      <audio id="a-music" src="assets/audio/music.mp3" data-start="0" data-duration="15" data-track-index="1" data-volume="0.6"></audio>
+      <audio id="a-chime1" src="assets/audio/chime.mp3" data-start="1.5" data-duration="0.9" data-track-index="2" data-volume="0.8"></audio>
+      <audio id="a-chime2" src="assets/audio/chime.mp3" data-start="2.5" data-duration="0.9" data-track-index="9" data-volume="0.8"></audio>
+      <audio id="a-chime3" src="assets/audio/chime.mp3" data-start="3.25" data-duration="0.9" data-track-index="2" data-volume="0.8"></audio>
+      <audio id="a-chime4" src="assets/audio/chime.mp3" data-start="4" data-duration="0.9" data-track-index="9" data-volume="0.8"></audio>
+      <audio id="a-buzz1" src="assets/audio/buzz.mp3" data-start="1.5" data-duration="0.42" data-track-index="3" data-volume="0.45"></audio>
+      <audio id="a-buzz2" src="assets/audio/buzz.mp3" data-start="2.5" data-duration="0.42" data-track-index="3" data-volume="0.45"></audio>
+      <audio id="a-buzz3" src="assets/audio/buzz.mp3" data-start="3.25" data-duration="0.42" data-track-index="3" data-volume="0.45"></audio>
+      <audio id="a-buzz4" src="assets/audio/buzz.mp3" data-start="4" data-duration="0.42" data-track-index="3" data-volume="0.45"></audio>
+      <audio id="a-whoosh1" src="assets/audio/whoosh.mp3" data-start="4.5" data-duration="0.57" data-track-index="4" data-volume="0.45"></audio>
+      <audio id="a-ring" src="assets/audio/ringtone.mp3" data-start="4.85" data-duration="3.75" data-track-index="5" data-volume="0.85"></audio>
+      <audio id="a-buzz5" src="assets/audio/buzz.mp3" data-start="5" data-duration="0.42" data-track-index="3" data-volume="0.55"></audio>
+      <audio id="a-buzz6" src="assets/audio/buzz.mp3" data-start="6" data-duration="0.42" data-track-index="3" data-volume="0.55"></audio>
+      <audio id="a-buzz7" src="assets/audio/buzz.mp3" data-start="7" data-duration="0.42" data-track-index="3" data-volume="0.55"></audio>
+      <audio id="a-buzz8" src="assets/audio/buzz.mp3" data-start="8" data-duration="0.42" data-track-index="3" data-volume="0.55"></audio>
+      <audio id="a-whoosh2" src="assets/audio/whoosh.mp3" data-start="8.35" data-duration="0.57" data-track-index="4" data-volume="0.4"></audio>
+      <audio id="a-tick1" src="assets/audio/tick.mp3" data-start="9" data-duration="0.12" data-track-index="6" data-volume="0.7"></audio>
+      <audio id="a-tick2" src="assets/audio/tick.mp3" data-start="9.6" data-duration="0.12" data-track-index="6" data-volume="0.7"></audio>
+      <audio id="a-tick3" src="assets/audio/tick.mp3" data-start="10.2" data-duration="0.12" data-track-index="6" data-volume="0.7"></audio>
+      <audio id="a-tick4" src="assets/audio/tick.mp3" data-start="10.8" data-duration="0.12" data-track-index="6" data-volume="0.7"></audio>
+      <audio id="a-whoosh3" src="assets/audio/whoosh.mp3" data-start="11.75" data-duration="0.57" data-track-index="4" data-volume="0.5"></audio>
+      <audio id="a-impact" src="assets/audio/impact-bass-1.mp3" data-start="12.25" data-duration="2.1" data-track-index="7" data-volume="0.5"></audio>
+      <audio id="a-sparkle" src="assets/audio/sparkle.mp3" data-start="12.35" data-duration="1.8" data-track-index="8" data-volume="0.45"></audio>
+    </div>
+
+    <script>
+      var W = 1080,
+        H = 1920,
+        PI = Math.PI;
+
+      // ── renderer / scene ──────────────────────────────────────────────
+      var renderer = new THREE.WebGLRenderer({
+        canvas: document.getElementById("theater"),
+        antialias: true,
+        alpha: true,
+        preserveDrawingBuffer: true,
+      });
+      renderer.setSize(W, H, false);
+      renderer.setPixelRatio(1);
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.1;
+      renderer.outputEncoding = THREE.sRGBEncoding;
+      renderer.setClearColor(0x000000, 0);
+      var scene = new THREE.Scene();
+      var camera = new THREE.PerspectiveCamera(30, W / H, 0.1, 100);
+
+      // studio-style environment for the metal/glass reflections
+      var eC = document.createElement("canvas");
+      eC.width = 1024;
+      eC.height = 512;
+      var ec = eC.getContext("2d");
+      var eg = ec.createLinearGradient(0, 0, 1024, 512);
+      eg.addColorStop(0, "#020410");
+      eg.addColorStop(0.18, "#16224e");
+      eg.addColorStop(0.32, "#ffffff");
+      eg.addColorStop(0.46, "#0a1238");
+      eg.addColorStop(0.62, "#cfe2ff");
+      eg.addColorStop(0.78, "#16224e");
+      eg.addColorStop(1, "#020410");
+      ec.fillStyle = eg;
+      ec.fillRect(0, 0, 1024, 512);
+      ec.globalCompositeOperation = "screen";
+      for (var ei = 0; ei < 7; ei++) {
+        ec.fillStyle = "rgba(255,255,255," + (ei % 2 === 0 ? 0.16 : 0.08) + ")";
+        ec.fillRect((ei % 3) * 100, 60 + ei * 56, 700, 3 + (ei % 2) * 2);
+      }
+      var eT = new THREE.CanvasTexture(eC);
+      eT.mapping = THREE.EquirectangularReflectionMapping;
+      var pm = new THREE.PMREMGenerator(renderer);
+      scene.environment = pm.fromEquirectangular(eT).texture;
+      eT.dispose();
+      pm.dispose();
+
+      scene.add(new THREE.AmbientLight(0x223355, 0.6));
+      var kL = new THREE.DirectionalLight(0xffffff, 2.2);
+      kL.position.set(-3, 4, 5);
+      scene.add(kL);
+      var rL = new THREE.PointLight(0x239cf8, 3.2, 15);
+      rL.position.set(4, 2, 3);
+      scene.add(rL);
+      var wL = new THREE.PointLight(0xa58cff, 1.4, 12);
+      wL.position.set(-3, -1, 4);
+      scene.add(wL);
+
+      // ── live HTML → texture ───────────────────────────────────────────
+      var capCvs = document.getElementById("cap-phone");
+      var capCtx = capCvs.getContext("2d");
+      var phoneHtmlEl = document.getElementById("phone-html");
+      var apiOk = (function () {
+        var tc = document.createElement("canvas");
+        if (!("layoutSubtree" in tc)) return false;
+        tc.setAttribute("layoutsubtree", "");
+        var ctx = tc.getContext("2d");
+        return ctx && typeof ctx.drawElementImage === "function";
+      })();
+      var paintReady = false;
+      var phoneTex = new THREE.CanvasTexture(capCvs);
+      phoneTex.minFilter = THREE.LinearFilter;
+      phoneTex.magFilter = THREE.LinearFilter;
+      phoneTex.generateMipmaps = false;
+      phoneTex.encoding = THREE.sRGBEncoding;
+      phoneTex.anisotropy = 8;
+      function captureScreen() {
+        if (!apiOk || !paintReady) return;
+        try {
+          capCtx.clearRect(0, 0, 780, 1688);
+          capCtx.drawElementImage(phoneHtmlEl, 0, 0, 780, 1688);
+          phoneTex.needsUpdate = true;
+        } catch (e) {}
+      }
+
+      // ── iPhone model (recolored to brand deep blue) ───────────────────
+      var phoneGrp = new THREE.Group();
+      scene.add(phoneGrp);
+      var BODY = {
+        "iphone-anodised-aluminium": "#22345c",
+        "iphone-anodised-aluminium-plateau": "#26395f",
+        "iphone-antenna-band": "#1a2846",
+        "iphone-apple-logo": "#3b5287",
+        "iphone-lens-ring": "#2a3c66",
+        "iphone-ceramic-shield-back": "#2a3d68",
+      };
+      function planarScreenUv(mesh) {
+        var g = mesh.geometry;
+        g.computeBoundingBox();
+        var bb = g.boundingBox;
+        var pos = g.attributes.position;
+        var w = bb.max.x - bb.min.x || 1;
+        var h = bb.max.y - bb.min.y || 1;
+        var uv = new Float32Array(pos.count * 2);
+        for (var i = 0; i < pos.count; i++) {
+          uv[i * 2] = (pos.getX(i) - bb.min.x) / w;
+          uv[i * 2 + 1] = (pos.getY(i) - bb.min.y) / h;
+        }
+        g.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+      }
+      function alignScreenToMinusZ(root, frontName, backName) {
+        var front = root.getObjectByName(frontName);
+        var back = root.getObjectByName(backName);
+        if (!front || !back) return;
+        root.updateWorldMatrix(true, true);
+        var fp = new THREE.Vector3();
+        var bp = new THREE.Vector3();
+        front.getWorldPosition(fp);
+        back.getWorldPosition(bp);
+        if (fp.z > bp.z) root.rotation.y += Math.PI;
+      }
+      var draco = new THREE.DRACOLoader();
+      draco.setDecoderPath("https://www.gstatic.com/draco/versioned/decoders/1.5.6/");
+      var loader = new THREE.GLTFLoader();
+      loader.setDRACOLoader(draco);
+      loader.load("models/iphone.glb", function (gltf) {
+        var m = gltf.scene;
+        var box = new THREE.Box3().setFromObject(m);
+        var sz = box.getSize(new THREE.Vector3());
+        m.scale.setScalar(3.2 / sz.y);
+        box.setFromObject(m);
+        m.position.sub(box.getCenter(new THREE.Vector3()));
+        m.traverse(function (child) {
+          if (!child.isMesh) return;
+          if (child.name.indexOf("front-glass") === 0) {
+            planarScreenUv(child);
+            child.material = new THREE.MeshBasicMaterial({ map: phoneTex, toneMapped: false });
+            return;
+          }
+          var mats = Array.isArray(child.material) ? child.material : [child.material];
+          mats.forEach(function (mt) {
+            if (mt && BODY[mt.name]) {
+              mt.color.set(BODY[mt.name]).convertSRGBToLinear();
+              mt.metalness = Math.max(mt.metalness, 0.75);
+              mt.roughness = Math.min(mt.roughness, 0.38);
+            }
+          });
+        });
+        alignScreenToMinusZ(m, "front-glass", "rear-window");
+        phoneGrp.add(m);
+        onReady();
+      });
+      function waitForPaint(canvas) {
+        return new Promise(function (resolvePaint) {
+          if (!canvas || typeof canvas.requestPaint !== "function") {
+            resolvePaint();
+            return;
+          }
+          var resolved = false;
+          function done() {
+            if (resolved) return;
+            resolved = true;
+            canvas.onpaint = null;
+            resolvePaint();
+          }
+          canvas.onpaint = done;
+          canvas.requestPaint();
+          setTimeout(done, 100);
+        });
+      }
+
+      // ── animation state ───────────────────────────────────────────────
+      var S = {
+        phX: 0,
+        phY: -5.2,
+        phZ: 0,
+        phRX: 0.5,
+        phRY: PI + 1.1,
+        phRZ: -0.18,
+        cX: 0,
+        cY: -0.35,
+        cZ: 11.4,
+        lX: 0,
+        lY: -0.35,
+      };
+      // vibration events: [time, strength, length]
+      var BUZZ = [
+        [1.5, 1, 0.42],
+        [2.5, 1, 0.42],
+        [3.25, 1, 0.42],
+        [4.0, 1, 0.42],
+        [5.0, 1.7, 0.6],
+        [6.0, 1.7, 0.6],
+        [7.0, 1.7, 0.6],
+        [8.0, 1.7, 0.6],
+      ];
+      function buzzAt(t) {
+        var v = 0;
+        for (var i = 0; i < BUZZ.length; i++) {
+          var dt = t - BUZZ[i][0];
+          if (dt < 0 || dt > BUZZ[i][2]) continue;
+          var env = Math.sin((PI * dt) / BUZZ[i][2]);
+          v += BUZZ[i][1] * env * (Math.sin(dt * 2 * PI * 13.7) * 0.6 + Math.sin(dt * 2 * PI * 21.3 + 1.1) * 0.4);
+        }
+        return v;
+      }
+
+      var tl = gsap.timeline({ paused: true });
+
+      function render() {
+        var t = tl.time();
+        var b = buzzAt(t);
+        var cnt = t >= 10.8 ? "23" : t >= 10.2 ? "14" : t >= 9.6 ? "9" : "5";
+        if (badge.textContent !== cnt) badge.textContent = cnt;
+        phoneGrp.position.set(
+          S.phX + Math.sin(t * 0.9) * 0.03 + b * 0.025,
+          S.phY + Math.sin(t * 1.3) * 0.025,
+          S.phZ,
+        );
+        phoneGrp.rotation.set(
+          S.phRX + Math.sin(t * 0.7 + 0.5) * 0.02,
+          S.phRY + Math.sin(t * 0.55) * 0.03,
+          S.phRZ + b * 0.022,
+        );
+        camera.position.set(S.cX, S.cY, S.cZ);
+        camera.lookAt(S.lX, S.lY, 0);
+        drawFrame();
+        if (paintReady && typeof capCvs.requestPaint === "function") capCvs.requestPaint();
+      }
+      function drawFrame() {
+        captureScreen();
+        renderer.render(scene, camera);
+      }
+
+      // ── ACT 1 · phone enters, notifications arrive (0–4.6) ───────────
+      var enter = "expo.out";
+      tl.to(S, { phY: -0.62, phRX: 0.04, phRY: PI - 0.14, phRZ: 0.02, duration: 1.5, ease: enter }, 0);
+      tl.to(S, { cZ: 10.6, duration: 4.4, ease: "sine.inOut" }, 0);
+      tl.to(S, { phRY: PI + 0.1, phRX: 0.08, duration: 3.0, ease: "sine.inOut" }, 1.5);
+
+      // headline A
+      tl.from("#hl-a .kicker", { y: 30, opacity: 0, duration: 0.5, ease: "power3.out" }, 0.3);
+      tl.from("#hl-a .ln > span", { yPercent: 110, duration: 0.7, ease: "expo.out", stagger: 0.12 }, 0.4);
+      tl.from("#hl-a p", { y: 24, opacity: 0, duration: 0.6, ease: "power2.out" }, 0.75);
+
+      // notifications: newest lands on top, older ones slide down one slot
+      var SLOT = 84;
+      var NT = [
+        ["#nt1", 1.5],
+        ["#nt2", 2.5],
+        ["#nt3", 3.25],
+        ["#nt4", 4.0],
+      ];
+      NT.forEach(function (n, i) {
+        tl.fromTo(
+          n[0],
+          { y: -46, scale: 0.86, opacity: 0 },
+          { y: 0, scale: 1, opacity: 1, duration: 0.5, ease: "back.out(1.6)" },
+          n[1] - 0.05,
+        );
+        for (var j = 0; j < i; j++) {
+          tl.to(NT[j][0], { y: (i - j) * SLOT, duration: 0.42, ease: "power3.out" }, n[1] - 0.05);
+        }
+      });
+      // the clock & date drift up a touch as the stack grows
+      tl.to(".clock, .date, .lock-ico", { y: -12, duration: 2.6, ease: "sine.inOut" }, 1.5);
+
+      // ── ACT 2 · incoming call (4.6–8.5) ───────────────────────────────
+      tl.to("#hl-a", { y: -40, opacity: 0, duration: 0.4, ease: "power2.in" }, 4.35);
+      tl.fromTo("#call", { opacity: 0, scale: 1.08 }, { opacity: 1, scale: 1, duration: 0.45, ease: "power3.out" }, 4.6);
+      tl.to(S, { phRY: PI - 0.16, phRX: 0.02, cZ: 9.8, duration: 1.2, ease: "power3.inOut" }, 4.5);
+      tl.to(S, { phRY: PI + 0.08, phRZ: -0.02, duration: 2.6, ease: "sine.inOut" }, 5.7);
+      tl.fromTo("#hl-b", { opacity: 0 }, { opacity: 1, duration: 0.01 }, 4.8);
+      tl.from("#hl-b .kicker", { y: 30, opacity: 0, duration: 0.5, ease: "power3.out" }, 4.8);
+      tl.from("#hl-b .ln > span", { yPercent: 110, duration: 0.7, ease: "expo.out", stagger: 0.12 }, 4.9);
+      tl.from("#hl-b p", { y: 24, opacity: 0, duration: 0.6, ease: "power2.out" }, 5.25);
+      // pulsing rings around the caller
+      [5.0, 6.0, 7.0, 8.0].forEach(function (s, i) {
+        var ir = i === 0;
+        tl.fromTo("#pulse1", { scale: 1, opacity: 0.7 }, { scale: 1.55, opacity: 0, duration: 0.95, ease: "power1.out", immediateRender: ir }, s);
+        tl.fromTo("#pulse2", { scale: 1, opacity: 0.5 }, { scale: 1.9, opacity: 0, duration: 0.95, ease: "power1.out", immediateRender: ir }, s + 0.18);
+      });
+      tl.fromTo("#accept-btn", { scale: 1 }, { scale: 1.1, duration: 0.5, ease: "sine.inOut", yoyo: true, repeat: 5 }, 5.2);
+
+      // ── ACT 3 · home screen, MAX badge climbs (8.4–11.8) ──────────────
+      tl.to("#hl-b", { y: -40, opacity: 0, duration: 0.4, ease: "power2.in" }, 8.2);
+      tl.to("#call", { yPercent: -100, duration: 0.45, ease: "power3.in" }, 8.4);
+      tl.set("#lock", { opacity: 0 }, 8.4);
+      tl.fromTo("#home", { opacity: 0 }, { opacity: 1, duration: 0.01 }, 8.4);
+      tl.fromTo("#grid .app, .dock .app", { scale: 1.35, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.6, ease: "expo.out", stagger: 0.012 }, 8.5);
+      // the phone settles front-on, then the camera pushes in on the MAX icon
+      tl.to(S, { phRY: PI, phRX: 0, phRZ: 0, duration: 0.9, ease: "power3.inOut" }, 8.4);
+      tl.to(S, { cZ: 6.4, cX: -0.27, lX: -0.27, cY: 0.55, lY: 0.55, duration: 2.4, ease: "power2.inOut" }, 9.0);
+      tl.fromTo("#hl-c", { opacity: 0 }, { opacity: 1, duration: 0.01 }, 8.65);
+      tl.from("#hl-c .kicker", { y: 30, opacity: 0, duration: 0.5, ease: "power3.out" }, 8.65);
+      tl.from("#hl-c .ln > span", { yPercent: 110, duration: 0.7, ease: "expo.out", stagger: 0.12 }, 8.75);
+      tl.from("#hl-c p", { y: 24, opacity: 0, duration: 0.6, ease: "power2.out" }, 9.1);
+      // badge pops: 5 → 9 → 14 → 23
+      var badge = document.getElementById("max-badge");
+      tl.fromTo("#max-badge", { scale: 0, opacity: 0 }, { scale: 1, opacity: 1, duration: 0.45, ease: "back.out(3)" }, 9.0);
+      [9.6, 10.2, 10.8].forEach(function (at) {
+        tl.fromTo("#max-badge", { scale: 1.45 }, { scale: 1, duration: 0.4, ease: "back.out(3)", immediateRender: false }, at);
+      });
+
+      // ── ACT 4 · brand end card (11.8–15) ──────────────────────────────
+      tl.to("#hl-c", { y: -40, opacity: 0, duration: 0.4, ease: "power2.in" }, 11.6);
+      tl.to(S, { cZ: 10.4, cX: 0, lX: 0, cY: 0.3, lY: 0.3, duration: 1.3, ease: "power3.inOut" }, 11.8);
+      tl.to(S, { phY: -1.3, phZ: 0, phRY: PI + 0.42, phRX: -0.2, phRZ: 0.06, duration: 1.4, ease: "power3.inOut" }, 11.8);
+      tl.to(S, { phRY: PI + 0.3, duration: 1.8, ease: "sine.inOut" }, 13.2);
+      tl.from("#end-logo", { scale: 0.4, opacity: 0, rotation: -12, duration: 0.8, ease: "back.out(1.8)" }, 12.2);
+      tl.from("#end-title", { y: 40, opacity: 0, duration: 0.6, ease: "expo.out" }, 12.45);
+      tl.from("#end-sub", { y: 30, opacity: 0, duration: 0.6, ease: "power3.out" }, 12.6);
+      tl.from("#cta", { y: 30, scale: 0.9, opacity: 0, duration: 0.6, ease: "back.out(2)" }, 12.8);
+      tl.fromTo("#cta-sheen", { x: -160 }, { x: 640, duration: 0.9, ease: "power2.inOut" }, 13.5);
+
+      // ── ambient background motion ─────────────────────────────────────
+      tl.fromTo("#glow-a", { scale: 0.92 }, { scale: 1.08, duration: 15, ease: "sine.inOut" }, 0);
+      tl.fromTo("#glow-b", { x: 0, y: 0 }, { x: -120, y: 80, duration: 15, ease: "sine.inOut" }, 0);
+      tl.fromTo("#glow-c", { x: 0 }, { x: 160, duration: 15, ease: "sine.inOut" }, 0);
+      tl.fromTo("#ghost", { x: 0 }, { x: -260, duration: 15, ease: "none" }, 0);
+      tl.fromTo("#rings", { rotation: 0, scale: 0.9 }, { rotation: 20, scale: 1.08, duration: 15, ease: "sine.inOut" }, 0);
+
+      tl.eventCallback("onUpdate", render);
+
+      function onReady() {
+        waitForPaint(capCvs).then(function () {
+          paintReady = true;
+          capCvs.onpaint = drawFrame;
+          tl.seek(0);
+          render();
+          window.__timelines["main"] = tl;
+        });
+      }
+    </script>
+  </body>
+</html>

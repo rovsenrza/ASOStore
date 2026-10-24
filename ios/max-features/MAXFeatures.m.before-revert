@@ -1,0 +1,257 @@
+// MAXFeatures.dylib — long-press reaction row for re-signed MAX.
+// On long-press MAX calls historyDidRequestContextMenuActionsForMessage:… on its history delegate,
+// passing the message (exposing .pk). The same delegate implements
+// historyDidDoubleTapMessageWithKey:yourReaction: (how it sends a reaction). We hook the first,
+// read message.pk, show our own emoji row above the system menu, and on pick invoke the second.
+#import <UIKit/UIKit.h>
+#import <objc/runtime.h>
+#import <objc/message.h>
+
+static NSArray<NSString *> *QuickEmojis(void) { return @[@"👍", @"❤️", @"😂", @"🔥", @"😭", @"😍", @"👋", @"🙏"]; }
+static NSArray<NSString *> *AllEmojis(void) { return @[@"😀",@"😃",@"😄",@"😁",@"😆",@"😅",@"😂",@"🤣",@"🥲",@"☺️",@"😊",@"😇",@"🙂",@"🙃",@"😉",@"😌",@"😍",@"🥰",@"😘",@"😗",@"😙",@"😚",@"😋",@"😛",@"😝",@"😜",@"🤪",@"🤨",@"🧐",@"🤓",@"😎",@"🥸",@"🤩",@"🥳",@"😏",@"😒",@"😞",@"😔",@"😟",@"😕",@"🙁",@"☹️",@"😣",@"😖",@"😫",@"😩",@"🥺",@"😢",@"😭",@"😤",@"😠",@"😡",@"🤬",@"🤯",@"😳",@"🥵",@"🥶",@"😱",@"😨",@"😰",@"😥",@"😓",@"🤗",@"🤔",@"🤭",@"🤫",@"🤥",@"😶",@"😐",@"😑",@"😬",@"🙄",@"😯",@"😦",@"😧",@"😮",@"😲",@"🥱",@"😴",@"🤤",@"😪",@"😵",@"🤐",@"🥴",@"🤢",@"🤮",@"🤧",@"😷",@"🤒",@"🤕",@"🤑",@"🤠",@"😈",@"👿",@"👹",@"👺",@"🤡",@"💩",@"👻",@"💀",@"☠️",@"👽",@"👾",@"🤖",@"🎃",@"👍",@"👎",@"👌",@"🤌",@"🤏",@"✌️",@"🤞",@"🤟",@"🤘",@"🤙",@"👈",@"👉",@"👆",@"👇",@"☝️",@"✋",@"🤚",@"🖐️",@"🖖",@"👋",@"🤝",@"🙏",@"✍️",@"💅",@"🤳",@"💪",@"🦾",@"🦵",@"🦶",@"👂",@"👃",@"🧠",@"👀",@"👁️",@"👅",@"👄",@"🫶",@"🤲",@"👐",@"🙌",@"👏",@"🤜",@"🤛",@"❤️",@"🧡",@"💛",@"💚",@"💙",@"💜",@"🤎",@"🖤",@"🤍",@"💔",@"❣️",@"💕",@"💞",@"💓",@"💗",@"💖",@"💘",@"💝",@"💟",@"💋",@"💌",@"🐶",@"🐱",@"🐭",@"🐹",@"🐰",@"🦊",@"🐻",@"🐼",@"🐨",@"🐯",@"🦁",@"🐮",@"🐷",@"🐸",@"🐵",@"🙈",@"🙉",@"🙊",@"🐔",@"🐧",@"🐦",@"🐤",@"🦆",@"🦅",@"🦉",@"🦇",@"🐺",@"🐗",@"🐴",@"🦄",@"🐝",@"🐛",@"🦋",@"🐌",@"🐞",@"🐜",@"🪲",@"🐢",@"🐍",@"🦎",@"🦖",@"🐙",@"🦑",@"🦀",@"🦞",@"🐠",@"🐟",@"🐡",@"🐬",@"🐳",@"🐋",@"🦈",@"🐊",@"🐆",@"🦓",@"🦍",@"🦧",@"🐘",@"🦛",@"🦏",@"🐪",@"🐫",@"🦒",@"🦘",@"🦬",@"🐂",@"🐄",@"🐎",@"🐖",@"🐏",@"🐑",@"🦙",@"🐐",@"🦌",@"🐕",@"🐩",@"🦮",@"🐈",@"🐓",@"🦃",@"🦚",@"🦜",@"🦢",@"🦩",@"🕊️",@"🐇",@"🦝",@"🦨",@"🦡",@"🦦",@"🦥",@"🐁",@"🐀",@"🐿️",@"🦔",@"🐾",@"🐉",@"🐲",@"🌵",@"🎄",@"🌲",@"🌳",@"🌴",@"🌱",@"🌿",@"☘️",@"🍀",@"🎍",@"🎋",@"🍃",@"🍂",@"🍁",@"🍄",@"🌾",@"💐",@"🌷",@"🌹",@"🥀",@"🌺",@"🌸",@"🌼",@"🌻",@"🍎",@"🍐",@"🍊",@"🍋",@"🍌",@"🍉",@"🍇",@"🍓",@"🫐",@"🍈",@"🍒",@"🍑",@"🥭",@"🍍",@"🥥",@"🥝",@"🍅",@"🍆",@"🥑",@"🥦",@"🥬",@"🥒",@"🌶️",@"🫑",@"🌽",@"🥕",@"🫒",@"🧄",@"🧅",@"🥔",@"🍠",@"🥐",@"🥯",@"🍞",@"🥖",@"🥨",@"🧀",@"🥚",@"🍳",@"🧈",@"🥞",@"🧇",@"🥓",@"🥩",@"🍗",@"🍖",@"🌭",@"🍔",@"🍟",@"🍕",@"🫓",@"🥪",@"🥙",@"🧆",@"🌮",@"🌯",@"🥗",@"🥘",@"🫕",@"🍝",@"🍜",@"🍲",@"🍛",@"🍣",@"🍱",@"🥟",@"🍤",@"🍙",@"🍚",@"🍘",@"🍥",@"🥠",@"🍢",@"🍡",@"🍧",@"🍨",@"🍦",@"🥧",@"🧁",@"🍰",@"🎂",@"🍮",@"🍭",@"🍬",@"🍫",@"🍿",@"🍩",@"🍪",@"🌰",@"🥜",@"🍯",@"🥛",@"🍼",@"☕",@"🍵",@"🧃",@"🥤",@"🧋",@"🍺",@"🍻",@"🥂",@"🍷",@"🥃",@"🍸",@"🍹",@"🧉",@"🍾",@"⚽",@"🏀",@"🏈",@"⚾",@"🥎",@"🎾",@"🏐",@"🏉",@"🥏",@"🎱",@"🪀",@"🏓",@"🏸",@"🏒",@"🏑",@"🥍",@"🏏",@"🥅",@"⛳",@"🪁",@"🏹",@"🎣",@"🥊",@"🥋",@"🎽",@"🛹",@"⛸️",@"🥌",@"🎿",@"⛷️",@"🏂",@"🏋️",@"🤼",@"🤸",@"⛹️",@"🤺",@"🤾",@"🏌️",@"🏇",@"🧘",@"🏄",@"🏊",@"🤽",@"🚣",@"🧗",@"🚵",@"🚴",@"🏆",@"🥇",@"🥈",@"🥉",@"🏅",@"🎖️",@"🏵️",@"🎗️",@"🎫",@"🎟️",@"🎪",@"🎭",@"🎨",@"🎬",@"🎤",@"🎧",@"🎼",@"🎹",@"🥁",@"🎷",@"🎺",@"🎸",@"🪕",@"🎻",@"🎲",@"♟️",@"🎯",@"🎳",@"🎮",@"🎰",@"🧩",@"⭐",@"🌟",@"✨",@"⚡",@"🔥",@"💥",@"☄️",@"☀️",@"🌤️",@"⛅",@"🌥️",@"☁️",@"🌦️",@"🌧️",@"⛈️",@"🌩️",@"🌨️",@"❄️",@"☃️",@"⛄",@"🌬️",@"💨",@"💧",@"💦",@"🌊",@"🎉",@"🎊",@"🎈",@"🎁",@"🎀",@"🪅",@"🎇",@"🎆",@"🧨",@"💯",@"✅",@"❌",@"⭕",@"❗",@"❓",@"❕",@"❔",@"‼️",@"⁉️",@"💢",@"💫",@"💤",@"♻️",@"✔️",@"☑️",@"🇷🇺",@"🇦🇿",@"🇺🇸",@"🇹🇷",@"🇬🇧",@"🇩🇪",@"🇫🇷",@"🇮🇹",@"🇪🇸",@"🇺🇦",@"🇨🇳",@"🇯🇵",@"🇰🇷",@"🇮🇳",@"🇧🇷",@"🇸🇦",@"🇰🇿",@"🇬🇪",@"🏳️",@"🏴",@"🏁",@"🚩"]; }
+
+@interface MAXReactionPicker : NSObject
+@property (nonatomic, copy) void (^onPick)(NSString *emoji);
+@property (nonatomic, strong) UIWindow *win;
+@property (nonatomic, strong) UIView *overlay;
+@property (nonatomic, strong) UIView *bar;
+@end
+@implementation MAXReactionPicker
+- (UIButton *)emojiButton:(NSString *)e size:(CGFloat)sz {
+    UIButton *b = [UIButton buttonWithType:UIButtonTypeSystem];
+    [b setTitle:e forState:UIControlStateNormal]; b.titleLabel.font = [UIFont systemFontOfSize:30];
+    [b addTarget:self action:@selector(pick:) forControlEvents:UIControlEventTouchUpInside];
+    [b.widthAnchor constraintEqualToConstant:sz].active = YES; [b.heightAnchor constraintEqualToConstant:44].active = YES;
+    return b;
+}
+// Try to find the system context-menu platter so we can sit just above it.
+- (CGRect)menuFrame {
+    CGRect best = CGRectNull; CGFloat sw = self.win ? self.win.bounds.size.width : 400;
+    for (UIWindow *w in UIApplication.sharedApplication.windows) {
+        for (UIView *v in [self flatten:w]) {
+            const char *cn = class_getName(object_getClass(v));
+            BOOL isMenu = strstr(cn,"ContextMenu")||strstr(cn,"Platter")||strstr(cn,"_UIMenu")||strstr(cn,"MenuList");
+            CGFloat bw = v.bounds.size.width, bh = v.bounds.size.height;
+            // the actual menu box: a bounded platter, not the full-screen container or dimming view
+            if (isMenu && bw >= 120 && bw <= sw*0.85 && bh >= 140) {
+                CGRect f = [v convertRect:v.bounds toView:nil];
+                if (CGRectIsNull(best) || f.origin.y < best.origin.y) best = f;
+            }
+        }
+    }
+    return best;
+}
+- (NSArray<UIView *> *)flatten:(UIView *)v {
+    NSMutableArray *out = [NSMutableArray arrayWithObject:v];
+    for (UIView *s in v.subviews) [out addObjectsFromArray:[self flatten:s]];
+    return out;
+}
+- (void)showFrom:(CGPoint)anchor {
+    UIWindow *win = nil;
+    for (UIWindow *w in UIApplication.sharedApplication.windows) if (w.isKeyWindow) { win = w; break; }
+    if (!win) win = UIApplication.sharedApplication.windows.firstObject;
+    if (!win) return; self.win = win;
+    UIView *dim = [[UIView alloc] initWithFrame:win.bounds];
+    dim.backgroundColor = [UIColor colorWithWhite:0 alpha:0.001];
+    [dim addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(dismiss)]];
+    self.overlay = dim; [win addSubview:dim];
+    [self buildQuickBarAnchor:anchor];
+    objc_setAssociatedObject(dim, "picker", self, OBJC_ASSOCIATION_RETAIN);
+}
+- (void)buildQuickBarAnchor:(CGPoint)anchor {
+    UIView *bar = [[UIView alloc] init];
+    bar.backgroundColor = [UIColor colorWithWhite:0.17 alpha:0.98];
+    bar.layer.cornerRadius = 24; bar.translatesAutoresizingMaskIntoConstraints = NO;
+    bar.layer.shadowColor = UIColor.blackColor.CGColor; bar.layer.shadowOpacity = 0.35; bar.layer.shadowRadius = 12;
+    [self.overlay addSubview:bar]; self.bar = bar;
+    UIStackView *row = [[UIStackView alloc] init];
+    row.axis = UILayoutConstraintAxisHorizontal; row.spacing = 2; row.alignment = UIStackViewAlignmentCenter;
+    row.layoutMargins = UIEdgeInsetsMake(5, 8, 5, 8); row.layoutMarginsRelativeArrangement = YES;
+    row.translatesAutoresizingMaskIntoConstraints = NO; [bar addSubview:row];
+    for (NSString *e in QuickEmojis()) [row addArrangedSubview:[self emojiButton:e size:40]];
+    // the "⌄" expand button
+    UIButton *more = [UIButton buttonWithType:UIButtonTypeSystem];
+    [more setImage:[UIImage systemImageNamed:@"chevron.down"] forState:UIControlStateNormal]; more.tintColor = UIColor.whiteColor;
+    more.backgroundColor = [UIColor colorWithWhite:0.28 alpha:1]; more.layer.cornerRadius = 18;
+    [more addTarget:self action:@selector(expand) forControlEvents:UIControlEventTouchUpInside];
+    [more.widthAnchor constraintEqualToConstant:36].active = YES; [more.heightAnchor constraintEqualToConstant:36].active = YES;
+    [row addArrangedSubview:more];
+    [NSLayoutConstraint activateConstraints:@[
+        [row.topAnchor constraintEqualToAnchor:bar.topAnchor], [row.bottomAnchor constraintEqualToAnchor:bar.bottomAnchor],
+        [row.leadingAnchor constraintEqualToAnchor:bar.leadingAnchor], [row.trailingAnchor constraintEqualToAnchor:bar.trailingAnchor]]];
+    // position: above the system menu platter if we can find it, else above the touch
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.03 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        CGRect mf = [self menuFrame];
+        [bar.centerXAnchor constraintEqualToAnchor:self.overlay.centerXAnchor].active = YES;
+        CGFloat top = self.win.safeAreaInsets.top + 8;
+        CGFloat y;
+        if (!CGRectIsNull(mf)) y = MAX(top + 25, mf.origin.y - 33);         // just above the menu
+        else { y = anchor.y - 80; if (y < top + 25) y = anchor.y + 70; }
+        [bar.centerYAnchor constraintEqualToAnchor:self.overlay.topAnchor constant:y].active = YES;
+        bar.transform = CGAffineTransformMakeScale(0.6, 0.6); bar.alpha = 0;
+        [UIView animateWithDuration:0.2 delay:0 usingSpringWithDamping:0.7 initialSpringVelocity:0.5 options:0
+                         animations:^{ bar.transform = CGAffineTransformIdentity; bar.alpha = 1; } completion:nil];
+    });
+}
+- (void)expand {
+    [self.bar removeFromSuperview];
+    UIView *panel = [[UIView alloc] init];
+    panel.backgroundColor = [UIColor colorWithWhite:0.17 alpha:0.99];
+    panel.layer.cornerRadius = 20; panel.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.overlay addSubview:panel]; self.bar = panel;
+    UIScrollView *sv = [[UIScrollView alloc] init]; sv.translatesAutoresizingMaskIntoConstraints = NO; [panel addSubview:sv];
+    UIView *grid = [[UIView alloc] init]; grid.translatesAutoresizingMaskIntoConstraints = NO; [sv addSubview:grid];
+    NSArray *em = AllEmojis(); int cols = 8; CGFloat cell = 42;
+    for (NSUInteger i = 0; i < em.count; i++) {
+        UIButton *b = [self emojiButton:em[i] size:cell];
+        b.translatesAutoresizingMaskIntoConstraints = NO; [grid addSubview:b];
+        int r = (int)(i / cols), c = (int)(i % cols);
+        [NSLayoutConstraint activateConstraints:@[
+            [b.leadingAnchor constraintEqualToAnchor:grid.leadingAnchor constant:c * cell],
+            [b.topAnchor constraintEqualToAnchor:grid.topAnchor constant:r * 46]]];
+    }
+    int rows = ((int)em.count + cols - 1) / cols;
+    [NSLayoutConstraint activateConstraints:@[
+        [grid.widthAnchor constraintEqualToConstant:cols * cell], [grid.heightAnchor constraintEqualToConstant:rows * 46],
+        [grid.topAnchor constraintEqualToAnchor:sv.topAnchor], [grid.bottomAnchor constraintEqualToAnchor:sv.bottomAnchor],
+        [grid.leadingAnchor constraintEqualToAnchor:sv.leadingAnchor], [grid.trailingAnchor constraintEqualToAnchor:sv.trailingAnchor],
+        [sv.topAnchor constraintEqualToAnchor:panel.topAnchor constant:10], [sv.bottomAnchor constraintEqualToAnchor:panel.bottomAnchor constant:-10],
+        [sv.leadingAnchor constraintEqualToAnchor:panel.leadingAnchor constant:10], [sv.trailingAnchor constraintEqualToAnchor:panel.trailingAnchor constant:-10],
+        [panel.widthAnchor constraintEqualToConstant:cols * cell + 20], [panel.heightAnchor constraintEqualToConstant:MIN(rows * 46, 230) + 20],
+        [panel.centerXAnchor constraintEqualToAnchor:self.overlay.centerXAnchor],
+        [panel.centerYAnchor constraintEqualToAnchor:self.overlay.centerYAnchor]]];
+    panel.transform = CGAffineTransformMakeScale(0.8, 0.8); panel.alpha = 0;
+    [UIView animateWithDuration:0.18 animations:^{ panel.transform = CGAffineTransformIdentity; panel.alpha = 1; }];
+}
+- (void)pick:(UIButton *)b { if (self.onPick) self.onPick(b.currentTitle); [self dismiss]; }
+- (void)dismiss { [self.overlay removeFromSuperview]; self.overlay = nil; }
+@end
+
+// ---- Config feature-flag forcing ----------------------------------------------------------
+// MAX ships native Stories and channel-post Comments but gates both behind server-driven config
+// flags read through -[OMPMSConfigStorageComposition boolValueFor:default:] with STRING keys
+// (confirmed at runtime: `story` 0->1 flips in maxcfg.txt). The @objc getter names guessed by the
+// earlier build (commentsEnabled/channelCommentsEnabled) do not exist; the real keys are below.
+// Reactions are handled by the picker above, so we do NOT force the reaction flags here.
+static NSSet<NSString *> *ForcedFlags(void) {
+    static NSSet *s; static dispatch_once_t once;
+    dispatch_once(&once, ^{ s = [NSSet setWithArray:@[ @"story", @"stories", @"channel-post-comments-enabled" ]]; });
+    return s;
+}
+static void CfgDiag(NSString *line) {
+    @try {
+        NSString *dir = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) firstObject];
+        NSString *path = [dir stringByAppendingPathComponent:@"maxcfg.txt"];
+        NSFileHandle *h = [NSFileHandle fileHandleForWritingAtPath:path];
+        if (!h) { [@"" writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil]; h = [NSFileHandle fileHandleForWritingAtPath:path]; }
+        [h seekToEndOfFile]; [h writeData:[[line stringByAppendingString:@"\n"] dataUsingEncoding:NSUTF8StringEncoding]]; [h closeFile];
+    } @catch (__unused id e) {}
+}
+static BOOL (*o_boolValueFor)(id, SEL, id, BOOL);
+static BOOL h_boolValueFor(id self, SEL _cmd, id key, BOOL def) {
+    BOOL orig = o_boolValueFor(self, _cmd, key, def);
+    @try {
+        if ([key isKindOfClass:NSString.class] && [ForcedFlags() containsObject:key] && !orig) {
+            CfgDiag([NSString stringWithFormat:@"bool %@ def=%d orig=%d -> 1", key, def, orig]);
+            return YES;
+        }
+    } @catch (__unused id e) {}
+    return orig;
+}
+static void InstallConfigHook(void) {
+    @try {
+        SEL bvf = sel_registerName("boolValueFor:default:");
+        unsigned int n = 0; Class *all = objc_copyClassList(&n); int hooked = 0;
+        for (unsigned int i = 0; i < n; i++) {
+            const char *cn = class_getName(all[i]);
+            if (!strstr(cn, "ConfigStorageComposition")) continue;      // the real PMS config object only
+            Method m = class_getInstanceMethod(all[i], bvf);
+            if (!m) continue;
+            const char *ret = method_copyReturnType(m);
+            BOOL isBool = ret && (ret[0] == 'B' || ret[0] == 'c');
+            if (ret) free((void *)ret);
+            if (!isBool) continue;
+            o_boolValueFor = (BOOL(*)(id,SEL,id,BOOL))method_getImplementation(m);
+            method_setImplementation(m, (IMP)h_boolValueFor);
+            CfgDiag([NSString stringWithFormat:@"hooked boolValueFor:default: on %s", cn]);
+            hooked++;
+        }
+        if (all) free(all);
+        CfgDiag([NSString stringWithFormat:@"hooked %d storage class(es)", hooked]);
+    } @catch (__unused id e) {}
+}
+
+static CGPoint gLastTouch;
+static void (*o_sendEvent)(id, SEL, UIEvent *);
+static void h_sendEvent(id self, SEL _cmd, UIEvent *event) {
+    @try { UITouch *t = event.allTouches.anyObject; if (t) { CGPoint p = [t locationInView:nil]; if (!CGPointEqualToPoint(p, CGPointZero)) gLastTouch = p; } } @catch (__unused id e) {}
+    o_sendEvent(self, _cmd, event);
+}
+
+static id MsgVal(id message, NSString *key) {
+    @try { id v = [message valueForKey:key]; if ([v isKindOfClass:NSString.class]) return v; } @catch (__unused id e) {}
+    SEL s = sel_registerName(key.UTF8String);
+    if ([message respondsToSelector:s]) { @try { id v = ((id(*)(id,SEL))objc_msgSend)(message, s); if ([v isKindOfClass:NSString.class]) return v; } @catch (__unused id e) {} }
+    return nil;
+}
+static id MsgPk(id m) { id v = MsgVal(m,@"pk"); if(!v) v=MsgVal(m,@"messagePk"); return v; }
+
+// Live OKMChatService, captured so our picker can send the CHOSEN emoji via addReaction:forMessagePk:chatPk:.
+static id gChatService;
+static void (*o_addR3)(id, SEL, id, id, id);
+static void h_addR3(id self, SEL _cmd, id r, id pk, id cpk) { gChatService = self; o_addR3(self, _cmd, r, pk, cpk); }
+
+static id (*o_ctxActions)(id, SEL, id, id, id, id);
+static id h_ctxActions(id self, SEL _cmd, id message, id ctx, id ma, id txt) {
+    @try {
+        NSString *pk = MsgPk(message);
+        NSString *chatPk = MsgVal(message, @"chatPk");
+        SEL dbl = sel_registerName("historyDidDoubleTapMessageWithKey:yourReaction:");
+        if ([pk isKindOfClass:NSString.class]) {
+            __weak id wself = self; NSString *key = pk, *cpk = chatPk; CGPoint a = gLastTouch;
+            MAXReactionPicker *p = [MAXReactionPicker new];
+            p.onPick = ^(NSString *emoji) {
+                @try {
+                    SEL add3 = sel_registerName("addReaction:forMessagePk:chatPk:");
+                    if (gChatService && [cpk isKindOfClass:NSString.class]) {
+                        ((void(*)(id,SEL,id,id,id))objc_msgSend)(gChatService, add3, emoji, key, cpk);   // chosen emoji
+                    } else { id s = wself; if (s && [s respondsToSelector:dbl]) ((void(*)(id,SEL,id,id))objc_msgSend)(s, dbl, key, emoji); }
+                } @catch (__unused id e) {}
+            };
+            dispatch_async(dispatch_get_main_queue(), ^{ [p showFrom:a]; });
+        }
+    } @catch (__unused id e) {}
+    return o_ctxActions(self, _cmd, message, ctx, ma, txt);
+}
+
+__attribute__((constructor))
+static void MAXFeaturesInit(void) {
+    @autoreleasepool {
+        @try {
+            CfgDiag([NSString stringWithFormat:@"--- launch %@ ---", [NSDate date]]);
+            InstallConfigHook();   // force Stories + channel-post Comments feature flags
+            SEL ca = sel_registerName("historyDidRequestContextMenuActionsForMessage:context:mediaActions:mediaMessageTranscribedText:");
+            unsigned int n = 0; Class *all = objc_copyClassList(&n);
+            for (unsigned int i = 0; i < n; i++) {
+                unsigned int mc = 0; Method *ml = class_copyMethodList(all[i], &mc); BOOL owns = NO;
+                for (unsigned int j = 0; j < mc; j++) if (method_getName(ml[j]) == ca) { owns = YES; break; }
+                if (ml) free(ml);
+                if (owns) { Method m = class_getInstanceMethod(all[i], ca);
+                    o_ctxActions = (id(*)(id,SEL,id,id,id,id))method_getImplementation(m); method_setImplementation(m, (IMP)h_ctxActions); }
+            }
+            // capture OKMChatService instance
+            SEL add3 = sel_registerName("addReaction:forMessagePk:chatPk:");
+            for (unsigned int i = 0; i < n; i++) {
+                unsigned int mc=0; Method *ml=class_copyMethodList(all[i],&mc); BOOL owns=NO;
+                for (unsigned int j=0;j<mc;j++) if (method_getName(ml[j])==add3){owns=YES;break;}
+                if (ml) free(ml);
+                if (owns){ Method m=class_getInstanceMethod(all[i],add3);
+                    o_addR3=(void(*)(id,SEL,id,id,id))method_getImplementation(m); method_setImplementation(m,(IMP)h_addR3); break; }
+            }
+            if (all) free(all);
+            Class app = objc_getClass("UIApplication");
+            Method m = class_getInstanceMethod(app, sel_registerName("sendEvent:"));
+            o_sendEvent = (void(*)(id,SEL,UIEvent*))method_getImplementation(m); method_setImplementation(m, (IMP)h_sendEvent);
+        } @catch (__unused id e) {}
+    }
+}
