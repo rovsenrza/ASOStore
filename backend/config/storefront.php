@@ -217,6 +217,15 @@ return [
             // the MAX dylib set (no features/glass): their session lives in the keychain, not frames.
             'vk_path' => env('STOREFRONT_VK_RELAY_HOOK_PATH', base_path('../ios/vk-relay/VKRelay.dylib')),
             'vk_bundle_ids' => array_filter(explode(',', (string) env('STOREFRONT_VK_RELAY_HOOK_BUNDLE_IDS', 'com.vk.vkclient,com.vk.vkclient1'))),
+            // VK is not in full production, so the notification/call relay ships to the test devices
+            // ONLY. Everyone else gets VKRelay-faceid.dylib: the launch-crash and Face-ID-loop fixes
+            // with none of the relay/call code compiled in (-DVK_FACEID_ONLY). Routed by device UDID
+            // at signing; the two full-relay UDIDs match the relay's own TEST_ONLY_UDIDS allowlist.
+            'vk_faceid_path' => env('STOREFRONT_VK_RELAY_FACEID_PATH', base_path('../ios/vk-relay/VKRelay-faceid.dylib')),
+            'vk_full_relay_udids' => array_values(array_filter(array_map(
+                fn ($u) => strtoupper(trim($u)),
+                explode(',', (string) env('STOREFRONT_VK_FULL_RELAY_UDIDS', '00008140-00145D163C69801C,00008130-00125D492130001C'))
+            ))),
         ],
 
         'compat_shim' => [

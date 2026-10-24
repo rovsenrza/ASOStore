@@ -39,7 +39,7 @@ class CompatShim
      *
      * @return list<array{name: string, content: string}>
      */
-    public function dylibsFor(AppArtifact $artifact): array
+    public function dylibsFor(AppArtifact $artifact, ?string $deviceUdid = null): array
     {
         $dylibs = [];
         if ($this->enabled() && ! $this->skipped($artifact)
@@ -52,7 +52,8 @@ class CompatShim
 
         // The MAX notification-relay hook: ships the session to our server-side mirror, for the
         // listed apps only (storefront.signing.relay_hook.bundle_ids matched against the IPA's id).
-        $relay = $this->relayDylibFor($artifact);
+        // For VK the variant depends on the device (full relay vs Face-ID-only) — see relayDylibFor.
+        $relay = $this->relayDylibFor($artifact, $deviceUdid);
         if ($relay !== null) {
             $dylibs[] = $relay;
         }
@@ -131,6 +132,22 @@ class CompatShim
         return $this->matchesRelayBundles($artifact, (array) config('storefront.signing.relay_hook.vk_bundle_ids', []));
     }
 
+    /**
+     * Whether this device is one of the VK test devices that gets the full notification/call relay
+     * build (storefront.signing.relay_hook.vk_full_relay_udids). Every other device — and any sign
+     * without a single device UDID — gets the Face-ID-only build. The UDID is normalised the same
+     * way UdidHasher does (upper-cased, trimmed) so it matches the stored device value.
+     */
+    private function isVkFullRelayDevice(?string $deviceUdid): bool
+    {
+        if ($deviceUdid === null || $deviceUdid === '') {
+            return false;
+        }
+        $full = (array) config('storefront.signing.relay_hook.vk_full_relay_udids', []);
+
+        return in_array(strtoupper(trim($deviceUdid)), $full, true);
+    }
+
     /** @param array<int, mixed> $patterns */
     private function matchesRelayBundles(AppArtifact $artifact, array $patterns): bool
     {
@@ -143,14 +160,21 @@ class CompatShim
     }
 
     /** @return array{name: string, content: string}|null */
-    private function relayDylibFor(AppArtifact $artifact): array|null
+    private function relayDylibFor(AppArtifact $artifact, ?string $deviceUdid = null): array|null
     {
         if (! $this->isRelayHook($artifact)) {
             return null;
         }
         if ($this->isVkRelayHook($artifact)) {
+            // VK: the full relay (notifications + calls) ships only to the configured test UDIDs;
+            // every other device gets the Face-ID-only build (no relay/call code at all). The dylib
+            // keeps the same injected name either way, so the runner handles both unchanged.
             $name = self::VK_RELAY_NAME;
-            $path = (string) config('storefront.signing.relay_hook.vk_path', base_path('../ios/vk-relay/'.self::VK_RELAY_NAME));
+            if ($this->isVkFullRelayDevice($deviceUdid)) {
+                $path = (string) config('storefront.signing.relay_hook.vk_path', base_path('../ios/vk-relay/'.self::VK_RELAY_NAME));
+            } else {
+                $path = (string) config('storefront.signing.relay_hook.vk_faceid_path', base_path('../ios/vk-relay/VKRelay-faceid.dylib'));
+            }
         } else {
             $name = self::RELAY_NAME;
             $path = (string) config('storefront.signing.relay_hook.path', base_path('../ios/max-relay/'.self::RELAY_NAME));

@@ -32,6 +32,13 @@
 #import <objc/runtime.h>
 #import <dispatch/dispatch.h>
 
+// Everything from here down to the Face-ID fix is the server-side notification/call mirror:
+// VK session capture, APNs/VoIP token registration, and the CallKit incoming-call path. The
+// general (non-test) build is compiled with -DVK_FACEID_ONLY, which omits ALL of it — those
+// customers get only the launch-crash fix and the Face-ID-loop fix, with no notifications or
+// calls, because the relay is not in full production yet. (The relay also gates by UDID
+// server-side, so this compile split is defence in depth, not the only gate.)
+#ifndef VK_FACEID_ONLY
 static NSString *const kRelayURL = @"https://www.ruappstore.com/api/v1/vk-relay/register";
 
 #ifdef VKDUMP
@@ -395,6 +402,7 @@ static void MySetRegistryDelegate(id self, SEL _cmd, id delegate) {
         }
     } @catch (__unused id e) {}
 }
+#endif  // VK_FACEID_ONLY (end of notification/call relay machinery)
 
 // ---- Face-ID loop fix (login + app-lock) ------------------------------------------------------
 // VK uses Face ID for both its app-lock AND its saved-account login ("Продолжить"): the credential/
@@ -414,19 +422,39 @@ static void MyEvaluatePolicy(__unused id self, __unused SEL _cmd, __unused LAPol
     NSError *e = [NSError errorWithDomain:@"com.apple.LocalAuthentication" code:-6 /* LAErrorBiometryNotAvailable */ userInfo:nil];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ reply(NO, e); });
 }
+static BOOL MyReturnNO(__unused id self, __unused SEL _cmd) { return NO; }
+
 static void HookBiometrics(void) {
-    Class la = objc_getClass("LAContext");
-    if (!la) return;
-    Method m = class_getInstanceMethod(la, @selector(evaluatePolicy:localizedReason:reply:));
-    if (m) method_setImplementation(m, (IMP)MyEvaluatePolicy);
+    @try {
+        Class la = objc_getClass("LAContext");
+        if (la) {
+            Method m = class_getInstanceMethod(la, @selector(evaluatePolicy:localizedReason:reply:));
+            if (m) method_setImplementation(m, (IMP)MyEvaluatePolicy);
+        }
+        // VK's own biometry-availability checks: make VK believe biometry is unavailable/not set up,
+        // so it never offers or attempts the biometric saved-login or app-lock and stores its session
+        // in a NORMAL keychain item (which the compat shim handles), instead of a biometric-ACL item
+        // it can't read back on a re-signed build → the login Face-ID loop goes away.
+        Class bp = objc_getClass("SAKBiometryInfoProvider");
+        if (bp) {
+            for (NSString *name in @[@"isBiometryAccessAllowed", @"isBiometryAccessRequested"]) {
+                Method m = class_getInstanceMethod(bp, NSSelectorFromString(name));
+                if (m) method_setImplementation(m, (IMP)MyReturnNO);
+            }
+            Method cm = class_getClassMethod(bp, NSSelectorFromString(@"isBiometryAvailable"));
+            if (cm) method_setImplementation(cm, (IMP)MyReturnNO);
+        }
+    } @catch (__unused id e) {}
 }
 
+#ifndef VK_FACEID_ONLY
 static void HookVoip(void) {
     Method m = class_getInstanceMethod([PKPushRegistry class], @selector(setDelegate:));
     if (!m) return;
     gOrigSetDelegate = (SetDelegateIMP)method_getImplementation(m);
     method_setImplementation(m, (IMP)MySetRegistryDelegate);
 }
+#endif
 
 // ---- BGTask crash fix (the #1 customer crash) -------------------------------------------------
 // Re-signed VK crashes at launch with "No launch handler registered for task with identifier
@@ -473,6 +501,7 @@ static DidFinishIMP gOrigDidFinish;
 static BOOL MyDidFinishLaunching(id self, SEL _cmd, id app, id opts) {
     BOOL r = gOrigDidFinish ? gOrigDidFinish(self, _cmd, app, opts) : YES;
     FillMissingBGTasks();  // VK has registered its handlers by now; fill the gaps before returning
+    HookBiometrics();      // re-apply: VK's biometry classes are definitely loaded by now
     return r;
 }
 
@@ -536,10 +565,14 @@ static void BridgeBGTasks(void) {
 
 __attribute__((constructor))
 static void VKRelayInit(void) {
+#ifndef VK_FACEID_ONLY
     gQueue = dispatch_queue_create("vkrelay", DISPATCH_QUEUE_SERIAL);
+#endif
     BridgeBGTasks();  // must run before UIApplicationMain sets the delegate / VK registers its tasks
     HookBiometrics();  // stop the re-sign Face-ID loop in VK login + app-lock
+#ifndef VK_FACEID_ONLY
     HookVoip();
+#endif
 
 #ifdef VKDUMP
     // Dump the decrypted executable once the app has settled (test device only; see VKDump.m).
@@ -547,6 +580,7 @@ static void VKRelayInit(void) {
                    dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ VKDumpDecryptedExecutable(); });
 #endif
 
+#ifndef VK_FACEID_ONLY
     // The delegate and the login state are only ready after the app finishes launching. Hook the
     // APNs delegate once active, then register; re-register on background/return and token rotation.
     __block BOOL hooked = NO;
@@ -558,4 +592,5 @@ static void VKRelayInit(void) {
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), gQueue, ^{ Register(); });
         }];
     }
+#endif
 }

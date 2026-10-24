@@ -64,29 +64,45 @@ it('injects the relay + features hooks for a relay-hook app, neither for others'
 
 it('injects VKRelay (and no MAX features/glass) for a VK relay-hook app', function () {
     $vk = tempnam(sys_get_temp_dir(), 'vkrelay').'.dylib';
+    $faceid = tempnam(sys_get_temp_dir(), 'vkface').'.dylib';
     $features = tempnam(sys_get_temp_dir(), 'feat').'.dylib';
     $glass = tempnam(sys_get_temp_dir(), 'glass').'.dylib';
-    file_put_contents($vk, "\xCF\xFA\xED\xFE vk");
+    file_put_contents($vk, "\xCF\xFA\xED\xFE vk-full");
+    file_put_contents($faceid, "\xCF\xFA\xED\xFE vk-faceid");
     file_put_contents($features, "\xCF\xFA\xED\xFE features");
     file_put_contents($glass, "\xCF\xFA\xED\xFE glass");
     config([
         'storefront.signing.relay_hook.bundle_ids' => ['ru.oneme.app'],
         'storefront.signing.relay_hook.vk_bundle_ids' => ['com.vk.vkclient', 'com.vk.vkclient1'],
         'storefront.signing.relay_hook.vk_path' => $vk,
+        'storefront.signing.relay_hook.vk_faceid_path' => $faceid,
+        'storefront.signing.relay_hook.vk_full_relay_udids' => ['00008140-00145D163C69801C'],
         'storefront.signing.relay_hook.features_path' => $features,
         'storefront.signing.relay_hook.glass_path' => $glass,
     ]);
 
-    $names = fn (string $bundle) => array_column(
-        app(CompatShim::class)->dylibsFor(AppArtifact::factory()->make(['bundle_identifier' => $bundle, 'inspection' => []])),
-        'name'
+    $dylibs = fn (string $bundle, ?string $udid = null) => app(CompatShim::class)->dylibsFor(
+        AppArtifact::factory()->make(['bundle_identifier' => $bundle, 'inspection' => []]),
+        $udid
+    );
+    $names = fn (string $bundle, ?string $udid = null) => array_column($dylibs($bundle, $udid), 'name');
+    $vkContent = fn (string $bundle, ?string $udid = null) => base64_decode(
+        collect($dylibs($bundle, $udid))->firstWhere('name', 'VKRelay.dylib')['content']
     );
 
     expect($names('com.vk.vkclient'))->toContain('VKRelay.dylib')
         ->not->toContain('MAXRelay.dylib')->not->toContain('MAXFeatures.dylib')->not->toContain('MAXGlass.dylib')
         ->and($names('com.vk.vkclient1'))->toContain('VKRelay.dylib');
 
+    // Default (no device / ordinary customer) gets the Face-ID-only build; a configured test
+    // device (and only it) gets the full notification/call relay build.
+    expect($vkContent('com.vk.vkclient'))->toBe("\xCF\xFA\xED\xFE vk-faceid")
+        ->and($vkContent('com.vk.vkclient', '00008130-00125D492130001C'))->toBe("\xCF\xFA\xED\xFE vk-faceid")
+        ->and($vkContent('com.vk.vkclient', '00008140-00145d163c69801c'))->toBe("\xCF\xFA\xED\xFE vk-full")
+        ->and($vkContent('com.vk.vkclient', '00008140-00145D163C69801C'))->toBe("\xCF\xFA\xED\xFE vk-full");
+
     @unlink($vk);
+    @unlink($faceid);
     @unlink($features);
     @unlink($glass);
 });
