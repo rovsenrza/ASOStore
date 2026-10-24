@@ -37,7 +37,6 @@ static NSSet<NSString *> *gKeychainGroups;    // Keychain groups this signature 
 static NSString *gOriginalBundleID;           // Vendor's bundle ID, when the signer recorded it.
 static NSBundle *gMainBundle;
 static NSDictionary *gSpoofedInfo;
-static BOOL gIsVK;                            // ВКонтакте process: suppress keychain biometry prompts.
 
 static void RSLog(NSString *format, ...) {
 #ifdef RUSTORE_COMPAT_DEBUG
@@ -202,47 +201,24 @@ static OSStatus rs_SecItemAdd(CFDictionaryRef query, CFTypeRef *result) {
     if (r) CFRelease(r);
     return status;
 }
-// ВКонтакте never used Face ID, yet a re-signed build can hold a keychain item whose access
-// control still demands biometry (left by the vendor or a prior re-sign). Any SecItemCopyMatching
-// that would return such an item makes iOS put up Face ID — on every foreground read — which is the
-// endless "dalbadal Face ID" the customers report. For VK ONLY, tell the keychain to skip items
-// that need authentication instead of prompting (kSecUseAuthenticationUISkip). VK then simply does
-// not find that item and falls back to normal password/SMS login — exactly what we want, and no
-// Face ID is ever shown. Every other app is untouched (banking apps keep their real biometry).
-// Returns a retained copy to use in place of `base`, or NULL to leave it unchanged.
-static CFDictionaryRef RSVKSkipAuthUI(CFDictionaryRef base) {
-    if (!gIsVK || base == NULL) return NULL;
-    NSDictionary *q = (__bridge NSDictionary *)base;
-    if (q[(__bridge id)kSecUseAuthenticationUI] != nil) return NULL; // caller was explicit; respect it
-    NSMutableDictionary *m = [q mutableCopy];
-    m[(__bridge id)kSecUseAuthenticationUI] = (__bridge id)kSecUseAuthenticationUISkip;
-    return (CFDictionaryRef)CFBridgingRetain(m);
-}
-
 static OSStatus rs_SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
     CFDictionaryRef r = RSRewriteQuery(query);
-    CFDictionaryRef skip = RSVKSkipAuthUI(r ?: query);
-    OSStatus status = orig_SecItemCopyMatching(skip ?: r ?: query, result);
+    OSStatus status = orig_SecItemCopyMatching(r ?: query, result);
     RSTrace("copy", query, r != NULL, status);
-    if (skip) CFRelease(skip);
     if (r) CFRelease(r);
     return status;
 }
 static OSStatus rs_SecItemUpdate(CFDictionaryRef query, CFDictionaryRef attributes) {
     CFDictionaryRef r = RSRewriteQuery(query);
-    CFDictionaryRef skip = RSVKSkipAuthUI(r ?: query);
-    OSStatus status = orig_SecItemUpdate(skip ?: r ?: query, attributes);
+    OSStatus status = orig_SecItemUpdate(r ?: query, attributes);
     RSTrace("update", query, r != NULL, status);
-    if (skip) CFRelease(skip);
     if (r) CFRelease(r);
     return status;
 }
 static OSStatus rs_SecItemDelete(CFDictionaryRef query) {
     CFDictionaryRef r = RSRewriteQuery(query);
-    CFDictionaryRef skip = RSVKSkipAuthUI(r ?: query);
-    OSStatus status = orig_SecItemDelete(skip ?: r ?: query);
+    OSStatus status = orig_SecItemDelete(r ?: query);
     RSTrace("delete", query, r != NULL, status);
-    if (skip) CFRelease(skip);
     if (r) CFRelease(r);
     return status;
 }
@@ -421,13 +397,7 @@ static void RuStoreCompatInit(void) {
             && ![original isEqualToString:gMainBundle.bundleIdentifier]) {
             gOriginalBundleID = [original copy];
         }
-        // Is this the VK client? Its executable is "VKClient" whatever bundle ID we re-signed it
-        // under; also honour a recorded vendor bundle id of com.vk.vkclient*. Used only to suppress
-        // keychain biometry prompts (RSVKSkipAuthUI) — VK never legitimately uses Face ID.
-        NSString *exe = [gMainBundle objectForInfoDictionaryKey:@"CFBundleExecutable"];
-        gIsVK = ([exe isKindOfClass:NSString.class] && [exe isEqualToString:@"VKClient"])
-            || (gOriginalBundleID != nil && [gOriginalBundleID hasPrefix:@"com.vk.vkclient"]);
-        RSLog(@"groups=%@ primary=%@ team=%@ original=%@ isVK=%d", gRealGroups, gPrimaryGroup, gTeamPrefix, gOriginalBundleID, gIsVK);
+        RSLog(@"groups=%@ primary=%@ team=%@ original=%@", gRealGroups, gPrimaryGroup, gTeamPrefix, gOriginalBundleID);
         // Before the bundle hooks below, so the report names our real bundle ID.
         RSTelemetryStart(gOriginalBundleID);
 
