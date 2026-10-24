@@ -135,67 +135,19 @@ class TeamSelector
     }
 
     /**
-     * A team where Apple enables a new device at once: a new or recently
-     * renewed membership enables only its first devices on registration and
-     * holds the rest for 24–72 hours. The primary team comes first, then the
-     * configured variants in creation order. When every team is past the
-     * limit, the team with the fewest devices. Null when the routing is off
-     * or no team has free slots; the caller then uses the primary team.
-     * Long-plan teams take only long-plan buyers, and only while under the limit.
+     * The team for a new device: of every active, connected team with free slots
+     * for the family, the one with the fewest devices this membership year (the
+     * primary first on a tie, then the oldest team). Null when no team has a free
+     * slot; the caller then uses the primary team.
      */
-    public function instantTeam(string $family, ?int $exclude = null, bool $longPlan = false): ?AppleTeam
+    public function instantTeam(string $family, ?int $exclude = null): ?AppleTeam
     {
-        // When a fixed set of registration teams is configured, every new device (regardless of
-        // plan length) goes to the least-loaded one of them with free slots; all other teams are
-        // paused. automaticTeams() already restricts its pool to these teams in this mode.
-        if (self::activeRegistrationTeams() !== []) {
-            $least = null;
-            $leastCount = null;
-            foreach ($this->automaticTeams($family, exclude: $exclude ?? 0) as $team) {
-                $count = $this->devicesThisYear($team);
-                if ($least === null || $count < $leastCount) {
-                    [$least, $leastCount] = [$team, $count];
-                }
-            }
+        $candidates = $this->automaticTeams($family, exclude: $exclude ?? 0);
 
-            return $least;
-        }
-
-        $limit = (int) config('storefront.apple.instant_device_limit');
-        if ($limit <= 0) {
-            return null;
-        }
-
-        if ($longPlan) {
-            foreach ($this->automaticTeams($family, exclude: $exclude ?? 0, reserved: true) as $team) {
-                if ($this->devicesThisYear($team) < $limit) {
-                    return $team;
-                }
-            }
-        }
-
-        // Teams still under the limit, and the primary team, are kept for later: every new
-        // device goes to the least-loaded team already past the limit.
-        if (config('storefront.apple.preserve_fresh_teams')) {
-            $least = null;
-            $leastCount = null;
-            foreach ($this->automaticTeams($family, exclude: $exclude ?? 0) as $team) {
-                $count = $this->devicesThisYear($team);
-                if ($team->is_primary || $count < $limit) {
-                    continue;
-                }
-                if ($least === null || $count < $leastCount) {
-                    [$least, $leastCount] = [$team, $count];
-                }
-            }
-            if ($least !== null) {
-                return $least;
-            }
-        }
-
+        // The primary team counts too, even without its own Ru App Store variant.
         $primary = AppleTeam::primary();
-        $candidates = [];
         if ($primary !== null && $primary->id !== $exclude
+            && ! in_array($primary->id, array_map(fn (AppleTeam $team) => $team->id, $candidates), true)
             && in_array($primary->status, [AppleTeamStatus::Active, AppleTeamStatus::Expiring], true)
             && $this->apple->isConfigured($primary) && ($year = $primary->currentMembershipYear()) !== null) {
             $quota = TeamQuota::query()->firstOrCreate(
@@ -206,27 +158,14 @@ class TeamSelector
                 $candidates[] = $primary;
             }
         }
-        foreach ($this->automaticTeams($family, exclude: $exclude ?? 0) as $team) {
-            if ($team->id !== $primary?->id) {
-                $candidates[] = $team;
-            }
-        }
+        usort($candidates, fn (AppleTeam $a, AppleTeam $b) => [! $a->is_primary, $a->id] <=> [! $b->is_primary, $b->id]);
 
-        $counts = [];
-        foreach ($candidates as $team) {
-            $counts[$team->id] = $this->devicesThisYear($team);
-            if ($counts[$team->id] < $limit) {
-                return $team;
-            }
-        }
-
-        // Every team is past the limit, so each new device waits wherever it
-        // goes: spread the wait by giving it to the team with the fewest
-        // devices this year (the primary first on a tie).
         $least = null;
+        $leastCount = null;
         foreach ($candidates as $team) {
-            if ($least === null || $counts[$team->id] < $counts[$least->id]) {
-                $least = $team;
+            $count = $this->devicesThisYear($team);
+            if ($least === null || $count < $leastCount) {
+                [$least, $leastCount] = [$team, $count];
             }
         }
 
@@ -248,24 +187,15 @@ class TeamSelector
     }
 
     /**
-     * Configured variants are ordered by team creation, giving each team its
-     * full block before the next is considered. $reserved picks the long-plan
-     * teams instead of the shared ones.
+     * Teams with a configured variant and free slots for the family, in creation order.
      *
      * @return list<AppleTeam>
      */
-    private function automaticTeams(string $family, int $exclude, bool $reserved = false): array
+    private function automaticTeams(string $family, int $exclude): array
     {
-        $active = self::activeRegistrationTeams();
         $teams = AppleTeam::query()
             ->whereIn('status', [AppleTeamStatus::Active->value, AppleTeamStatus::Expiring->value])
             ->whereKeyNot($exclude)
-            // A fixed active set overrides the long-plan split: everyone shares these teams.
-            ->when($active !== [],
-                fn ($query) => $query->whereIn('apple_team_id', $active),
-                fn ($query) => $query->when($reserved,
-                    fn ($q) => $q->whereIn('apple_team_id', self::longPlanTeams()),
-                    fn ($q) => $q->whereNotIn('apple_team_id', self::longPlanTeams())))
             ->whereNotNull('storefront_app_id')
             ->with(['activeCredential', 'storefrontApp.publishedArtifact'])
             ->orderBy('id')
@@ -311,13 +241,9 @@ class TeamSelector
         $bundle = $storefront?->publishedArtifact()->value('bundle_identifier');
         $candidates = [];
 
-        $active = self::activeRegistrationTeams();
         $teams = AppleTeam::query()
             ->whereIn('status', [AppleTeamStatus::Active->value, AppleTeamStatus::Expiring->value])
             ->when($exclude !== null, fn ($query) => $query->whereKeyNot($exclude))
-            ->when($active !== [],
-                fn ($query) => $query->whereIn('apple_team_id', $active),
-                fn ($query) => $query->whereNotIn('apple_team_id', self::longPlanTeams()))
             ->with('activeCredential')
             ->orderBy('id')
             ->get();
@@ -345,23 +271,6 @@ class TeamSelector
         usort($candidates, fn (array $a, array $b) => $b[1] <=> $a[1]);
 
         return $candidates;
-    }
-
-    /** @return list<string> */
-    private static function longPlanTeams(): array
-    {
-        return (array) config('storefront.apple.long_plan_teams', []);
-    }
-
-    /**
-     * When non-empty, the only Apple teams that accept new device registrations (least-loaded
-     * first); every other team is paused. Overrides the long-plan and preserve-fresh routing.
-     *
-     * @return list<string>
-     */
-    private static function activeRegistrationTeams(): array
-    {
-        return (array) config('storefront.apple.active_registration_teams', []);
     }
 
     private function move(DeviceRegistration $registration, Status $to, string $reason, string $message): void

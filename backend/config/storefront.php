@@ -60,21 +60,8 @@ return [
         'device_limit_per_family' => (int) env('STOREFRONT_APPLE_DEVICE_LIMIT', 100),
         // A new or recently renewed membership has Apple enable only its first 10 iOS devices at
         // registration; the rest wait 24–72 hours (developer.apple.com/help/account/reference/device-registration-updates).
-        // New devices go to a team still under this count. 0 turns the routing off. A device
-        // already registered stays where it is: a second team would take a second paid slot.
+        // Shown on the admin teams card (ready vs. waiting); routing always picks the least-loaded team.
         'instant_device_limit' => (int) env('STOREFRONT_APPLE_INSTANT_DEVICE_LIMIT', 10),
-        // Keep the primary team and every team under instant_device_limit for later: new devices
-        // go to the least-loaded team already past the limit (falls back to the rules above when
-        // there is none). Long-plan buyers still get their reserved teams.
-        'preserve_fresh_teams' => (bool) env('STOREFRONT_APPLE_PRESERVE_FRESH_TEAMS', false),
-        // Apple team IDs whose instant slots go only to buyers of a plan longer than
-        // long_plan_min_days; other devices never land on them.
-        'long_plan_teams' => array_values(array_filter(array_map('trim', explode(',', (string) env('STOREFRONT_APPLE_LONG_PLAN_TEAMS', ''))))),
-        'long_plan_min_days' => (int) env('STOREFRONT_APPLE_LONG_PLAN_MIN_DAYS', 31),
-        // When set, EVERY new device registration (any plan length) goes only to these Apple
-        // teams, to the least-loaded one with free slots; all other teams are paused for new
-        // registrations (devices already on them stay). Overrides long_plan/preserve_fresh routing.
-        'active_registration_teams' => array_values(array_filter(array_map('trim', explode(',', (string) env('STOREFRONT_APPLE_ACTIVE_REGISTRATION_TEAMS', ''))))),
         // Ruby with fastlane, for App Groups through the developer portal (AppGroupProvisioner).
         'portal_ruby' => env('STOREFRONT_APPLE_PORTAL_RUBY', 'ruby'),
     ],

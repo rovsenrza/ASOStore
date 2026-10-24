@@ -27,8 +27,8 @@ use Tests\Support\OpenApiContract;
 use Tests\Support\ScriptedApple;
 
 beforeEach(function () {
-    // The yearly limit's overflow path; routing to a team under Apple's instant limit is InstantTeamTest.
-    config(['storefront.apple.device_limit_per_family' => 1, 'storefront.apple.instant_device_limit' => 0]);
+    // The yearly limit; least-loaded routing is InstantTeamTest.
+    config(['storefront.apple.device_limit_per_family' => 1]);
     $this->apple = ScriptedApple::install();
     $this->primary = connectFakeAppleTeam();
     $this->admin = userWithRoles(RoleSlug::Admin);
@@ -53,7 +53,7 @@ function secondTeam(string $teamId = 'TEAM000002'): AppleTeam
     return $team;
 }
 
-it('automatically places device 101 on the next team with its own published Ru App Store bundle', function () {
+it('places device 101 straight on the next team with its own published Ru App Store bundle', function () {
     $firstApp = CatalogApp::factory()->create(['is_storefront' => true]);
     AppArtifact::factory()->for($firstApp, 'app')->create([
         'status' => ArtifactStatus::Published,
@@ -74,15 +74,12 @@ it('automatically places device 101 on the next team with its own published Ru A
 
     $customer = subscribedCustomer();
     $overflow = ($this->enrol)('00008030-0000000000000002', $customer);
-    $assigned = $overflow->device->latestRegistration;
 
-    expect($overflow->status)->toBe(Status::QuotaBlocked)
-        ->and($overflow->status_reason)->toBe('AUTO_SWITCHED')
-        ->and($assigned->apple_team_id)->toBe($second->id)
-        ->and($assigned->status)->toBe(Status::Eligible)
-        ->and(TeamAssignment::sole()->status)->toBe('APPROVED')
-        ->and(TeamAssignment::sole()->decided_by)->toBeNull()
-        ->and(AuditLog::where('action', 'team.assignment.auto_approved')->count())->toBe(1);
+    // The full primary is skipped up front, so no switch is needed.
+    expect($overflow->apple_team_id)->toBe($second->id)
+        ->and($overflow->status)->toBe(Status::Eligible)
+        ->and($overflow->device->registrations()->count())->toBe(1)
+        ->and(TeamAssignment::count())->toBe(0);
 
     $installation = Installation::create([
         'user_id' => $customer->id, 'device_id' => $overflow->device_id,

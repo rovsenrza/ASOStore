@@ -503,7 +503,7 @@ export default {
     onRunner: 'на сервере подписи',
     notOnRunner: 'нет на сервере подписи',
     profiles: 'Профили: {active}, истекают скоро: {soon}',
-    role: { PRIMARY: 'Основная', OVERFLOW: 'Дополнительная', LONG_PLAN: 'Для тарифов от 3 месяцев' },
+    role: { PRIMARY: 'Основная', OVERFLOW: 'Дополнительная' },
     devices: 'Устройства в этом году: готовы {ready}, ждут Apple {waiting}',
     waitingSince: 'самое долгое ожидание с {time}',
     failed: 'ошибок регистрации: {count}',

@@ -13,18 +13,14 @@ use App\Models\Device;
 use App\Models\DeviceRegistration;
 use App\Models\MembershipYear;
 use App\Models\TeamQuota;
-use App\Models\User;
 use App\Notifications\DeviceReadyNotification;
-use App\Services\Activation\ActivationCodeService;
 use App\Services\Apple\AppleDevice;
 use App\Services\Devices\DeviceRegistrationService;
 use Illuminate\Support\Facades\Notification;
 use Tests\Support\ScriptedApple;
 
-// Apple enables only the first devices of a new membership at once and holds the rest for
-// 24–72 hours, so new devices go to a team still under that count.
+// Every new device goes to the team with the fewest devices this membership year.
 beforeEach(function () {
-    config(['storefront.apple.instant_device_limit' => 2]);
     $this->apple = ScriptedApple::install();
     $this->primary = connectFakeAppleTeam();
     variantTeam($this->primary, 'com.bundle.app');
@@ -57,20 +53,17 @@ function variantTeam(?AppleTeam $team, string $bundle): AppleTeam
     return $team;
 }
 
-it('sends a new device to the next team once the primary is past the instant limit', function () {
-    ($this->enrol)('00008030-0000000000000001');
-    ($this->enrol)('00008030-0000000000000002');
+it('sends each new device to the team with the fewest devices, the primary first on a tie', function () {
+    $teams = array_map(fn (int $n) => ($this->enrol)('00008030-000000000000000'.$n)->apple_team_id, range(1, 4));
 
-    $third = ($this->enrol)('00008030-0000000000000003');
+    expect($teams)->toBe([$this->primary->id, $this->second->id, $this->primary->id, $this->second->id]);
 
-    expect($third->apple_team_id)->toBe($this->second->id)
-        ->and($third->status)->toBe(Status::Eligible);
-
+    $placed = DeviceRegistration::where('apple_team_id', $this->second->id)->latest('id')->first();
     // The scheduled sync must not add a primary registration for a device on another team.
     app()->call([new SyncDeviceRegistrationsJob, 'handle']);
-    expect(DeviceRegistration::where('device_id', $third->device_id)->count())->toBe(1)
+    expect(DeviceRegistration::where('device_id', $placed->device_id)->count())->toBe(1)
         // Enrolling again keeps the device where it is.
-        ->and(app(DeviceRegistrationService::class)->request($third->device)->id)->toBe($third->id);
+        ->and(app(DeviceRegistrationService::class)->request($placed->device)->id)->toBe($placed->id);
 });
 
 it('counts devices Apple lists outside the Storefront', function () {
@@ -82,68 +75,22 @@ it('counts devices Apple lists outside the Storefront', function () {
     expect(($this->enrol)('00008030-0000000000000001')->apple_team_id)->toBe($this->second->id);
 });
 
-it('keeps the primary team when routing is off or every team is past the limit', function () {
-    config(['storefront.apple.instant_device_limit' => 0]);
-    foreach (range(1, 3) as $n) {
-        expect(($this->enrol)('00008030-000000000000000'.$n)->apple_team_id)->toBe($this->primary->id);
-    }
+it('picks the least-loaded team among all teams', function () {
+    $team = function (string $id, int $onApple): AppleTeam {
+        $team = AppleTeam::create(['apple_team_id' => $id, 'name' => $id, 'status' => AppleTeamStatus::Active, 'membership_expires_at' => now()->addYear()]);
+        $year = MembershipYear::create(['apple_team_id' => $team->id, 'starts_at' => now()->subDay(), 'ends_at' => now()->addYear()]);
+        TeamQuota::create(['apple_team_id' => $team->id, 'membership_year_id' => $year->id, 'device_family' => 'IPHONE', 'limit_count' => 100, 'apple_registered_count' => $onApple]);
 
-    config(['storefront.apple.instant_device_limit' => 3]);
-    expect(($this->enrol)('00008030-0000000000000004')->apple_team_id)->toBe($this->second->id);
-    expect(($this->enrol)('00008030-0000000000000005')->apple_team_id)->toBe($this->second->id);
-    expect(($this->enrol)('00008030-0000000000000006')->apple_team_id)->toBe($this->second->id);
-    expect(($this->enrol)('00008030-0000000000000007')->apple_team_id)->toBe($this->primary->id);
-});
-
-it('gives the team with the fewest devices each new device once every team is past the limit', function () {
-    config(['storefront.apple.instant_device_limit' => 0]);
-    foreach (range(1, 4) as $n) {
-        ($this->enrol)('00008030-000000000000000'.$n);
-    }
-
-    // Primary 4, second 0: the second catches up first, then they alternate.
-    config(['storefront.apple.instant_device_limit' => 1]);
-    $teams = array_map(fn (int $n) => ($this->enrol)('00008030-000000000000001'.$n)->apple_team_id, range(1, 6));
-
-    expect($teams)->toBe([
-        $this->second->id, $this->second->id, $this->second->id, $this->second->id,
-        $this->primary->id, $this->second->id,
-    ]);
-});
-
-it('gives long-plan teams only to buyers of more than a month, and only under the limit', function () {
-    $reserved = AppleTeam::create(['apple_team_id' => 'TEAM000003', 'name' => 'Reserved', 'status' => AppleTeamStatus::Active, 'membership_expires_at' => now()->addYear()]);
-    MembershipYear::create(['apple_team_id' => $reserved->id, 'starts_at' => now()->subDay(), 'ends_at' => now()->addYear()]);
-    variantTeam($reserved, 'com.bundle3.app');
-    config(['storefront.apple.long_plan_teams' => ['TEAM000003'], 'storefront.apple.instant_device_limit' => 1]);
-    $codes = app(ActivationCodeService::class);
-    $buyer = function (int $days) use ($codes): User {
-        $user = User::factory()->create();
-        $codes->redeem($user, $codes->generate($user, 1, 'standard', $days, null, 'test')['codes'][0]);
-
-        return $user;
+        return variantTeam($team, "com.{$id}.app");
     };
-    $enrolFor = function (?User $user, string $udid): DeviceRegistration {
-        $device = Device::factory()->make(['device_family' => DeviceFamily::Iphone] + ($user ? ['user_id' => $user->id] : []));
-        $device->setUdid($udid);
-        $device->enrolled_at = now();
-        $device->save();
-        $registration = app(DeviceRegistrationService::class)->request($device);
-        app(DeviceRegistrationService::class)->register($registration);
+    foreach ([$this->primary, $this->second] as $busy) {
+        TeamQuota::create(['apple_team_id' => $busy->id, 'membership_year_id' => $busy->currentMembershipYear()->id, 'device_family' => 'IPHONE', 'limit_count' => 100, 'apple_registered_count' => 60]);
+    }
+    $team('TEAM000003', 50);
+    $lightest = $team('TEAM000004', 46);
+    $team('TEAM000005', 55);
 
-        return $registration->refresh();
-    };
-
-    // A one-month buyer never lands on the reserved team, even when every shared team is full.
-    $monthly = $buyer(30);
-    expect($enrolFor($monthly, '00008030-0000000000000001')->apple_team_id)->toBe($this->primary->id)
-        ->and($enrolFor($monthly, '00008030-0000000000000002')->apple_team_id)->toBe($this->second->id)
-        ->and($enrolFor($monthly, '00008030-0000000000000003')->apple_team_id)->not->toBe($reserved->id);
-
-    // A six-month buyer takes the reserved slot; once it is used, the shared rules apply.
-    $long = $buyer(180);
-    expect($enrolFor($long, '00008030-0000000000000004')->apple_team_id)->toBe($reserved->id)
-        ->and($enrolFor($long, '00008030-0000000000000005')->apple_team_id)->not->toBe($reserved->id);
+    expect(($this->enrol)('00008030-0000000000000001')->apple_team_id)->toBe($lightest->id);
 });
 
 it('keeps a device Apple is processing on its team, however long it waits', function () {
@@ -181,48 +128,4 @@ it('never registers a device with a second team in the same membership year', fu
     expect($second->fresh())->status->toBe(Status::AppleFailed)->status_reason->toBe('DEVICE_ON_OTHER_TEAM')
         ->and($this->apple->calls)->toBe([])
         ->and(TeamQuota::where('apple_team_id', $this->second->id)->get()->sum(fn (TeamQuota $quota) => $quota->registeredCount()))->toBe(0);
-});
-
-it('keeps the primary and teams under the limit for later, and fills the least-loaded team past it', function () {
-    config(['storefront.apple.preserve_fresh_teams' => true, 'storefront.apple.instant_device_limit' => 2]);
-    $team = function (string $id, string $bundle, int $onApple): AppleTeam {
-        $team = AppleTeam::create(['apple_team_id' => $id, 'name' => $id, 'status' => AppleTeamStatus::Active, 'membership_expires_at' => now()->addYear()]);
-        $year = MembershipYear::create(['apple_team_id' => $team->id, 'starts_at' => now()->subDay(), 'ends_at' => now()->addYear()]);
-        TeamQuota::create(['apple_team_id' => $team->id, 'membership_year_id' => $year->id, 'device_family' => 'IPHONE', 'limit_count' => 100, 'apple_registered_count' => $onApple]);
-
-        return variantTeam($team, "com.{$id}.app");
-    };
-    $busy = $team('TEAM000003', 'busy', 9);
-    $lighter = $team('TEAM000004', 'lighter', 4);
-    $fresh = $team('TEAM000005', 'fresh', 1);
-
-    $first = ($this->enrol)('00008030-0000000000000001');
-    $second = ($this->enrol)('00008030-0000000000000002');
-
-    // The primary, the second team (0 devices) and the fresh team are left alone.
-    expect($first->apple_team_id)->toBe($lighter->id)
-        ->and($second->apple_team_id)->toBe($lighter->id)
-        ->and(DeviceRegistration::whereIn('apple_team_id', [$this->primary->id, $this->second->id, $fresh->id, $busy->id])->count())->toBe(0);
-});
-
-it('routes every new device to the least-loaded active-registration team and pauses the rest', function () {
-    // Pick the least-loaded of these three, regardless of plan length or the instant limit.
-    config(['storefront.apple.active_registration_teams' => ['TEAM000003', 'TEAM000004', 'TEAM000005'],
-            'storefront.apple.instant_device_limit' => 2]);
-    $team = function (string $id, string $bundle, int $onApple): AppleTeam {
-        $team = AppleTeam::create(['apple_team_id' => $id, 'name' => $id, 'status' => AppleTeamStatus::Active, 'membership_expires_at' => now()->addYear()]);
-        $year = MembershipYear::create(['apple_team_id' => $team->id, 'starts_at' => now()->subDay(), 'ends_at' => now()->addYear()]);
-        TeamQuota::create(['apple_team_id' => $team->id, 'membership_year_id' => $year->id, 'device_family' => 'IPHONE', 'limit_count' => 100, 'apple_registered_count' => $onApple]);
-
-        return variantTeam($team, "com.{$id}.app");
-    };
-    $team('TEAM000003', 'aaa', 9);
-    $team('TEAM000004', 'bbb', 4);
-    $lightest = $team('TEAM000005', 'ccc', 3); // least loaded, though all are past the instant limit
-
-    $first = ($this->enrol)('00008030-0000000000000001');
-
-    // Goes to the least-loaded active team, not the fresh primary/second (which are paused).
-    expect($first->apple_team_id)->toBe($lightest->id)
-        ->and(DeviceRegistration::whereIn('apple_team_id', [$this->primary->id, $this->second->id])->count())->toBe(0);
 });

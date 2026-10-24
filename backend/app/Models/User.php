@@ -124,21 +124,6 @@ class User extends Authenticatable
     }
 
     /**
-     * Whether a running subscription came from a code longer than a month
-     * (or an unlimited one). Such buyers get the reserved instant teams.
-     */
-    public function hasLongPlan(): bool
-    {
-        return $this->subscriptions()
-            ->where('status', SubscriptionStatus::Active->value)
-            ->where('starts_at', '<=', now())
-            ->where(fn (Builder $end) => $end->whereNull('ends_at')->orWhere('ends_at', '>', now()))
-            ->whereHas('activationCode', fn (Builder $code) => $code->whereNull('duration_days')
-                ->orWhere('duration_days', '>', (int) config('storefront.apple.long_plan_min_days')))
-            ->exists();
-    }
-
-    /**
      * The most recently enrolled device.
      *
      * @return HasOne<Device, $this>

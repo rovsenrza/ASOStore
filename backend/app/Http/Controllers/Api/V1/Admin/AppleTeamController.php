@@ -211,7 +211,7 @@ class AppleTeamController extends Controller
             'credential' => $credential ? ['key_id' => $credential->key_id, 'issuer_id' => $credential->issuer_id, 'last_verified_at' => $credential->last_verified_at?->toIso8601ZuluString()] : null,
             'membership_year' => $year ? ['starts_at' => $year->starts_at->toIso8601ZuluString(), 'ends_at' => $year->ends_at->toIso8601ZuluString()] : null,
             'quotas' => $this->quotas->summary($team),
-            'role' => $team->is_primary ? 'PRIMARY' : (in_array($team->apple_team_id, (array) config('storefront.apple.long_plan_teams', []), true) ? 'LONG_PLAN' : 'OVERFLOW'),
+            'role' => $team->is_primary ? 'PRIMARY' : 'OVERFLOW',
             'devices' => $this->devices($team, $year?->id),
             'eligibility_count' => TeamAppEligibility::query()->where(['apple_team_id' => $team->id, 'status' => 'APPROVED'])->count(),
             'certificates' => Certificate::query()->where('apple_team_id', $team->id)->orderBy('expires_at')->get()->map(fn (Certificate $certificate) => [

@@ -25,8 +25,8 @@ use Throwable;
 
 /**
  * Registers enrolled devices with an Apple team (IMPLEMENTATION_PLAN P3-BE-02,
- * P7-BE-02/03). New devices go to the first team where Apple enables them at
- * once (TeamSelector::instantTeam), else to the primary team, and stay on that
+ * P7-BE-02/03). New devices go to the team with the fewest devices
+ * (TeamSelector::instantTeam), else to the primary team, and stay on that
  * one team: a device never takes a second team's slot. A slot is reserved under a
  * row lock on the team's quota row (QuotaService), so concurrent registrations
  * can never exceed the per-family limit. At the limit, a fully configured
@@ -49,8 +49,8 @@ class DeviceRegistrationService
 
     /**
      * The device's registration for this membership year, created if needed:
-     * on a team where Apple enables the device at once, else on the primary
-     * team. Null until a team is connected.
+     * on the least-loaded team, else on the primary team. Null until a team is
+     * connected.
      */
     public function request(Device $device): ?DeviceRegistration
     {
@@ -64,13 +64,7 @@ class DeviceRegistrationService
             return $current;
         }
 
-        $longPlan = $device->user?->hasLongPlan() ?? false;
-        $team = $this->selector->instantTeam($device->device_family->value, longPlan: $longPlan);
-        // With a fixed active-registration set, other teams (incl. the primary) are paused: when
-        // none of the active teams has a free slot, the device waits instead of landing elsewhere.
-        if ($team === null && (array) config('storefront.apple.active_registration_teams', []) === []) {
-            $team = AppleTeam::primary();
-        }
+        $team = $this->selector->instantTeam($device->device_family->value) ?? AppleTeam::primary();
         $year = $team?->currentMembershipYear();
         if ($team === null || $year === null) {
             return null;
