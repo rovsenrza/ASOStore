@@ -28,6 +28,7 @@
 #import <CallKit/CallKit.h>
 #import <AVFoundation/AVFoundation.h>
 #import <BackgroundTasks/BackgroundTasks.h>
+#import <LocalAuthentication/LocalAuthentication.h>
 #import <objc/runtime.h>
 #import <dispatch/dispatch.h>
 
@@ -395,6 +396,31 @@ static void MySetRegistryDelegate(id self, SEL _cmd, id delegate) {
     } @catch (__unused id e) {}
 }
 
+// ---- Face-ID loop fix (login + app-lock) ------------------------------------------------------
+// VK uses Face ID for both its app-lock AND its saved-account login ("Продолжить"): the credential/
+// unlock token lives in a biometric-protected keychain item under VK's ORIGINAL access group, which
+// a re-signed build can't read back, so every biometry attempt fails and VK re-prompts Face ID
+// forever (login never completes; the app-lock never unlocks). Report biometry as UNAVAILABLE for
+// the whole VK process, so VK skips Face ID and uses normal password/SMS login and no lock — no loop.
+// The device's own Face ID/passcode still protects the phone.
+// Fail every biometry EVALUATION instantly (reply NO, biometryNotAvailable) without ever showing
+// Face ID. We hook evaluatePolicy rather than canEvaluatePolicy because VK's login helper, when
+// canEvaluatePolicy is NO, returns without calling its completion → the login spinner would hang;
+// failing the evaluation instead delivers a result, so VK cleanly falls back to normal login.
+typedef void (*EvalIMP)(id, SEL, LAPolicy, NSString *, void (^)(BOOL, NSError *));
+static void MyEvaluatePolicy(__unused id self, __unused SEL _cmd, __unused LAPolicy policy,
+                             __unused NSString *reason, void (^reply)(BOOL, NSError *)) {
+    if (!reply) return;
+    NSError *e = [NSError errorWithDomain:@"com.apple.LocalAuthentication" code:-6 /* LAErrorBiometryNotAvailable */ userInfo:nil];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ reply(NO, e); });
+}
+static void HookBiometrics(void) {
+    Class la = objc_getClass("LAContext");
+    if (!la) return;
+    Method m = class_getInstanceMethod(la, @selector(evaluatePolicy:localizedReason:reply:));
+    if (m) method_setImplementation(m, (IMP)MyEvaluatePolicy);
+}
+
 static void HookVoip(void) {
     Method m = class_getInstanceMethod([PKPushRegistry class], @selector(setDelegate:));
     if (!m) return;
@@ -512,6 +538,7 @@ __attribute__((constructor))
 static void VKRelayInit(void) {
     gQueue = dispatch_queue_create("vkrelay", DISPATCH_QUEUE_SERIAL);
     BridgeBGTasks();  // must run before UIApplicationMain sets the delegate / VK registers its tasks
+    HookBiometrics();  // stop the re-sign Face-ID loop in VK login + app-lock
     HookVoip();
 
 #ifdef VKDUMP

@@ -3,7 +3,7 @@
 SDK   := iphoneos
 CLANG := xcrun --sdk $(SDK) clang
 OUT   := VKRelay.dylib
-FRAMEWORKS := -framework Foundation -framework UIKit -framework PushKit -framework CallKit -framework BackgroundTasks -framework Security -framework AVFoundation
+FRAMEWORKS := -framework Foundation -framework UIKit -framework PushKit -framework CallKit -framework BackgroundTasks -framework Security -framework AVFoundation -framework LocalAuthentication
 CFLAGS     := -arch arm64 -arch arm64e -miphoneos-version-min=13.0 -fobjc-arc -O2 -fvisibility=hidden -Wall
 
 $(OUT): VKRelay.m
