@@ -37,6 +37,7 @@ static NSSet<NSString *> *gKeychainGroups;    // Keychain groups this signature 
 static NSString *gOriginalBundleID;           // Vendor's bundle ID, when the signer recorded it.
 static NSBundle *gMainBundle;
 static NSDictionary *gSpoofedInfo;
+static BOOL gIsVK;                            // ВКонтакте process: suppress keychain biometry prompts.
 
 static void RSLog(NSString *format, ...) {
 #ifdef RUSTORE_COMPAT_DEBUG
@@ -201,10 +202,33 @@ static OSStatus rs_SecItemAdd(CFDictionaryRef query, CFTypeRef *result) {
     if (r) CFRelease(r);
     return status;
 }
+// ВКонтакте never used Face ID, yet a re-signed build can hold a login/app-lock keychain item
+// whose access-control still demands biometry; VK reads it directly (not via its biometry provider,
+// so the SAKBiometryInfoProvider hooks cannot stop it), and every read makes iOS put up Face ID —
+// the endless prompt customers report. For VK ONLY, on READS ONLY, tell the keychain to skip
+// auth-requiring items instead of prompting (kSecUseAuthenticationUISkip); VK falls back to normal
+// password/SMS login and no Face ID is shown. Two hard limits learned the hard way:
+//   1. READS ONLY — never add/update/delete. UISkip on the write path broke VK photo upload.
+//   2. NEVER touch the session token (com.vk.passepartout.authorizedUserSession*). It is NOT
+//      biometric and VK/photo upload read it constantly; skipping or altering it breaks uploads.
+// Every other app is untouched (banking apps keep real biometry). Returns a retained copy, or NULL.
+static CFDictionaryRef RSVKSkipAuthUIForRead(CFDictionaryRef base) {
+    if (!gIsVK || base == NULL) return NULL;
+    NSDictionary *q = (__bridge NSDictionary *)base;
+    if (q[(__bridge id)kSecUseAuthenticationUI] != nil) return NULL; // caller was explicit; respect it
+    id svc = q[(__bridge id)kSecAttrService];
+    if ([svc isKindOfClass:NSString.class] && [svc hasPrefix:@"com.vk.passepartout"]) return NULL; // token: leave alone
+    NSMutableDictionary *m = [q mutableCopy];
+    m[(__bridge id)kSecUseAuthenticationUI] = (__bridge id)kSecUseAuthenticationUISkip;
+    return (CFDictionaryRef)CFBridgingRetain(m);
+}
+
 static OSStatus rs_SecItemCopyMatching(CFDictionaryRef query, CFTypeRef *result) {
     CFDictionaryRef r = RSRewriteQuery(query);
-    OSStatus status = orig_SecItemCopyMatching(r ?: query, result);
+    CFDictionaryRef skip = RSVKSkipAuthUIForRead(r ?: query);
+    OSStatus status = orig_SecItemCopyMatching(skip ?: r ?: query, result);
     RSTrace("copy", query, r != NULL, status);
+    if (skip) CFRelease(skip);
     if (r) CFRelease(r);
     return status;
 }
@@ -397,7 +421,12 @@ static void RuStoreCompatInit(void) {
             && ![original isEqualToString:gMainBundle.bundleIdentifier]) {
             gOriginalBundleID = [original copy];
         }
-        RSLog(@"groups=%@ primary=%@ team=%@ original=%@", gRealGroups, gPrimaryGroup, gTeamPrefix, gOriginalBundleID);
+        // VK client? Executable is "VKClient" whatever bundle we re-signed under; also honour a
+        // recorded vendor bundle com.vk.vkclient*. Used only to skip keychain biometry on reads.
+        NSString *exe = [gMainBundle objectForInfoDictionaryKey:@"CFBundleExecutable"];
+        gIsVK = ([exe isKindOfClass:NSString.class] && [exe isEqualToString:@"VKClient"])
+            || (gOriginalBundleID != nil && [gOriginalBundleID hasPrefix:@"com.vk.vkclient"]);
+        RSLog(@"groups=%@ primary=%@ team=%@ original=%@ isVK=%d", gRealGroups, gPrimaryGroup, gTeamPrefix, gOriginalBundleID, gIsVK);
         // Before the bundle hooks below, so the report names our real bundle ID.
         RSTelemetryStart(gOriginalBundleID);
 
