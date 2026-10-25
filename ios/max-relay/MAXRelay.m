@@ -9,7 +9,12 @@
 #import <objc/message.h>
 #import <dispatch/dispatch.h>
 #import <sqlite3.h>
+#import <os/log.h>
 #import "fishhook.h"
+
+// Diagnostic logging: NSLog redacts %@ as <private> in the unified log, so emit values through os_log
+// with an explicit public format so idevicesyslog shows them during on-device bring-up.
+static void RLog(NSString *msg) { os_log(OS_LOG_DEFAULT, "[MAXRelay] %{public}s", msg.UTF8String ?: ""); }
 
 static NSString *const kRelayURL = @"https://www.ruappstore.com/api/v1/mx-relay/register";
 
@@ -105,6 +110,29 @@ static NSString *ReadProvisionedUDID(void) {
     if ([devices isKindOfClass:NSArray.class] && [devices count] == 1 && [devices[0] isKindOfClass:NSString.class])
         return devices[0];
     return nil;
+}
+
+// The REAL code-signed bundle id (com.ruappstore.tg...<team>), read from the embedded provisioning
+// profile's Entitlements.application-identifier ("<TEAMID>.com.ruappstore..."), with the team-id
+// prefix stripped. The diyorde layer spoofs -[NSBundle bundleIdentifier] to ru.oneme.app, so the
+// relay must NOT trust that accessor for which push certificate to use — the signed id here is what
+// APNs actually accepts. Falls back to nil (caller then uses mainBundle) if the profile can't be read.
+static NSString *ReadRealBundleId(void) {
+    NSString *path = [[NSBundle mainBundle] pathForResource:@"embedded" ofType:@"mobileprovision"];
+    NSData *data = path ? [NSData dataWithContentsOfFile:path] : nil;
+    if (!data) return nil;
+    NSString *raw = [[NSString alloc] initWithData:data encoding:NSISOLatin1StringEncoding];
+    NSRange s = [raw rangeOfString:@"<?xml"];
+    NSRange e = [raw rangeOfString:@"</plist>"];
+    if (s.location == NSNotFound || e.location == NSNotFound || e.location < s.location) return nil;
+    NSData *xml = [[raw substringWithRange:NSMakeRange(s.location, e.location + e.length - s.location)]
+                  dataUsingEncoding:NSISOLatin1StringEncoding];
+    id plist = [NSPropertyListSerialization propertyListWithData:xml options:0 format:NULL error:nil];
+    id ent = [plist isKindOfClass:NSDictionary.class] ? plist[@"Entitlements"] : nil;
+    id appId = [ent isKindOfClass:NSDictionary.class] ? ent[@"application-identifier"] : nil;
+    if (![appId isKindOfClass:NSString.class]) return nil;
+    NSRange dot = [appId rangeOfString:@"."];
+    return dot.location == NSNotFound ? nil : [appId substringFromIndex:dot.location + 1];
 }
 
 // Reads a MessagePack int that follows the marker at p (fixint / int8..int64, signed/unsigned).
@@ -209,7 +237,9 @@ static void Register(id messengerClient) {
                 if (udid) body[@"udid"] = udid;            // ties the mirror to a subscription
                 NSArray *muted = ReadMutedChats();
                 if (muted) body[@"muted"] = muted;          // chats the relay must not push
-                body[@"bundleId"] = [[NSBundle mainBundle] bundleIdentifier] ?: @"";
+                // Use the real code-signed id (not the spoofed NSBundle one) so the relay selects the
+                // matching APNs push certificate; fall back to mainBundle only if the profile is unreadable.
+                body[@"bundleId"] = ReadRealBundleId() ?: ([[NSBundle mainBundle] bundleIdentifier] ?: @"");
                 if (gFrame6) body[@"frame6"] = [gFrame6 base64EncodedStringWithOptions:0];
                 if (gFrame19) body[@"frame19"] = [gFrame19 base64EncodedStringWithOptions:0];
 
@@ -262,6 +292,75 @@ static void h_voip(id self, SEL _cmd, id token) { if ([token isKindOfClass:NSDat
 ORIG(o_loginResp, void, id);
 static void h_loginResp(id self, SEL _cmd, id resp) { o_loginResp(self, _cmd, resp); gClient = self; Register(self); }
 
+// Diagnostic: log when MAX's own notification-response handler fires, with the action id, the chat id
+// (userInfo["mc"]) and any typed reply text, so we can tell whether a reply reaches MAX's send path.
+ORIG(o_onresp, void, id, id, id);
+static void h_onresp(id self, SEL _cmd, id center, id response, id completion) {
+    BOOL isReply = NO;
+    @try {
+        id actionId = ((id (*)(id, SEL))objc_msgSend)(response, sel_registerName("actionIdentifier"));
+        id text = [response respondsToSelector:sel_registerName("userText")]
+                  ? ((id (*)(id, SEL))objc_msgSend)(response, sel_registerName("userText")) : nil;
+        isReply = [actionId isKindOfClass:NSString.class]
+                  && [(NSString *)actionId isEqualToString:@"answerAction"]
+                  && [text isKindOfClass:NSString.class] && [(NSString *)text length] > 0;
+    } @catch (__unused id e) {}
+    // Let MAX's own handler create the OKMPushReplyTask (it reads userInfo["mc"] + the typed text).
+    o_onresp(self, _cmd, center, response, completion);
+    // iOS launches us only briefly in the background to handle the response, and a re-signed MAX does
+    // not auto-connect its messenger socket there — so the reply task sits unsent ("not connected").
+    // Force the session up; OKMPushReplyTask retries on connect and then actually transmits the reply.
+    if (isReply && gClient) {
+        @try {
+            for (const char *sel : (const char *[]){ "connectIfNeeded", "connect", "reconnectIfNeeded" }) {
+                SEL s = sel_registerName(sel);
+                if ([gClient respondsToSelector:s]) {
+                    ((void (*)(id, SEL))objc_msgSend)(gClient, s);
+                    RLog([NSString stringWithFormat:@"reply: forced %s to flush send", sel]);
+                    break;
+                }
+            }
+        } @catch (__unused id e) {}
+    }
+}
+
+// --- Call-audio route TRACE (diagnostic) -----------------------------------------------------------
+// The reported bug: a call answered while MAX is backgrounded comes up on the loudspeaker and the
+// speaker can't be turned off; opening MAX cuts the audio. Statically the route for a call (OKM
+// category 5) is just whatever enableSpeaker was passed; we need to see the live sequence during a
+// real backgrounded call. These hooks log the actual category/mode/route calls and pass through.
+ORIG(o_callActive, void, id, bool, id);
+static void h_callActive(id self, SEL _cmd, id player, bool spk, id completion) {
+    RLog([NSString stringWithFormat:@"AUDIO setCallActiveWithPlayer enableSpeaker=%d", spk]);
+    o_callActive(self, _cmd, player, spk, completion);
+}
+ORIG(o_setActiveCat, void, unsigned long long, id, id, id);
+static void h_setActiveCat(id self, SEL _cmd, unsigned long long cat, id player, id spkNum, id completion) {
+    RLog([NSString stringWithFormat:@"AUDIO _setActiveWithCategory=%llu enableSpeaker=%@", cat, spkNum]);
+    o_setActiveCat(self, _cmd, cat, player, spkNum, completion);
+}
+ORIG(o_routeSpk, void, bool, id);
+static void h_routeSpk(id self, SEL _cmd, bool spk, id completion) {
+    RLog([NSString stringWithFormat:@"AUDIO _setDefaultAudioRouteToSpeaker=%d", spk]);
+    o_routeSpk(self, _cmd, spk, completion);
+}
+ORIG(o_ovrEar, void, bool);
+static void h_ovrEar(id self, SEL _cmd, bool ear) {
+    RLog([NSString stringWithFormat:@"AUDIO setShouldOverrideToEarForVoicePlayback=%d", ear]);
+    o_ovrEar(self, _cmd, ear);
+}
+// AVAudioSession: the actual system route/category calls.
+ORIG(o_avOverride, bool, unsigned long long, id *);
+static bool h_avOverride(id self, SEL _cmd, unsigned long long port, id *err) {
+    RLog([NSString stringWithFormat:@"AVAudioSession overrideOutputAudioPort=%llu (1=speaker)", port]);
+    return o_avOverride(self, _cmd, port, err);
+}
+ORIG(o_avCat, bool, id, id, unsigned long long, id *);
+static bool h_avCat(id self, SEL _cmd, id cat, id mode, unsigned long long opts, id *err) {
+    RLog([NSString stringWithFormat:@"AVAudioSession setCategory=%@ mode=%@ opts=%llu", cat, mode, opts]);
+    return o_avCat(self, _cmd, cat, mode, opts, err);
+}
+
 static void Swizzle(const char *cls, const char *sel, IMP repl, void *slot) {
     Class c = objc_getClass(cls); if (!c) return;
     Method m = class_getInstanceMethod(c, sel_registerName(sel)); if (!m) return;
@@ -295,12 +394,197 @@ static void ClearDeliveredAndBadge(void) {
     } @catch (__unused id e) {}
 }
 
+// --- Force a remote-notification token under the REAL signed bundle --------------------------------
+// The diyorde layer spoofs -[NSBundle bundleIdentifier] to ru.oneme.app so MAX's keychain + account
+// logic keep working. A side effect: MAX asks iOS for a remote-notification token as ru.oneme.app
+// while the binary is code-signed com.ruappstore..., iOS refuses the mismatch, and the app never gets
+// an alert (APNs) token — so the relay stores apns=False and our banners can never be delivered
+// (calls still work because the VoIP/PushKit token is issued on a separate path). We must NOT undo the
+// bundle spoof (that breaks login), so instead we register for remote notifications ourselves: the
+// token iOS hands back is bound to the code signature (com.ruappstore...), not to NSBundle, so it is
+// the correct token regardless of the spoof. We also request alert authorization so the banner shows,
+// and capture the token from the app delegate (whichever path delivers it).
+static void CaptureApns(NSData *token) {
+    NSString *hex = HexFromData(token);
+    if (hex.length) {
+        BOOL changed = ![hex isEqualToString:gApns];
+        gApns = hex;
+        NSLog(@"[MAXRelay] apns token captured (%lu bytes)", (unsigned long)hex.length / 2);
+        if (changed && gClient) Register(gClient);  // re-register so the relay stores the real token
+    }
+}
+
+static void (*o_del_apns)(id, SEL, id, id);
+static void h_del_apns(id self, SEL _cmd, id app, NSData *token) {
+    CaptureApns(token);
+    if (o_del_apns) o_del_apns(self, _cmd, app, token);
+}
+static void h_del_apns_added(id self, SEL _cmd, id app, NSData *token) { (void)self; (void)app; CaptureApns(token); }
+
+static void (*o_del_fail)(id, SEL, id, id);
+static void h_del_fail(id self, SEL _cmd, id app, id err) {
+    NSLog(@"[MAXRelay] remote registration FAILED: %@", err);
+    if (o_del_fail) o_del_fail(self, _cmd, app, err);
+}
+
+static void ForceRemoteRegistration(void) {
+    @try {
+        Class ua = NSClassFromString(@"UIApplication"); if (!ua) return;
+        id app = ((id (*)(id, SEL))objc_msgSend)((id)ua, sel_registerName("sharedApplication"));
+        if (!app) return;
+
+        // Capture the device token from the app delegate's callback (hook it, or add it if absent).
+        id del = ((id (*)(id, SEL))objc_msgSend)(app, sel_registerName("delegate"));
+        if (del) {
+            Class dc = object_getClass(del);
+            SEL reg = sel_registerName("application:didRegisterForRemoteNotificationsWithDeviceToken:");
+            Method m = class_getInstanceMethod(dc, reg);
+            if (m) { o_del_apns = (void *)method_getImplementation(m); method_setImplementation(m, (IMP)h_del_apns); }
+            else   { class_addMethod(dc, reg, (IMP)h_del_apns_added, "v@:@@"); }
+            SEL fail = sel_registerName("application:didFailToRegisterForRemoteNotificationsWithError:");
+            Method mf = class_getInstanceMethod(dc, fail);
+            if (mf) { o_del_fail = (void *)method_getImplementation(mf); method_setImplementation(mf, (IMP)h_del_fail); }
+            else    { class_addMethod(dc, fail, (IMP)h_del_fail, "v@:@@"); }
+        }
+
+        // Ask for alert authorization so our banners are shown (a no-op if already decided), and log
+        // the current status so we can see on-device whether permission is the blocker.
+        Class unc = NSClassFromString(@"UNUserNotificationCenter");
+        if (unc) {
+            id center = ((id (*)(id, SEL))objc_msgSend)((id)unc, sel_registerName("currentNotificationCenter"));
+            if (center) {
+                // Block-typed locals so ARC heap-copies them (both escape: the callbacks run async).
+                void (^settingsCb)(id) = ^(id settings) { @try {
+                    long st = ((long (*)(id, SEL))objc_msgSend)(settings, sel_registerName("authorizationStatus"));
+                    NSLog(@"[MAXRelay] notification authorization status = %ld (0=notDetermined 1=denied 2=authorized)", st);
+                } @catch (__unused id e) {} };
+                void (^authCb)(BOOL, id) = ^(BOOL granted, id err) {
+                    NSLog(@"[MAXRelay] auth requested -> granted=%d err=%@", granted, err); };
+                ((void (*)(id, SEL, id))objc_msgSend)(center,
+                    sel_registerName("getNotificationSettingsWithCompletionHandler:"), settingsCb);
+                ((void (*)(id, SEL, unsigned long, id))objc_msgSend)(center,
+                    sel_registerName("requestAuthorizationWithOptions:completionHandler:"), 7UL /* alert|badge|sound */, authCb);
+            }
+        }
+
+        // Register on the main thread; the token arrives asynchronously at the delegate callback above.
+        dispatch_async(dispatch_get_main_queue(), ^{ @try {
+            id a = ((id (*)(id, SEL))objc_msgSend)((id)ua, sel_registerName("sharedApplication"));
+            ((void (*)(id, SEL))objc_msgSend)(a, sel_registerName("registerForRemoteNotifications"));
+            NSLog(@"[MAXRelay] registerForRemoteNotifications called (real bundle = %@)", ReadRealBundleId());
+        } @catch (__unused id e) {} });
+    } @catch (__unused id e) {}
+}
+
+// --- Register the message notification categories so the in-banner Reply button appears -----------
+// MAX's own OKMPushServiceRegister builds three categories — "Message" (dialog) with a text-input
+// "answerAction", "ChatMessage" (group) with answer + "muteAction", "ChannelMessage" with mute — and
+// its delegate handler (_handleNotificationAction:userInfo:userTypedText:) reads userInfo["mc"] as the
+// chat id and sends the typed reply via OKMPushReplyTask. Our relay push already carries category +
+// "mc" in exactly that shape. But in the re-signed build MAX never runs its category registration
+// (its gated setup is skipped), so iOS attaches no action buttons and no reply appears. We register
+// the same categories (identical identifiers, so MAX's handler still fires), merged with whatever is
+// already registered so call/other categories are left intact.
+static void RegisterReplyCategories(void) {
+    @try {
+        Class cCat = NSClassFromString(@"UNNotificationCategory");
+        Class cAct = NSClassFromString(@"UNNotificationAction");
+        Class cText = NSClassFromString(@"UNTextInputNotificationAction");
+        Class cCenter = NSClassFromString(@"UNUserNotificationCenter");
+        if (!cCat || !cAct || !cText || !cCenter) return;
+        id center = ((id (*)(id, SEL))objc_msgSend)((id)cCenter, sel_registerName("currentNotificationCenter"));
+        if (!center) return;
+
+        NSString *realBundle = ReadRealBundleId();
+        RLog([NSString stringWithFormat:@"NSBundle.id(spoofed)=%@ real=%@",
+              [[NSBundle mainBundle] bundleIdentifier], realBundle]);
+
+        // The diyorde layer spoofs the main bundle id to ru.oneme.app, so the DEFAULT
+        // currentNotificationCenter is scoped to the wrong (not-installed) app: setNotificationCategories
+        // there silently no-ops and authorization reads notDetermined, even though the real app is
+        // authorized in Settings — which is why banners show but no action button is attached. Create a
+        // center explicitly bound to the REAL signed bundle (SPI used by extensions) and drive it instead.
+        SEL initWB = sel_registerName("initWithBundleIdentifier:");
+        if (realBundle && [cCenter instancesRespondToSelector:initWB]) {
+            id raw = ((id (*)(id, SEL))objc_msgSend)((id)cCenter, sel_registerName("alloc"));
+            id realCenter = ((id (*)(id, SEL, id))objc_msgSend)(raw, initWB, realBundle);
+            if (realCenter) {
+                center = realCenter;
+                RLog(@"using real-bundle-scoped UNUserNotificationCenter");
+            }
+        }
+
+        // Identifiers MUST match MAX's own ("answerAction"/"muteAction") so its handler recognises them.
+        // options=0: reply stays in the background (do NOT foreground the app). MAX's own handler runs
+        // connectIfNeeded + a background task and sends via signalForSendMessageWithText:toChatWithId:,
+        // and our h_onresp also forces the session up, so the reply transmits without opening MAX.
+        id answer = ((id (*)(id, SEL, id, id, unsigned long, id, id))objc_msgSend)((id)cText,
+            sel_registerName("actionWithIdentifier:title:options:textInputButtonTitle:textInputPlaceholder:"),
+            @"answerAction", @"Ответить", 0UL, @"Отправить", @"");
+        id mute = ((id (*)(id, SEL, id, id, unsigned long))objc_msgSend)((id)cAct,
+            sel_registerName("actionWithIdentifier:title:options:"), @"muteAction", @"Без звука", 0UL);
+
+        SEL mk = sel_registerName("categoryWithIdentifier:actions:intentIdentifiers:options:");
+        id catMsg  = ((id (*)(id, SEL, id, id, id, unsigned long))objc_msgSend)((id)cCat, mk, @"Message",        @[answer],       @[], 0UL);
+        id catChat = ((id (*)(id, SEL, id, id, id, unsigned long))objc_msgSend)((id)cCat, mk, @"ChatMessage",    @[answer, mute], @[], 0UL);
+        id catChan = ((id (*)(id, SEL, id, id, id, unsigned long))objc_msgSend)((id)cCat, mk, @"ChannelMessage", @[mute],         @[], 0UL);
+        NSArray *ours = @[catMsg, catChat, catChan];
+
+        void (^getCb)(id) = ^(id existing) { @try {
+            NSMutableSet *set = [NSMutableSet set];
+            NSMutableSet *ids = [NSMutableSet set];
+            for (id c in ours) {
+                [set addObject:c];
+                id cid = ((id (*)(id, SEL))objc_msgSend)(c, sel_registerName("identifier"));
+                if (cid) [ids addObject:cid];
+            }
+            for (id c in existing) {  // keep MAX's other categories (calls, etc.); ours win on identifier
+                id cid = ((id (*)(id, SEL))objc_msgSend)(c, sel_registerName("identifier"));
+                if (!cid || ![ids containsObject:cid]) [set addObject:c];
+            }
+            ((void (*)(id, SEL, id))objc_msgSend)(center, sel_registerName("setNotificationCategories:"), set);
+            RLog([NSString stringWithFormat:@"setNotificationCategories count=%lu", (unsigned long)set.count]);
+            // Read back what actually stuck, so we can see if the spoof scoped it to the wrong app.
+            void (^back)(id) = ^(id cats) { @try {
+                NSMutableArray *desc = [NSMutableArray array];
+                for (id c in cats) {
+                    id cid = ((id (*)(id, SEL))objc_msgSend)(c, sel_registerName("identifier"));
+                    id acts = ((id (*)(id, SEL))objc_msgSend)(c, sel_registerName("actions"));
+                    [desc addObject:[NSString stringWithFormat:@"%@(%lu)", cid, (unsigned long)[acts count]]];
+                }
+                RLog([NSString stringWithFormat:@"readback categories: %@", [desc componentsJoinedByString:@","]]);
+            } @catch (__unused id e) {} };
+            ((void (*)(id, SEL, id))objc_msgSend)(center, sel_registerName("getNotificationCategoriesWithCompletionHandler:"), back);
+            // Authorization status, public.
+            void (^setg)(id) = ^(id st) { @try {
+                long a = ((long (*)(id, SEL))objc_msgSend)(st, sel_registerName("authorizationStatus"));
+                RLog([NSString stringWithFormat:@"authorizationStatus(readback)=%ld", a]);
+            } @catch (__unused id e) {} };
+            ((void (*)(id, SEL, id))objc_msgSend)(center, sel_registerName("getNotificationSettingsWithCompletionHandler:"), setg);
+        } @catch (__unused id e) {} };
+        ((void (*)(id, SEL, id))objc_msgSend)(center, sel_registerName("getNotificationCategoriesWithCompletionHandler:"), getCb);
+
+        // Log whether MAX's push handler is wired as the center delegate (it must be, to send the reply).
+        id del = ((id (*)(id, SEL))objc_msgSend)(center, sel_registerName("delegate"));
+        RLog([NSString stringWithFormat:@"UNUserNotificationCenter delegate = %@",
+              del ? NSStringFromClass(object_getClass(del)) : @"(nil)"]);
+    } @catch (__unused id e) {}
+}
+
 __attribute__((constructor))
 static void MAXRelayInit(void) {
     gQueue = dispatch_queue_create("mxrelay", DISPATCH_QUEUE_SERIAL);
     Swizzle("OKMPushServiceRegister", "application:didRegisterForRemoteNotificationsWithDeviceToken:", (IMP)h_apns, &o_apns);
     Swizzle("OKMAppMessengerClient", "setVoIPPushToken:", (IMP)h_voip, &o_voip);
     Swizzle("OKMMessengerClient", "_processLoginResponse:", (IMP)h_loginResp, &o_loginResp);
+    Swizzle("OKMPushServiceRegister", "userNotificationCenter:didReceiveNotificationResponse:withCompletionHandler:", (IMP)h_onresp, &o_onresp);
+    // Call-audio route trace (diagnostic; passes through).
+    Swizzle("OKMAudioSession", "setCallActiveWithPlayer:enableSpeaker:completion:", (IMP)h_callActive, &o_callActive);
+    Swizzle("OKMAudioSession", "_setActiveWithCategory:player:enableSpeaker:completion:", (IMP)h_setActiveCat, &o_setActiveCat);
+    Swizzle("OKMAudioSession", "_setDefaultAudioRouteToSpeaker:completion:", (IMP)h_routeSpk, &o_routeSpk);
+    Swizzle("OKMAudioSession", "setShouldOverrideToEarForVoicePlayback:", (IMP)h_ovrEar, &o_ovrEar);
+    Swizzle("AVAudioSession", "overrideOutputAudioPort:error:", (IMP)h_avOverride, &o_avOverride);
+    Swizzle("AVAudioSession", "setCategory:mode:options:error:", (IMP)h_avCat, &o_avCat);
     struct rebinding rb = {"nw_connection_send", (void *)my_nw_connection_send, (void **)&orig_nw_connection_send};
     rebind_symbols(&rb, 1);
 
@@ -312,7 +596,12 @@ static void MAXRelayInit(void) {
         BOOL active = [name isEqualToString:@"UIApplicationDidBecomeActiveNotification"];
         [[NSNotificationCenter defaultCenter] addObserverForName:name object:nil queue:nil usingBlock:^(__unused NSNotification *n) {
             if (gClient) Register(gClient);
-            if (active) ClearDeliveredAndBadge();  // opening MAX clears our relay banners + badge
+            if (active) {
+                ClearDeliveredAndBadge();  // opening MAX clears our relay banners + badge
+                // Force a real-bundle remote-notification registration once the UI is up, so iOS issues
+                // an alert token for com.ruappstore... despite the ru.oneme.app bundle spoof.
+                static dispatch_once_t once; dispatch_once(&once, ^{ ForceRemoteRegistration(); RegisterReplyCategories(); });
+            }
         }];
     }
 }
