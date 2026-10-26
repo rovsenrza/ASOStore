@@ -427,6 +427,28 @@ static void h_del_fail(id self, SEL _cmd, id app, id err) {
     if (o_del_fail) o_del_fail(self, _cmd, app, err);
 }
 
+// The diyorde layer spoofs -[NSBundle bundleIdentifier] to ru.oneme.app, so the DEFAULT
+// currentNotificationCenter is bound to a bundle that is not the installed app: requesting
+// authorization or reading settings there is a no-op (status notDetermined, UNErrorDomain
+// Code=1) and iOS never creates a Notifications record for the real app — the user sees no
+// "Уведомления" row in Settings and cannot enable it, so banners never show. A center created
+// explicitly for the REAL signed bundle (the SPI extensions use) talks to the real app's
+// record instead; getNotificationSettings / setNotificationCategories / requestAuthorization
+// all take effect on the installed app. Falls back to the default center if the SPI is absent.
+static id RealScopedCenter(void) {
+    Class cCenter = NSClassFromString(@"UNUserNotificationCenter");
+    if (!cCenter) return nil;
+    id center = ((id (*)(id, SEL))objc_msgSend)((id)cCenter, sel_registerName("currentNotificationCenter"));
+    NSString *realBundle = ReadRealBundleId();
+    SEL initWB = sel_registerName("initWithBundleIdentifier:");
+    if (realBundle && [cCenter instancesRespondToSelector:initWB]) {
+        id raw = ((id (*)(id, SEL))objc_msgSend)((id)cCenter, sel_registerName("alloc"));
+        id realCenter = ((id (*)(id, SEL, id))objc_msgSend)(raw, initWB, realBundle);
+        if (realCenter) return realCenter;
+    }
+    return center;
+}
+
 static void ForceRemoteRegistration(void) {
     @try {
         Class ua = NSClassFromString(@"UIApplication"); if (!ua) return;
@@ -448,10 +470,12 @@ static void ForceRemoteRegistration(void) {
         }
 
         // Ask for alert authorization so our banners are shown (a no-op if already decided), and log
-        // the current status so we can see on-device whether permission is the blocker.
-        Class unc = NSClassFromString(@"UNUserNotificationCenter");
-        if (unc) {
-            id center = ((id (*)(id, SEL))objc_msgSend)((id)unc, sel_registerName("currentNotificationCenter"));
+        // the current status so we can see on-device whether permission is the blocker. This MUST go
+        // through a center scoped to the REAL signed bundle: on the default (spoofed) center the request
+        // never reaches the installed app, so iOS creates no Notifications entry and the user has no
+        // toggle to enable — the exact symptom of "no notifications and no Уведомления row in Settings".
+        {
+            id center = RealScopedCenter();
             if (center) {
                 // Block-typed locals so ARC heap-copies them (both escape: the callbacks run async).
                 void (^settingsCb)(id) = ^(id settings) { @try {
@@ -492,27 +516,15 @@ static void RegisterReplyCategories(void) {
         Class cText = NSClassFromString(@"UNTextInputNotificationAction");
         Class cCenter = NSClassFromString(@"UNUserNotificationCenter");
         if (!cCat || !cAct || !cText || !cCenter) return;
-        id center = ((id (*)(id, SEL))objc_msgSend)((id)cCenter, sel_registerName("currentNotificationCenter"));
-        if (!center) return;
-
-        NSString *realBundle = ReadRealBundleId();
-        RLog([NSString stringWithFormat:@"NSBundle.id(spoofed)=%@ real=%@",
-              [[NSBundle mainBundle] bundleIdentifier], realBundle]);
 
         // The diyorde layer spoofs the main bundle id to ru.oneme.app, so the DEFAULT
         // currentNotificationCenter is scoped to the wrong (not-installed) app: setNotificationCategories
-        // there silently no-ops and authorization reads notDetermined, even though the real app is
-        // authorized in Settings — which is why banners show but no action button is attached. Create a
-        // center explicitly bound to the REAL signed bundle (SPI used by extensions) and drive it instead.
-        SEL initWB = sel_registerName("initWithBundleIdentifier:");
-        if (realBundle && [cCenter instancesRespondToSelector:initWB]) {
-            id raw = ((id (*)(id, SEL))objc_msgSend)((id)cCenter, sel_registerName("alloc"));
-            id realCenter = ((id (*)(id, SEL, id))objc_msgSend)(raw, initWB, realBundle);
-            if (realCenter) {
-                center = realCenter;
-                RLog(@"using real-bundle-scoped UNUserNotificationCenter");
-            }
-        }
+        // there silently no-ops — which is why no action button is attached. RealScopedCenter() binds to
+        // the REAL signed bundle (SPI used by extensions) so categories/authorization take effect.
+        id center = RealScopedCenter();
+        if (!center) return;
+        RLog([NSString stringWithFormat:@"NSBundle.id(spoofed)=%@ real=%@",
+              [[NSBundle mainBundle] bundleIdentifier], ReadRealBundleId()]);
 
         // Identifiers MUST match MAX's own ("answerAction"/"muteAction") so its handler recognises them.
         // options=0: reply stays in the background (do NOT foreground the app). MAX's own handler runs
