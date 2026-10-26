@@ -164,11 +164,20 @@ async function authorize(id) {
     // period gives that attempt time to resolve, then offers a clearly-labelled retry.
     location.assign(data.install_url);
     openTimer = setTimeout(() => {
+      // iOS has usually fetched the IPA by now (the attempt is DELIVERED and cannot be authorized
+      // again), so the retry starts a fresh installation instead of reusing this one.
+      delete installButton.dataset.installation;
       message(t('install.openingTitle'), t('install.openingRetry'), 'ok');
       setButton(true, t('install.retry'));
     }, OPEN_GRACE_MS);
   } catch (error) {
     clearTimeout(openTimer);
+    if (error.code === 'ARTIFACT_NOT_INSTALLABLE' && error.status === 409) {
+      // This attempt already ended (delivered or expired): start over rather than show an error.
+      delete installButton.dataset.installation;
+      start();
+      return;
+    }
     setButton(true);
     renderError(progress, t, error);
     if (error.code === 'INSTALL_TOKEN_EXPIRED' || error.code === 'ARTIFACT_NOT_INSTALLABLE') delete installButton.dataset.installation;
