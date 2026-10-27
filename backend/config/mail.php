@@ -49,6 +49,17 @@ return [
             'local_domain' => env('MAIL_EHLO_DOMAIN', parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST)),
         ],
 
+        // Our own send-only Postfix (+ OpenDKIM) on the prod box.
+        'local_smtp' => [
+            'transport' => 'smtp',
+            'host' => env('MAIL_LOCAL_HOST', '127.0.0.1'),
+            'port' => env('MAIL_LOCAL_PORT', 25),
+            'username' => null,
+            'password' => null,
+            'timeout' => 15,
+            'local_domain' => env('MAIL_LOCAL_EHLO', 'mail.ruappstore.com'),
+        ],
+
         'ses' => [
             'transport' => 'ses',
         ],
@@ -82,6 +93,7 @@ return [
         'failover' => [
             'transport' => 'failover',
             'mailers' => [
+                'local_smtp',
                 'smtp',
                 'log',
             ],
