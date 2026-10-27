@@ -13,7 +13,7 @@
 # ts}; GET https://{server}?act=a_check&key&ts&wait=25&mode=2&version=3 -> {ts,updates:[[code,..]]};
 # code 4 = new message [4,msg_id,flags,peer_id,ts,text,{extra},{attachments}] (flags&2 = outgoing).
 import os, json, time, threading, subprocess
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse, parse_qs
 from urllib.request import Request, urlopen
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -278,6 +278,45 @@ def _attachment_label(attach, extra):
     return out
 
 
+# A unified notification carries its tap target as action={"type":"custom","url":"https://vk.com/
+# wall142304362_1116"} (or photo…, a profile, …). Forwarding that url would make VK open its in-app
+# m.vk.ru web view; instead we parse the vk.com object link into VK's OWN native push `type`+keys so
+# the tap opens the native screen. Anything we can't map natively gets NO data block -> the tap just
+# opens the app (never a web view or an error alert).
+_VK_OBJ = re.compile(r"vk\.com/(wall|photo|video|club|public|id|album)(-?\d+)_(\d+)")
+_VK_PROFILE = re.compile(r"vk\.com/id(\d+)\b")
+
+
+def notif_tap_data(item, to_id):
+    """Native push `data` for a feed notification's tap, or None to just open the app."""
+    act = item.get("action") if isinstance(item.get("action"), dict) else {}
+    url = act.get("url") or ""
+    data = {"to_id": int(to_id)}
+    m = _VK_OBJ.search(url)
+    if m:
+        kind, owner, oid = m.group(1), int(m.group(2)), int(m.group(3))
+        if kind == "wall":
+            qs = parse_qs(urlparse(url).query)
+            cid = (qs.get("reply") or qs.get("comment") or [None])[0]
+            if cid and str(cid).isdigit():   # deep-linked to a comment
+                data.update({"type": "comment", "owner_id": owner, "post_id": oid,
+                             "item_id": oid, "comment_id": int(cid), "reply_id": int(cid)})
+            else:
+                data.update({"type": "post", "owner_id": owner, "post_id": oid, "item_id": oid})
+            return data
+        if kind == "photo":
+            data.update({"type": "tag_photo", "owner_id": owner, "photo_id": oid, "item_id": oid})
+            return data
+    # friend events -> open the user's profile
+    if (item.get("icon_type") or "").startswith("friend"):
+        pm = _VK_PROFILE.search(url)
+        if pm:
+            data.update({"type": "friend_found", "user_id": int(pm.group(1)),
+                         "from_id": int(pm.group(1))})
+            return data
+    return None  # unmapped (story/video/club/custom): just open the app, no web view
+
+
 def format_notification(item):
     """(title, body) from a unified notification, or (None, None) to skip feed-section stubs.
     VK renders the уведомление sentence in `header` (likes/reposts/mentions/friend events have ONLY
@@ -333,8 +372,13 @@ class NotificationsPoller(threading.Thread):
             title, body = format_notification(it)
             if not body:
                 continue
-            data = {"aps": {"alert": {"title": title, "body": body}, "sound": "default", "thread-id": "vk-notif"}}
-            apns_curl(uid, *certs_for(bundle), bundle, "alert", apns, json.dumps(data, ensure_ascii=False))
+            payload = {"aps": {"alert": {"title": title, "body": body}, "sound": "default",
+                               "thread-id": "vk-notif"}}
+            tap = notif_tap_data(it, uid)       # native tap target (post/photo/comment/profile)
+            if tap:
+                payload["data"] = tap
+            apns_curl(uid, *certs_for(bundle), bundle, "alert", apns,
+                      json.dumps(payload, ensure_ascii=False))
             print(f"[notif] {uid} {it.get('icon_type')}: {body[:48]!r} -> push", flush=True)
         if dates:
             self.seen_after = max(self.seen_after, max(dates))
@@ -372,13 +416,13 @@ class Mirror(threading.Thread):
         # used to land on m.vk.ru.  We send `data` with the native type and NO url.
         aps = {"alert": {"title": title, "body": text or "📷"}, "sound": "default",
                "thread-id": f"vk-{peer_id}"}
+        # Tap -> native dialog (VKAPNSHandlerShowMessage). We deliberately DON'T send msg_id: pinning
+        # a specific message makes the handler fetch that message on cold launch, which fails on the
+        # re-signed build and pops an error alert; omitting it just opens the conversation (the user
+        # wants the chat, not a per-message jump), which is robust.
         data = {"type": "show_message", "to_id": int(str(self.user.get("userId")))}
-        if msg_id:
-            data["msg_id"] = int(msg_id)
-        if peer_id >= 2_000_000_000:          # group chat: chat_id = peer - 2e9 (+ real sender)
+        if peer_id >= 2_000_000_000:          # group chat: chat_id = peer - 2e9
             data["chat_id"] = int(peer_id) - 2_000_000_000
-            if sender_id:
-                data["sender_id"] = int(sender_id)
         else:                                  # direct message: the conversation peer
             data["sender_id"] = int(peer_id)
         payload = {"aps": aps, "data": data}
