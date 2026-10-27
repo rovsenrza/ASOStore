@@ -156,14 +156,50 @@ def _clean_vk_text(s):
     return re.sub(r"\s+", " ", s).strip()
 
 
+# A LongPoll message with no text still has an attachment — VK itself shows a type label
+# ("📷 Фотография", "Стикер", …) instead of a blank push. These are the labels VK's own UI uses;
+# we key off the attachN_type fields of LongPoll index 7 (and a couple of `extra` markers).
+_ATTACH_LABELS = {
+    "photo": ("📷", "Фотография"), "sticker": ("", "Стикер"),
+    "audio_message": ("🎤", "Голосовое сообщение"), "video": ("📹", "Видеозапись"),
+    "doc": ("📄", "Документ"), "audio": ("🎵", "Аудиозапись"), "wall": ("📝", "Запись"),
+    "wall_reply": ("💬", "Комментарий"), "link": ("🔗", "Ссылка"), "market": ("🛍", "Товар"),
+    "market_album": ("🛍", "Товары"), "poll": ("📊", "Опрос"), "gift": ("🎁", "Подарок"),
+    "graffiti": ("🎨", "Граффити"), "story": ("📖", "История"), "podcast": ("🎙", "Подкаст"),
+    "money_transfer": ("💸", "Денежный перевод"), "money_request": ("💰", "Запрос денег"),
+}
+
+
+def _attachment_label(attach, extra):
+    """VK-style label for a message that carries only attachments (no text). '' if none."""
+    if extra.get("fwd"):
+        return "💬 Пересланные сообщения"
+    if "geo" in attach or extra.get("geo"):
+        return "📍 Местоположение"
+    types = [v for k, v in attach.items() if k.endswith("_type")]
+    if not types:
+        return ""
+    emoji, label = _ATTACH_LABELS.get(types[0], ("📎", "Вложение"))
+    out = f"{emoji} {label}".strip() if emoji else label
+    if len(types) > 1:
+        out += f" (+{len(types) - 1})"
+    return out
+
+
 def format_notification(item):
     """(title, body) from a unified notification, or (None, None) to skip feed-section stubs.
-    The real notification content is in `text`; items with no `text` are feed sections (e.g.
-    "Mentions feed") or stubs, which we skip."""
+    VK renders the уведомление sentence in `header` (likes/reposts/mentions/friend events have ONLY
+    a header; comments add the comment body in `text`). Items with neither are feed sections or
+    stubs, which we skip. We show the header as the body (optionally with the comment text)."""
+    header = _clean_vk_text(item.get("header"))
     text = _clean_vk_text(item.get("text"))
-    if not text:
+    if header and text:
+        body = f"{header}: {text}"
+    else:
+        body = header or text
+    if not body:
         return None, None
-    return (_clean_vk_text(item.get("header")) or "ВКонтакте"), text
+    return "ВКонтакте", body
 
 
 class NotificationsPoller(threading.Thread):
@@ -326,6 +362,10 @@ class Mirror(threading.Thread):
                     self.push_alert(apns, bundle, caller, "📞 Пропущенный звонок", None, peer_id,
                                     msg_id=upd[1], sender_id=int(extra.get("from", 0) or 0))
                     continue
+
+                # No text -> show VK's own attachment label ("📷 Фотография", "Стикер", …).
+                if not text:
+                    text = _attachment_label(attach, extra)
 
                 sender = 0
                 if peer_id >= 2_000_000_000:  # group chat: title + real sender from `extra`
