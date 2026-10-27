@@ -93,8 +93,8 @@ return [
         'failover' => [
             'transport' => 'failover',
             'mailers' => [
-                'smtp',
                 'local_smtp',
+                'smtp',
                 'log',
             ],
             'retry_after' => 60,
