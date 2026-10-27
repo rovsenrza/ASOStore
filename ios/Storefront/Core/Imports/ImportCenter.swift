@@ -325,7 +325,8 @@ final class ImportCenter: ObservableObject {
 
     static func message(for error: APIError) -> String {
         switch error.code {
-        case .quotaExhausted: "Достигнут предел импортов. Удалите старый импорт или попробуйте завтра."
+        // The server says which limit was hit (daily vs total), so prefer its wording.
+        case .quotaExhausted: error.message.isEmpty ? "Достигнут предел импортов. Удалите старый импорт или попробуйте завтра." : error.message
         case .offline, .networkError: "Нет связи с сервером. Проверьте интернет."
         case .rateLimited: "Слишком много попыток. Подождите минуту."
         case .unauthenticated, .sessionExpired: "Войдите в аккаунт, чтобы импортировать приложения."

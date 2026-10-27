@@ -49,7 +49,7 @@ class ImportService
 
     private function dailyLimit(): int
     {
-        return (int) config('storefront.imports.daily_limit', 10);
+        return (int) config('storefront.imports.daily_limit', 15);
     }
 
     private function totalLimit(): int
@@ -247,8 +247,11 @@ class ImportService
             ->where(fn ($query) => $query->whereNull('deleted_at')->orWhereHas('artifacts'))
             ->count();
         $total = CatalogApp::query()->where('imported_by_user_id', $user->id)->count();
-        if ($today >= $this->dailyLimit() || $total >= $this->totalLimit()) {
-            throw new ApiException(ErrorCode::QuotaExhausted, 'Достигнут предел импортов. Удалите старый импорт или попробуйте позже.');
+        if ($total >= $this->totalLimit()) {
+            throw new ApiException(ErrorCode::QuotaExhausted, "Достигнут предел в {$this->totalLimit()} импортов. Удалите старый импорт, чтобы добавить новый.");
+        }
+        if ($today >= $this->dailyLimit()) {
+            throw new ApiException(ErrorCode::QuotaExhausted, "Сегодня достигнут лимит в {$this->dailyLimit()} импортов (удалённые тоже считаются). Попробуйте после 03:00 МСК.");
         }
     }
 

@@ -98,7 +98,7 @@ return [
     // Customer self-import of IPAs (from Files or a link). Signed on the Apple certificate for one
     // device, so imports are capped per customer to protect the cert.
     'imports' => [
-        'daily_limit' => (int) env('STOREFRONT_IMPORT_DAILY_LIMIT', 10),
+        'daily_limit' => (int) env('STOREFRONT_IMPORT_DAILY_LIMIT', 15),
         'total_limit' => (int) env('STOREFRONT_IMPORT_TOTAL_LIMIT', 30),
     ],
 
