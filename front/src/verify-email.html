@@ -23,11 +23,15 @@
 
     <div class="page-body">
       <form class="form" id="verify-form" novalidate>
+        <div class="notice" role="note">
+          <b>Письмо не пришло? Проверьте папку «Спам»</b>
+          <p>Письмо от <strong>no-reply@ruappstore.com</strong> иногда попадает в «Спам» или «Рассылки». Если нашли его там — нажмите «Не спам», чтобы следующие письма приходили во «Входящие».</p>
+        </div>
         <div class="form-status"></div>
         <div class="field">
           <label for="verify-code">Код из письма</label>
           <input id="verify-code" class="ym-disable-keys" name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" aria-describedby="verify-code-hint" required>
-          <p class="field-hint" id="verify-code-hint">Код действует 15 минут. Не пришло письмо — проверьте папку «Спам».</p>
+          <p class="field-hint" id="verify-code-hint">Код действует 15 минут.</p>
         </div>
         <button class="primary-button" type="submit">Подтвердить <span aria-hidden="true">→</span></button>
         <p class="form-footer">
