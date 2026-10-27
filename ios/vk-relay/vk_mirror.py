@@ -92,12 +92,104 @@ def check_entitlement(udid):
     return active
 
 
-def vk_get(method, token, **params):
+# --- VKID token refresh -------------------------------------------------------------------------
+# The captured access token (app_id 3140623) expires ~1 day; VK re-mints it only when the user
+# reopens the app. The hook also captures the VKID refreshToken + the device_id candidates it can
+# read on our build, so we refresh server-side via VKID OAuth2.1 and keep the mirror alive without
+# the user touching the app. VKID binds the refresh token to the EXACT device_id used at auth, so we
+# try each captured candidate and remember the one that works (user["deviceId"]).
+VKID_AUTH_URL = "https://id.vk.com/oauth2/auth"
+VKID_CLIENT_ID = os.environ.get("VKRELAY_VKID_CLIENT_ID", "3140623")
+import uuid as _uuid  # noqa: E402
+CF_EPOCH = 978307200  # CFAbsoluteTime (2001-01-01) -> Unix epoch offset; accessTokenExpiry is CF time.
+
+
+def token_expired(user, skew=120):
+    exp = user.get("accessTokenExpiry")
+    try:
+        return exp is not None and (CF_EPOCH + float(exp)) <= time.time() + skew
+    except (TypeError, ValueError):
+        return False
+
+
+def _device_candidates(user):
+    out = []
+    for d in [user.get("deviceId")] + list(user.get("deviceIds", []) or []):
+        if d and d not in out:
+            out.append(d)
+    return out
+
+
+def vkid_refresh(user):
+    """Exchange the stored refreshToken for a fresh access token. Updates persisted state + the live
+    user dict in place; returns the new access token, or None if no candidate device_id works."""
+    uid = norm_uid(user.get("userId"))
+    rt = user.get("refreshToken")
+    cands = _device_candidates(user)
+    if not (rt and cands):
+        return None
+    for dev in cands:
+        try:
+            data = urlencode({"grant_type": "refresh_token", "refresh_token": rt,
+                              "client_id": VKID_CLIENT_ID, "device_id": dev,
+                              "state": _uuid.uuid4().hex, "scope": ""}).encode()
+            req = Request(VKID_AUTH_URL, data=data,
+                          headers={"Content-Type": "application/x-www-form-urlencoded"})
+            with urlopen(req, timeout=20) as r:
+                res = json.loads(r.read().decode("utf-8"))
+        except Exception as e:
+            print(f"[refresh] {uid} dev={dev[:8]} HTTP err {e}", flush=True)
+            continue
+        at = res.get("access_token")
+        if at:
+            with _lock:
+                try:
+                    st = json.load(open(STATE))
+                except Exception:
+                    st = {}
+                u = st.get(uid, {})
+                u["accessToken"] = at
+                if res.get("refresh_token"):
+                    u["refreshToken"] = res["refresh_token"]
+                u["deviceId"] = dev
+                if res.get("expires_in"):
+                    u["accessTokenExpiry"] = (time.time() - CF_EPOCH) + float(res["expires_in"])
+                st[uid] = u
+                tmp = STATE + ".tmp"
+                json.dump(st, open(tmp, "w"), ensure_ascii=False)
+                os.replace(tmp, STATE)
+            # mirror the update into the live dict the running threads hold
+            user["accessToken"] = at
+            if res.get("refresh_token"):
+                user["refreshToken"] = res["refresh_token"]
+            user["deviceId"] = dev
+            if res.get("expires_in"):
+                user["accessTokenExpiry"] = (time.time() - CF_EPOCH) + float(res["expires_in"])
+            print(f"[refresh] {uid} OK via dev={dev[:8]} rotated={bool(res.get('refresh_token'))}", flush=True)
+            return at
+        print(f"[refresh] {uid} dev={dev[:8]} -> {res.get('error')}: {res.get('error_description')}",
+              flush=True)
+    return None
+
+
+def ensure_fresh_token(user):
+    """Proactively refresh when we know the access token has (nearly) expired."""
+    if token_expired(user):
+        vkid_refresh(user)
+    return user.get("accessToken")
+
+
+def vk_get(method, token, user=None, _retry=True, **params):
     url = f"{VK_API}/method/{method}?" + urlencode({**params, "access_token": token, "v": VK_V})
     with urlopen(Request(url), timeout=40) as r:
         body = json.loads(r.read().decode("utf-8"))
     if "error" in body:
         e = body["error"]
+        # Token expired: 1117 ("access_token has expired") or 5 ("User authorization failed").
+        if e.get("error_code") in (5, 1117) and user is not None and _retry:
+            nt = vkid_refresh(user)
+            if nt:
+                return vk_get(method, nt, user=user, _retry=False, **params)
         raise RuntimeError(f"vk {e.get('error_code')}: {e.get('error_msg')}")
     return body.get("response", {})
 
@@ -229,7 +321,8 @@ class NotificationsPoller(threading.Thread):
         apns = u.get("apnsToken", "")
         if not (apns and bundle) or not check_entitlement(u.get("udid")):
             return
-        resp = vk_get("notifications.get", token, count=30)
+        token = ensure_fresh_token(u) or token
+        resp = vk_get("notifications.get", token, user=u, count=30)
         items = [it for it in resp.get("items", []) if isinstance(it, dict)]
         dates = [it.get("date", 0) for it in items]
         if self.seen_after is None:
@@ -257,7 +350,8 @@ class Mirror(threading.Thread):
     def name_avatar(self, uid):
         if uid not in self._names:
             try:
-                users = vk_get("users.get", self.user["accessToken"], user_ids=uid, fields="photo_100")
+                users = vk_get("users.get", self.user["accessToken"], user=self.user,
+                               user_ids=uid, fields="photo_100")
                 u = users[0] if users else {}
                 nm = f"{u.get('first_name', '')} {u.get('last_name', '')}".strip() or "VK"
                 self._names[uid] = (nm, u.get("photo_100"))
@@ -321,7 +415,8 @@ class Mirror(threading.Thread):
         apns = u.get("apnsToken", "")
         last_check = 0.0
         entitled = True
-        lp = vk_get("messages.getLongPollServer", token, need_pts=1, lp_version=3)
+        token = ensure_fresh_token(u) or token
+        lp = vk_get("messages.getLongPollServer", token, user=u, need_pts=1, lp_version=3)
         server, key, ts = lp["server"], lp["key"], lp["ts"]
         while not self.stop.is_set():
             url = f"https://{server}?" + urlencode(
@@ -448,12 +543,16 @@ class CallsPoller(threading.Thread):
         self.stop = threading.Event()
         self._rung = set()  # call_ids already pushed, so one call rings once
 
-    def _subscribe(self, token, uid):
+    def _subscribe(self, token, uid, _retry=True):
         qid = "calls_%s_%s_1" % (uid, self.CLIENT_ID)
         url = f"{VK_API}/method/queue.subscribe?" + urlencode(
             {"queue_ids": qid, "access_token": token, "v": VK_V, "client_id": self.CLIENT_ID})
         r = json.loads(urlopen(Request(url), timeout=20).read().decode("utf-8"))
         if "error" in r:
+            if r["error"].get("error_code") in (5, 1117) and _retry:   # token expired -> refresh + retry
+                nt = vkid_refresh(self.user)
+                if nt:
+                    return self._subscribe(nt, uid, _retry=False)
             raise RuntimeError("queue.subscribe: " + str(r["error"].get("error_msg")))
         q = r["response"]["queues"][0]
         return r["response"]["base_url"], q["key"], q["timestamp"]
@@ -474,6 +573,7 @@ class CallsPoller(threading.Thread):
         voip = u.get("voipToken", "")
         if not (voip and bundle):
             return  # calls ring via the VoIP token; nothing to do without it
+        token = ensure_fresh_token(u) or token
         base, key, t = self._subscribe(token, uid)
         last_check = 0.0
         entitled = True

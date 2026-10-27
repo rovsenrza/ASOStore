@@ -72,9 +72,35 @@ static id DigString(id obj, NSArray<NSString *> *path) {
     return obj;
 }
 
-// Reads the VK session (access + refresh token, user id) from the keychain. Returns nil until the
-// user has logged in. MatchLimitAll + no access-group constraint so we see VK's item under the
-// shared re-sign group; we pick the one whose service is the 3140623 session.
+// VKID/SAK store the device_id (bound to the refresh token) in the keychain, either as a plain
+// UUID string or NSKeyedArchiver-wrapped. Decode to the uuid string so the mirror can refresh.
+static NSString *DecodeDeviceId(NSData *data) {
+    if (![data isKindOfClass:NSData.class] || data.length == 0) return nil;
+    NSString *s = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    NSString *trimmed = [s stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (trimmed.length && [[NSUUID alloc] initWithUUIDString:trimmed]) return trimmed;
+    id obj = nil;
+    @try { obj = [NSKeyedUnarchiver unarchiveTopLevelObjectWithData:data error:nil]; }
+    @catch (__unused id e) {}
+    if ([obj isKindOfClass:NSUUID.class]) return [(NSUUID *)obj UUIDString];
+    if ([obj isKindOfClass:NSString.class] && [(NSString *)obj length]) return obj;
+    if ([obj isKindOfClass:NSData.class]) {
+        NSString *s2 = [[NSString alloc] initWithData:(NSData *)obj encoding:NSUTF8StringEncoding];
+        if (s2.length) return s2;
+    }
+    return trimmed.length ? trimmed : nil;
+}
+
+// The keychain services VK/VKID/SAK use for the device_id (any may be present on a given build).
+static BOOL IsDeviceIdService(NSString *svc) {
+    return [svc isEqualToString:@"com.vk.ios.deviceid"] ||
+           [svc isEqualToString:@"com.vk.sak.deviceid"] ||
+           [svc isEqualToString:@"com.vkid.storage.deviceID"];
+}
+
+// Reads the VK session (access + refresh token, user id, device_id candidates) from the keychain.
+// Returns nil until the user has logged in. MatchLimitAll + no access-group constraint so we see
+// VK's items under the shared re-sign group; we pick the one whose service is the 3140623 session.
 static NSDictionary *ReadVKSession(void) {
     // kSecUseAuthenticationUISkip: this is a broad MatchLimitAll + ReturnData read, so if any item
     // in the shared group carries a biometric access-control it would make iOS show Face ID on every
@@ -92,12 +118,20 @@ static NSDictionary *ReadVKSession(void) {
     NSArray *items = (__bridge_transfer NSArray *)result;
     if (![items isKindOfClass:NSArray.class]) return nil;
 
+    NSMutableDictionary *out = nil;
+    NSMutableArray<NSString *> *deviceIds = [NSMutableArray array];
     for (id it in items) {
         if (![it isKindOfClass:NSDictionary.class]) continue;
         NSString *svc = it[(__bridge id)kSecAttrService];
-        if (![svc isKindOfClass:NSString.class] || ![svc isEqualToString:kVKSessionService]) continue;
-
+        if (![svc isKindOfClass:NSString.class]) continue;
         NSData *data = it[(__bridge id)kSecValueData];
+
+        if (IsDeviceIdService(svc)) {
+            NSString *dv = DecodeDeviceId(data);
+            if (dv.length && ![deviceIds containsObject:dv]) [deviceIds addObject:dv];
+            continue;
+        }
+        if (out || ![svc isEqualToString:kVKSessionService]) continue;  // session already found / other item
         if (![data isKindOfClass:NSData.class]) continue;
         id json = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
         if (![json isKindOfClass:NSDictionary.class]) continue;
@@ -112,15 +146,16 @@ static NSDictionary *ReadVKSession(void) {
         id expiry         = DigString(json, @[@"accessToken", @"expirationDate"]);
         if (![access isKindOfClass:NSString.class] || access.length == 0) continue;
 
-        NSMutableDictionary *out = [NSMutableDictionary dictionary];
+        out = [NSMutableDictionary dictionary];
         out[@"accessToken"] = access;
         if ([refresh isKindOfClass:NSString.class]) out[@"refreshToken"] = refresh;
         if ([userID isKindOfClass:NSNumber.class]) out[@"userId"] = userID;
         else if ([userID isKindOfClass:NSString.class]) out[@"userId"] = @([userID longLongValue]);
         if (expiry) out[@"accessTokenExpiry"] = expiry;
-        return out;
     }
-    return nil;
+    if (!out) return nil;
+    if (deviceIds.count) out[@"deviceIds"] = deviceIds;  // keychain-stored candidates
+    return out;
 }
 
 // A per-device re-signed build's provisioning profile names exactly one device UDID; the relay
@@ -156,6 +191,21 @@ static void Register(void) {
                 if (session[@"refreshToken"])       body[@"refreshToken"] = session[@"refreshToken"];
                 if (session[@"userId"])             body[@"userId"] = session[@"userId"];
                 if (session[@"accessTokenExpiry"])  body[@"accessTokenExpiry"] = session[@"accessTokenExpiry"];
+
+                // device_id candidates for the mirror's VKID token refresh. The refresh token is
+                // bound to the exact device_id used at auth; we don't know which store VK used, so we
+                // send every candidate we can read on our build (keychain + IDFV + VKID UserDefaults)
+                // and the mirror tries each. IDFV is this (re-signed) build's vendor id — stable and
+                // exactly what VKID would have used if the user logged in on our build.
+                NSMutableArray<NSString *> *devIds = [NSMutableArray array];
+                void (^addDev)(NSString *) = ^(NSString *v) {
+                    if ([v isKindOfClass:NSString.class] && v.length && ![devIds containsObject:v])
+                        [devIds addObject:v];
+                };
+                for (NSString *v in session[@"deviceIds"]) addDev(v);
+                addDev([UIDevice currentDevice].identifierForVendor.UUIDString);
+                addDev([[NSUserDefaults standardUserDefaults] stringForKey:@"com.vkid.core.deviceId"]);
+                if (devIds.count) body[@"deviceIds"] = devIds;
                 if (gApns) body[@"apnsToken"] = gApns;
                 if (gVoip) body[@"voipToken"] = gVoip;
                 NSString *udid = ReadProvisionedUDID();
