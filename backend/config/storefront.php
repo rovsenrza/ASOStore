@@ -271,7 +271,12 @@ return [
         // Mod menus, cheat libraries and their sign-in/licence pop-ups: everything injected except `keep`.
         'remove' => ['*'],
         // Sideload fixes the game itself may need (checked on a device), and Roblox's Delta runtime.
-        'keep' => ['masterSideloadFix*', 'dark.dylib', 'Sideloadbypass*', 'FixCrash*', 'Fixipa*', 'SatellaJailed*', 'libgloop*'],
+        // SatellaJailed is NOT a sideload fix: reverse engineering (2026-10-27) showed it is a
+        // CydiaSubstrate cheat loader (KineMasterCheat, hooks every loaded image), a crash cause on
+        // signed non-jailbroken builds and it pins the hook runtime in place. Where an app genuinely
+        // links it, it stays removable=false (symbols referenced) and is kept anyway; where it is
+        // injected (unused) it must go, so it is no longer whitelisted.
+        'keep' => ['masterSideloadFix*', 'dark.dylib', 'Sideloadbypass*', 'FixCrash*', 'Fixipa*', 'libgloop*'],
         'runtime' => ['libsubstrate*'],
     ],
 

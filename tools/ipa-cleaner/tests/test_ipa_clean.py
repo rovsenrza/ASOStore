@@ -75,7 +75,7 @@ def injected_app():
 
 
 class AnalysisTests(unittest.TestCase):
-    def test_reports_reviewed_promotions_and_unknown_hooks_separately(self):
+    def test_reports_reviewed_promotions_and_injected_hooks(self):
         with tempfile.TemporaryDirectory() as temp:
             report = cleaner.analyze(write_ipa(Path(temp) / "app.ipa", injected_app()), RULES)
         modules = {module["path"]: module for module in report["modules"]}
@@ -83,10 +83,26 @@ class AnalysisTests(unittest.TestCase):
         promo = modules[ROOT + "libobjcpatch.dylib"]
         self.assertEqual((promo["rule"], promo["category"], promo["recommended"], promo["removable"]), ("libobjcpatch", "promotion", True, True))
         self.assertEqual(promo["telegram_links"], ["https://t.me/promochannel"])
+        # An injected hook (a jailbreak tweak: carries a hook marker, loaded only for its
+        # constructors with no binary referencing a symbol from it) is now recommended for
+        # removal too, under rules.json recommend_injected_hooks.
         hook = modules[ROOT + "hook.dylib"]
-        self.assertEqual((hook["rule"], hook["category"], hook["recommended"], hook["removable"]), (None, "suspected-hook", False, True))
+        self.assertEqual((hook["rule"], hook["category"], hook["recommended"], hook["removable"]), (None, "suspected-hook", True, True))
         self.assertEqual(hook["hook_markers"], ["MSHookMessageEx"])
-        self.assertEqual(report["recommended"]["remove"], [ROOT + "libobjcpatch.dylib"])
+        self.assertEqual(set(report["recommended"]["remove"]), {ROOT + "libobjcpatch.dylib", ROOT + "hook.dylib"})
+
+    def test_a_hook_marked_library_whose_symbols_are_used_is_kept(self):
+        # recommend_injected_hooks only reaches libraries nothing references ("unused"). A library
+        # the app actually links keeps its symbols referenced, so it is never auto-removed.
+        files = {
+            "App": macho([SYSTEM, "@executable_path/hook.dylib"], refs=(1, 2)),
+            "hook.dylib": macho([SYSTEM], data=b"MSHookMessageEx"),
+        }
+        with tempfile.TemporaryDirectory() as temp:
+            report = cleaner.analyze(write_ipa(Path(temp) / "app.ipa", files), RULES)
+        # A referenced library is not even a removal candidate, so nothing lists or recommends it.
+        self.assertEqual([m["path"] for m in report["modules"]], [])
+        self.assertEqual(report["recommended"]["remove"], [])
 
     def test_a_module_whose_symbols_are_used_is_not_removable(self):
         files = {"App": macho([SYSTEM, "@executable_path/libobjcpatch.dylib"], refs=(1, 2)), "libobjcpatch.dylib": PROMO}
@@ -183,20 +199,21 @@ class AnalysisTests(unittest.TestCase):
 
 
 class CleanTests(unittest.TestCase):
-    def test_recommended_cleanup_removes_only_the_promotion_and_keeps_everything_else(self):
+    def test_recommended_cleanup_removes_the_promotion_and_injected_hook_keeps_the_rest(self):
         with tempfile.TemporaryDirectory() as temp:
             source, output = write_ipa(Path(temp) / "app.ipa", injected_app()), Path(temp) / "clean.ipa"
             report = cleaner.clean(source, output, RULES, recommended=True)
             self.assertTrue(report["changed"])
-            self.assertEqual(report["removed_loads"], {ROOT + "App": ["@executable_path/libobjcpatch.dylib"]})
-            self.assertEqual([module["path"] for module in report["removed_modules"]], [ROOT + "libobjcpatch.dylib"])
+            self.assertEqual(report["removed_loads"], {ROOT + "App": ["@executable_path/hook.dylib", "@executable_path/libobjcpatch.dylib"]})
+            self.assertEqual(sorted(module["path"] for module in report["removed_modules"]), [ROOT + "hook.dylib", ROOT + "libobjcpatch.dylib"])
             with zipfile.ZipFile(source) as old, zipfile.ZipFile(output) as new:
                 self.assertNotIn(ROOT + "libobjcpatch.dylib", new.namelist())
-                self.assertIn(ROOT + "hook.dylib", new.namelist())
-                for name in (ROOT + "ru.lproj/Пример.txt", ROOT + "Frameworks/Real.framework/Real", ROOT + "hook.dylib"):
+                self.assertNotIn(ROOT + "hook.dylib", new.namelist())
+                # The real framework and resources the app depends on are untouched.
+                for name in (ROOT + "ru.lproj/Пример.txt", ROOT + "Frameworks/Real.framework/Real"):
                     self.assertEqual(new.read(name), old.read(name))
                 before, after = cleaner.MachO(old.read(ROOT + "App")), cleaner.MachO(new.read(ROOT + "App"))
-                self.assertEqual(after.libraries, [SYSTEM, "@rpath/Real.framework/Real", "@executable_path/hook.dylib"])
+                self.assertEqual(after.libraries, [SYSTEM, "@rpath/Real.framework/Real"])
                 self.assertEqual(after.ordinals(), before.ordinals())
                 self.assertEqual(new.read(ROOT + "App")[before.header + before.command_bytes:], old.read(ROOT + "App")[before.header + before.command_bytes:])
             self.assertEqual(cleaner.analyze(output, RULES)["recommended"]["remove"], [])

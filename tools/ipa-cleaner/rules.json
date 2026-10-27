@@ -1,6 +1,8 @@
 {
   "version": 1,
   "comment": "Reviewed injections found in customer-provided IPAs (October 2026). A module rule matches only when its file name is listed AND every marker occurs in its bytes; a name alone never removes anything. Library patches apply to the exact reviewed build (SHA-256) only.",
+  "recommend_injected_hooks": true,
+  "recommend_injected_hooks_comment": "Also recommend removal of any injected dylib that (a) carries a jailbreak hook marker from hook_markers (Substrate/theos/CaptainHook/fishhook), (b) is loaded only for its constructors with no binary referencing a symbol from it (unused), and (c) is unencrypted and otherwise removable. These are definitionally injected tweaks (SatellaJailed/iOSGods/KillRate cheat loaders etc.), never a dependency the app links. A library the app actually uses references symbols, so it is not 'unused' and is never auto-removed by this flag.",
   "modules": [
     {
       "id": "libobjcpatch",

@@ -583,7 +583,8 @@ class Bundle:
                 "rule": rule["id"] if rule else None,
                 "category": category,
                 "reason": rule["reason"] if rule else None,
-                "recommended": bool(rule and rule.get("recommend")) and blocked is None,
+                "recommended": (bool(rule and rule.get("recommend"))
+                                or (self.rules.get("recommend_injected_hooks") and bool(hooks) and unused and not encrypted)) and blocked is None,
                 "removable": blocked is None,
                 "blocked_reason": blocked,
                 "encrypted": encrypted,
