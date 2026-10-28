@@ -11,6 +11,7 @@ use App\Services\TelegramStore\Bot\Screen;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -61,6 +62,33 @@ class TelemetryController extends Controller
         if ($report->kind !== AppLaunchReport::LAUNCHED) {
             $this->alert($report);
         }
+
+        return response()->noContent(202);
+    }
+
+    /**
+     * Diagnostics line from TGRelay.dylib inside re-signed Telegram: whether our MTProxy was forced
+     * on, and any transport failure seen in the field (e.g. the TSPU ~16 KB freeze as a read error).
+     * No credentials and no message content — just proxy state. Logged for `apps:tg-diag` / SSH.
+     */
+    public function tgDiag(Request $request): Response
+    {
+        $data = $request->validate([
+            'event' => ['required', 'string', 'max:64'],
+            'detail' => ['nullable', 'string', 'max:500'],
+            'udid' => ['nullable', 'string', 'max:64'],
+            'bundleId' => ['nullable', 'string', 'max:190'],
+            'appVersion' => ['nullable', 'string', 'max:32'],
+        ]);
+
+        Log::info('tg-relay.diag', [
+            'event' => $data['event'],
+            'detail' => $data['detail'] ?? null,
+            'udid' => $data['udid'] ?? null,
+            'bundle' => $data['bundleId'] ?? null,
+            'version' => $data['appVersion'] ?? null,
+            'ip' => $request->ip(),
+        ]);
 
         return response()->noContent(202);
     }

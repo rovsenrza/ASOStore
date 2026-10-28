@@ -213,6 +213,11 @@ return [
                 fn ($u) => strtoupper(trim($u)),
                 explode(',', (string) env('STOREFRONT_VK_FULL_RELAY_UDIDS', '00008140-00145D163C69801C,00008130-00125D492130001C'))
             ))),
+            // Telegram (ph.telegra.Telegraph): TGRelay.dylib forces every MTProto connection through
+            // our fake-TLS MTProxy (mtg on www.ruappstore.com:443) so the app works on Russian
+            // internet without a VPN, no setting to touch. Same dylib for every device/subscription.
+            'tg_path' => env('STOREFRONT_TG_RELAY_HOOK_PATH', base_path('../ios/tg-relay/TGRelay.dylib')),
+            'tg_bundle_ids' => array_filter(explode(',', (string) env('STOREFRONT_TG_RELAY_HOOK_BUNDLE_IDS', 'ph.telegra.Telegraph'))),
         ],
 
         'compat_shim' => [

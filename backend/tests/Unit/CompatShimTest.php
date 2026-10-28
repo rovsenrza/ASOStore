@@ -107,6 +107,49 @@ it('injects VKRelay (and no MAX features/glass) for a VK relay-hook app', functi
     @unlink($glass);
 });
 
+it('injects TGRelay (and no MAX/VK dylibs) for a Telegram relay-hook app', function () {
+    $tg = tempnam(sys_get_temp_dir(), 'tgrelay').'.dylib';
+    $relay = tempnam(sys_get_temp_dir(), 'relay').'.dylib';
+    file_put_contents($tg, "\xCF\xFA\xED\xFE tg");
+    file_put_contents($relay, "\xCF\xFA\xED\xFE relay");
+    config([
+        'storefront.signing.relay_hook.bundle_ids' => ['ru.oneme.app'],
+        'storefront.signing.relay_hook.path' => $relay,
+        'storefront.signing.relay_hook.tg_bundle_ids' => ['ph.telegra.Telegraph'],
+        'storefront.signing.relay_hook.tg_path' => $tg,
+    ]);
+    $shim = app(CompatShim::class);
+    // Telegram uses app groups, so it also gets the compat shim; it must NOT get MAX/VK dylibs.
+    $tgArtifact = AppArtifact::factory()->make([
+        'bundle_identifier' => 'ph.telegra.Telegraph',
+        'inspection' => ['entitlements' => ['com.apple.security.application-groups' => ['group.ph.telegra.Telegraph']]],
+    ]);
+    $dylibs = $shim->dylibsFor($tgArtifact);
+    $names = array_column($dylibs, 'name');
+
+    expect($shim->isTgRelayHook($tgArtifact))->toBeTrue()
+        ->and($names)->toContain('TGRelay.dylib')->toContain('RuStoreCompat.dylib')
+        ->not->toContain('MAXRelay.dylib')->not->toContain('VKRelay.dylib')->not->toContain('MAXFeatures.dylib')
+        ->and(base64_decode(collect($dylibs)->firstWhere('name', 'TGRelay.dylib')['content']))->toBe("\xCF\xFA\xED\xFE tg");
+
+    // A non-Telegram app gets no TGRelay.
+    $other = AppArtifact::factory()->make(['bundle_identifier' => 'ru.oneme.app', 'inspection' => []]);
+    expect(array_column($shim->dylibsFor($other), 'name'))->not->toContain('TGRelay.dylib');
+
+    @unlink($tg);
+    @unlink($relay);
+});
+
+it('ships a real fat arm64/arm64e TGRelay dylib at the configured default path', function () {
+    config(['storefront.signing.relay_hook.tg_bundle_ids' => ['ph.telegra.Telegraph'],
+        'storefront.signing.relay_hook.tg_path' => base_path('../ios/tg-relay/TGRelay.dylib')]);
+    $shim = app(CompatShim::class);
+    $tgArtifact = AppArtifact::factory()->make(['bundle_identifier' => 'ph.telegra.Telegraph', 'inspection' => []]);
+    $bytes = base64_decode(collect($shim->dylibsFor($tgArtifact))->firstWhere('name', 'TGRelay.dylib')['content']);
+    expect(bin2hex(substr($bytes, 0, 4)))->toBe('cafebabe')
+        ->and(strlen($bytes))->toBeGreaterThan(10000);
+});
+
 it('returns the dylib bytes in the lease shape, or nothing when not needed', function () {
     $shim = app(CompatShim::class);
     $dylibs = $shim->dylibsFor(artifactWith(['com.apple.security.application-groups' => ['group.x']]));

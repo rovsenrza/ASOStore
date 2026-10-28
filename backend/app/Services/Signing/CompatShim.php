@@ -27,6 +27,8 @@ class CompatShim
 
     public const GLASS_NAME = 'MAXGlass.dylib';
 
+    public const TG_RELAY_NAME = 'TGRelay.dylib';
+
     private ?string $encoded = null;
 
     public function enabled(): bool
@@ -70,7 +72,42 @@ class CompatShim
             $dylibs[] = $glass;
         }
 
+        // TGRelay: forces re-signed Telegram through our fake-TLS MTProxy so it works on Russian
+        // internet without a VPN, and writes a diagnostics log. Telegram-only; not a per-device or
+        // per-subscription hook (the proxy is the same for everyone), so no UDID routing.
+        $tg = $this->tgRelayDylibFor($artifact);
+        if ($tg !== null) {
+            $dylibs[] = $tg;
+        }
+
         return $dylibs;
+    }
+
+    /**
+     * Whether this app gets the Telegram proxy hook (TGRelay.dylib): its IPA bundle id matches
+     * storefront.signing.relay_hook.tg_bundle_ids (default ph.telegra.Telegraph). Independent of
+     * the MAX/VK relay set.
+     */
+    public function isTgRelayHook(AppArtifact $artifact): bool
+    {
+        return $this->matchesRelayBundles($artifact, (array) config('storefront.signing.relay_hook.tg_bundle_ids', []));
+    }
+
+    /** @return array{name: string, content: string}|null */
+    private function tgRelayDylibFor(AppArtifact $artifact): array|null
+    {
+        if (! $this->isTgRelayHook($artifact)) {
+            return null;
+        }
+        $path = (string) config('storefront.signing.relay_hook.tg_path', base_path('../ios/tg-relay/'.self::TG_RELAY_NAME));
+        $bytes = @file_get_contents($path);
+        if ($bytes === false || $bytes === '') {
+            Log::warning('signing.tg_hook_missing', ['path' => $path]);
+
+            return null;
+        }
+
+        return ['name' => self::TG_RELAY_NAME, 'content' => base64_encode($bytes)];
     }
 
     /** @return array{name: string, content: string}|null */
