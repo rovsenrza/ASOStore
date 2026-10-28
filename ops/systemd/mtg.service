@@ -1,0 +1,13 @@
+[Unit]
+Description=mtg MTProto Fake-TLS proxy (behind nginx stream :443)
+After=network.target
+
+[Service]
+ExecStart=/opt/mtg/mtg run /etc/mtg/config.toml
+Restart=always
+RestartSec=2
+DynamicUser=yes
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,25 @@
+# Production MTProxy. Reached only via nginx stream on :443 (SNI www.ruappstore.com).
+# Non-Telegram traffic on that SNI is fronted back to the real site (127.0.0.1:8444).
+secret = "<run: /opt/mtg/mtg generate-secret --hex www.ruappstore.com>"
+bind-to = "127.0.0.1:8445"
+proxy-protocol-listener = true
+concurrency = 8192
+prefer-ip = "prefer-ipv4"
+public-ipv4 = "169.58.29.19"
+tolerate-time-skewness = "5s"
+
+[domain-fronting]
+ip = "127.0.0.1"
+port = 8444
+proxy-protocol = true
+
+[defense.anti-replay]
+enabled = true
+max-size = "1mib"
+error-rate = 0.001
+
+[stats.prometheus]
+enabled = true
+bind-to = "127.0.0.1:3129"
+http-path = "/"
+metric-prefix = "mtg"
