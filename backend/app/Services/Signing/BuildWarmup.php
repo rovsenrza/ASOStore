@@ -44,7 +44,7 @@ final class BuildWarmup
      */
     public function forTeams(): int
     {
-        $limit = max(0, min(30, (int) config('storefront.signing.team_presign_limit', 10)));
+        $limit = max(0, min(100, (int) config('storefront.signing.team_presign_limit', 10)));
         if ($limit === 0 || ! config('storefront.signing.shared_builds', true) || ! config('storefront.signing.warmup_enabled', true)) {
             return 0;
         }

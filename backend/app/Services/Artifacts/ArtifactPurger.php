@@ -51,7 +51,7 @@ class ArtifactPurger
             });
 
             foreach (SignedBuild::query()->where('artifact_id', $artifact->id)->whereNull('purged_at')->whereNotNull('storage_path')->get() as $build) {
-                $summary['bytes'] += $this->delete($build->storage_path, 'artifacts', fn () => false);
+                $summary['bytes'] += $this->delete($build->storage_path, 'signed', fn () => false);
                 $build->forceFill(['purged_at' => now()])->save();
                 $summary['signed_builds']++;
             }

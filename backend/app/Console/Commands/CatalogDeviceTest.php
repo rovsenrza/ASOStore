@@ -130,7 +130,7 @@ class CatalogDeviceTest extends Command
         if ($build->status === SignedBuildStatus::Deliverable && $build->storage_path !== null && $build->purged_at === null) {
             // Downloading counts as use: the storage janitor leaves the file alone meanwhile.
             $build->forceFill(['last_used_at' => now()])->save();
-            $result['url'] = Storage::disk('artifacts')->temporaryUrl($build->storage_path, now()->addHours(3));
+            $result['url'] = Storage::disk('signed')->temporaryUrl($build->storage_path, now()->addHours(3));
         }
 
         return $result;

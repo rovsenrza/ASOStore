@@ -74,7 +74,7 @@ class RetentionService
             ->where('updated_at', '<', now()->subDays($days['signed_build_days']))
             ->get();
         foreach ($builds as $build) {
-            $disk->delete((string) $build->storage_path);
+            Storage::disk('signed')->delete((string) $build->storage_path);
             $build->forceFill(['purged_at' => now()])->save();
             $summary['signed_builds']++;
         }

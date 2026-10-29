@@ -60,7 +60,7 @@ class SignatureVerifier
 
     private function check(SignedBuild $build): ?string
     {
-        $disk = Storage::disk('artifacts');
+        $disk = Storage::disk('signed');
         if ($build->storage_path === null || ! $disk->exists($build->storage_path)) {
             return 'SIGNED_FILE_MISSING';
         }

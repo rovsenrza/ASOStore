@@ -354,7 +354,7 @@ class SigningService
                 fwrite($temporary, $chunk);
             }
             $sha256 = hash_final($context);
-            $disk = Storage::disk('artifacts');
+            $disk = Storage::disk('signed');
             // Object storage occasionally fails a large multipart write under load; one bad
             // part should not fail the whole sign (the runner would re-sign from scratch).
             for ($attempt = 1; ; $attempt++) {

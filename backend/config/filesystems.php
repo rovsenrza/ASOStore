@@ -69,6 +69,29 @@ return [
             'report' => true,
         ],
 
+        // Signed builds (signed/<public_id>.ipa): re-creatable from the originals, so they may live in
+        // object storage while the originals stay on the local disk. SIGNED_BUILDS_DRIVER=s3 moves them;
+        // otherwise they share the artifacts root. Hot builds are served from ArtifactFileCache.
+        'signed' => env('SIGNED_BUILDS_DRIVER', env('ARTIFACTS_DRIVER', 'local')) === 's3' ? [
+            'driver' => 's3',
+            'key' => env('SIGNED_S3_ACCESS_KEY_ID', env('AWS_ACCESS_KEY_ID')),
+            'secret' => env('SIGNED_S3_SECRET_ACCESS_KEY', env('AWS_SECRET_ACCESS_KEY')),
+            'region' => env('SIGNED_S3_REGION', env('AWS_DEFAULT_REGION', 'default')),
+            'bucket' => env('SIGNED_S3_BUCKET', env('AWS_BUCKET')),
+            'endpoint' => env('SIGNED_S3_ENDPOINT', env('AWS_ENDPOINT')),
+            'use_path_style_endpoint' => true,
+            'root' => env('SIGNED_S3_ROOT', ''),
+            'visibility' => 'private',
+            'throw' => true,
+            'report' => true,
+        ] : [
+            'driver' => 'local',
+            'root' => env('ARTIFACTS_PATH', storage_path('app/artifacts')),
+            'visibility' => 'private',
+            'throw' => true,
+            'report' => true,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

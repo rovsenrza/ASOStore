@@ -61,7 +61,7 @@ class InstallDeliveryController extends Controller
         }
 
         /** @var FilesystemAdapter $disk */
-        $disk = Storage::disk('artifacts');
+        $disk = Storage::disk('signed');
         $relative = $this->installations->downloadPath($model);
         $size = (int) $disk->size($relative);
         $range = (string) $request->header('Range');

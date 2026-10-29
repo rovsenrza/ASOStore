@@ -276,26 +276,29 @@ final class StorageJanitor
      */
     private function sweepObjects(): void
     {
-        /** @var FilesystemAdapter $disk */
-        $disk = Storage::disk('artifacts');
-        try {
-            foreach (['signed', 'originals', 'uploads'] as $prefix) {
-                foreach ($disk->listContents($prefix, true) as $object) {
-                    if (! $object instanceof FileAttributes || ! $this->orphaned($object->path(), Carbon::createFromTimestamp((int) $object->lastModified()))) {
-                        continue;
-                    }
-                    $this->summary['orphan_objects']++;
-                    $this->summary['orphan_bytes'] += (int) $object->fileSize();
-                    if (! $this->dryRun) {
-                        $disk->delete($object->path());
+        // Signed builds may live on their own disk (SIGNED_BUILDS_DRIVER); each prefix is swept where it lives.
+        foreach (['signed' => ['signed'], 'artifacts' => ['originals', 'uploads']] as $name => $prefixes) {
+            /** @var FilesystemAdapter $disk */
+            $disk = Storage::disk($name);
+            try {
+                foreach ($prefixes as $prefix) {
+                    foreach ($disk->listContents($prefix, true) as $object) {
+                        if (! $object instanceof FileAttributes || ! $this->orphaned($object->path(), Carbon::createFromTimestamp((int) $object->lastModified()))) {
+                            continue;
+                        }
+                        $this->summary['orphan_objects']++;
+                        $this->summary['orphan_bytes'] += (int) $object->fileSize();
+                        if (! $this->dryRun) {
+                            $disk->delete($object->path());
+                        }
                     }
                 }
+                if ($disk instanceof AwsS3V3Adapter) {
+                    $this->abortStaleMultipart($disk);
+                }
+            } catch (Throwable $exception) {
+                $this->failed('objects', $name, $exception);
             }
-            if ($disk instanceof AwsS3V3Adapter) {
-                $this->abortStaleMultipart($disk);
-            }
-        } catch (Throwable $exception) {
-            $this->failed('objects', 'artifacts', $exception);
         }
     }
 
@@ -409,7 +412,7 @@ final class StorageJanitor
         if (! $this->dryRun) {
             try {
                 // signed/<public_id>.ipa belongs to this build alone.
-                Storage::disk('artifacts')->delete((string) $build->storage_path);
+                Storage::disk('signed')->delete((string) $build->storage_path);
                 if ($build->sha256 !== null) {
                     $this->cache->forget($build->sha256);
                 }
