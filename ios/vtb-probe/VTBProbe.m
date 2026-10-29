@@ -134,9 +134,22 @@ static void dumpBody(NSURL *url, NSData *data, NSURLResponse *resp) {
         logLine([NSString stringWithFormat:@">>> %@ BODY: %@", host, s ?: @"<binary>"]);
     }
 }
+static void dumpRequest(NSURLRequest *req) {
+    NSString *host = req.URL.host ?: @"";
+    if (![host containsString:@"deceptium"] && ![host containsString:@"altaiapp"]) return;
+    logLine([NSString stringWithFormat:@"REQ %@ %@", req.HTTPMethod ?: @"GET", req.URL.absoluteString ?: @""]);
+    [req.allHTTPHeaderFields enumerateKeysAndObjectsUsingBlock:^(NSString *k, NSString *v, BOOL *stop){
+        logLine([NSString stringWithFormat:@"HDR %@: %@", k, v]);
+    }];
+    if (req.HTTPBody.length) {
+        NSString *b = [[NSString alloc] initWithData:[req.HTTPBody subdataWithRange:NSMakeRange(0, MIN(400u,(unsigned)req.HTTPBody.length))] encoding:NSUTF8StringEncoding];
+        logLine([NSString stringWithFormat:@"BODY-OUT %@", b ?: @"<binary>"]);
+    }
+}
 typedef void (^DataCB)(NSData *, NSURLResponse *, NSError *);
 static id (*orig_dataReq)(id, SEL, NSURLRequest *, DataCB);
 static id hook_dataReq(id self, SEL _cmd, NSURLRequest *req, DataCB cb) {
+    dumpRequest(req);
     DataCB wrap = ^(NSData *d, NSURLResponse *r, NSError *e){ dumpBody(req.URL, d, r); if (cb) cb(d, r, e); };
     return orig_dataReq(self, _cmd, req, wrap);
 }
