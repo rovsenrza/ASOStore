@@ -87,9 +87,11 @@ return [
     ],
 
     // Chunked IPA uploads (admin, quick publish, customer imports). Clients use the size each session
-    // reports, so this only affects new sessions.
+    // reports, so this only affects new sessions. 2 MB: customers upload at ~0.3-0.8 MB/s over VPNs
+    // that drop and change IP mid-upload, and iOS stops a backgrounded app after ~30 s; an 8 MB chunk
+    // often never got through, a 2 MB one finishes in a few seconds and a drop costs little.
     'uploads' => [
-        'chunk_bytes' => (int) env('STOREFRONT_UPLOAD_CHUNK_BYTES', 8 * 1024 * 1024),
+        'chunk_bytes' => (int) env('STOREFRONT_UPLOAD_CHUNK_BYTES', 2 * 1024 * 1024),
         // A customer import bigger than this is assembled by a queued job instead of inside the request
         // (the app waits 30 seconds for `complete`; a multi-gigabyte IPA takes minutes).
         'background_assembly_bytes' => (int) env('STOREFRONT_UPLOAD_BACKGROUND_ASSEMBLY_BYTES', 100 * 1024 * 1024),

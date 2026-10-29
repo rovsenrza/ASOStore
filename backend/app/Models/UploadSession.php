@@ -24,7 +24,7 @@ class UploadSession extends Model
 {
     use HasPublicId;
 
-    public const CHUNK_SIZE = 8 * 1024 * 1024;
+    public const CHUNK_SIZE = 2 * 1024 * 1024;
 
     /**
      * Chunk size for new upload sessions. Clients (iOS app, admin) read it from the session, so it
