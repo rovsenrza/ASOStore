@@ -14,7 +14,6 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <Security/Security.h>
-#import "fishhook.h"
 
 static NSString *const kPasteboard = @"ru.appstore.maxshare";
 static NSString *const kType = @"ru.appstore.maxshare.package";
@@ -36,12 +35,13 @@ static NSString *BridgeRoot(void) {
 #pragma mark - Extension side
 
 typedef void *SecTaskRef; // private on iOS
-typedef CFTypeRef (*SecTaskCopyValueFn)(SecTaskRef, CFStringRef, CFErrorRef *);
-static SecTaskCopyValueFn orig_SecTaskCopyValueForEntitlement;
+extern CFTypeRef SecTaskCopyValueForEntitlement(SecTaskRef task, CFStringRef entitlement, CFErrorRef *error);
 
+// dyld __interpose, not fishhook: share is linked with chained fixups, which fishhook cannot rebind.
+// Inside this image the call below still reaches the real function.
 static CFTypeRef hook_SecTaskCopyValueForEntitlement(SecTaskRef task, CFStringRef entitlement, CFErrorRef *error) {
-    CFTypeRef value = orig_SecTaskCopyValueForEntitlement(task, entitlement, error);
-    if (entitlement && CFEqual(entitlement, CFSTR("com.apple.security.application-groups"))) {
+    CFTypeRef value = SecTaskCopyValueForEntitlement(task, entitlement, error);
+    if (IsExtension() && entitlement && CFEqual(entitlement, CFSTR("com.apple.security.application-groups"))) {
         NSArray *groups = (__bridge NSArray *)value;
         if (![groups isKindOfClass:[NSArray class]] || groups.count == 0) {
             if (value) CFRelease(value);
@@ -51,6 +51,11 @@ static CFTypeRef hook_SecTaskCopyValueForEntitlement(SecTaskRef task, CFStringRe
     return value;
 }
 
+__attribute__((used)) static const struct { const void *replacement; const void *original; } kInterpose[]
+    __attribute__((section("__DATA,__interpose"))) = {
+    {(const void *)hook_SecTaskCopyValueForEntitlement, (const void *)SecTaskCopyValueForEntitlement},
+};
+
 static IMP orig_containerURL;
 static NSURL *hook_containerURL(id self, SEL _cmd, NSString *group) {
     NSURL *url = ((NSURL *(*)(id, SEL, NSString *))orig_containerURL)(self, _cmd, group);
@@ -59,6 +64,14 @@ static NSURL *hook_containerURL(id self, SEL _cmd, NSString *group) {
     }
     return url;
 }
+
+#ifdef RSB_DEBUG
+static IMP orig_finishWithError;
+static void hook_finishWithError(id self, SEL _cmd, NSString *message) {
+    NSString *tagged = [message isKindOfClass:[NSString class]] ? [message stringByAppendingString:@" [rsb]"] : message;
+    ((void (*)(id, SEL, id))orig_finishWithError)(self, _cmd, tagged);
+}
+#endif
 
 static void FinishWithMessage(UIViewController *controller, NSString *message) {
     SEL finish = NSSelectorFromString(@"finishWithError:");
@@ -163,11 +176,13 @@ static void Swizzle(Class cls, SEL sel, IMP replacement, IMP *original) {
 
 __attribute__((constructor)) static void MAXShareBridgeInit(void) {
     if (IsExtension()) {
-        rebind_symbols((struct rebinding[1]){{"SecTaskCopyValueForEntitlement", (void *)hook_SecTaskCopyValueForEntitlement, (void **)&orig_SecTaskCopyValueForEntitlement}}, 1);
         Swizzle([NSFileManager class], @selector(containerURLForSecurityApplicationGroupIdentifier:), (IMP)hook_containerURL, &orig_containerURL);
         Class controller = NSClassFromString(@"DiyShareViewController");
         if (controller) {
             Swizzle(controller, NSSelectorFromString(@"openMAXWithFolder:"), (IMP)hook_openMAXWithFolder, &orig_openMAXWithFolder);
+#ifdef RSB_DEBUG
+            Swizzle(controller, NSSelectorFromString(@"finishWithError:"), (IMP)hook_finishWithError, &orig_finishWithError);
+#endif
         }
     } else {
         // NSURLComponents may hand out a private subclass; hook the class its items really have.
