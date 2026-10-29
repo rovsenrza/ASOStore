@@ -103,7 +103,8 @@ static NSDictionary<NSString *, NSData *> *PackFolder(NSString *folder, BOOL *to
 static IMP orig_openMAXWithFolder;
 static void hook_openMAXWithFolder(UIViewController *self, SEL _cmd, NSString *folder) {
     // A real shared container (team with App Groups): leave diyorde's flow untouched.
-    if (![folder hasPrefix:BridgeRoot()]) {
+    // By folder name, not prefix: tmp may come back as /private/var/... or /var/....
+    if (![folder containsString:@"/RuShareBridge/"]) {
         ((void (*)(id, SEL, NSString *))orig_openMAXWithFolder)(self, _cmd, folder);
         return;
     }
@@ -157,13 +158,51 @@ static NSString *Unpack(NSString *token) {
     }
 }
 
+#ifdef RSB_DEBUG
+// Device-test diagnostics: what MAX received for dir= and what the bridge made of it, once per value.
+static void ShowDiagnostic(NSString *text) {
+    static NSMutableSet *shown;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ shown = [NSMutableSet set]; });
+    @synchronized (shown) {
+        if ([shown containsObject:text]) return;
+        [shown addObject:text];
+    }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        UIWindow *window = nil;
+        for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+            if (![scene isKindOfClass:[UIWindowScene class]]) continue;
+            for (UIWindow *candidate in ((UIWindowScene *)scene).windows) {
+                if (candidate.isKeyWindow) window = candidate;
+            }
+        }
+        UIViewController *top = window.rootViewController;
+        while (top.presentedViewController) top = top.presentedViewController;
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"[rsb] share" message:text preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleCancel handler:nil]];
+        [top presentViewController:alert animated:YES completion:nil];
+    });
+}
+#endif
+
 static IMP orig_queryItemValue;
 static NSString *hook_queryItemValue(NSURLQueryItem *self, SEL _cmd) {
     NSString *value = ((NSString *(*)(id, SEL))orig_queryItemValue)(self, _cmd);
     if ([value hasPrefix:kPrefix] && [self.name isEqualToString:@"dir"]) {
         NSString *folder = Unpack([value substringFromIndex:kPrefix.length]);
+#ifdef RSB_DEBUG
+        NSArray *names = folder ? [[NSFileManager defaultManager] contentsOfDirectoryAtPath:folder error:nil] : nil;
+        UIPasteboard *board = [UIPasteboard pasteboardWithName:kPasteboard create:NO];
+        ShowDiagnostic([NSString stringWithFormat:@"dir=%@\nunpacked=%@\nfiles=%@\npasteboard=%@ types=%@",
+            value, folder ?: @"NO", names ?: @[], board ? @"yes" : @"nil", board.pasteboardTypes ?: @[]]);
+#endif
         return folder ?: @"";
     }
+#ifdef RSB_DEBUG
+    if ([self.name isEqualToString:@"dir"] && value.length) {
+        ShowDiagnostic([NSString stringWithFormat:@"dir (not bridged)=%@", value]);
+    }
+#endif
     return value;
 }
 
