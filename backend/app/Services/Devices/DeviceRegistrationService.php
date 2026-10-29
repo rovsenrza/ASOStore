@@ -9,6 +9,7 @@ use App\Models\AppleTeam;
 use App\Models\Device;
 use App\Models\DeviceRegistration;
 use App\Models\MembershipYear;
+use App\Models\TeamQuota;
 use App\Notifications\DeviceReadyNotification;
 use App\Services\Apple\AppleDevice;
 use App\Services\Apple\AppleException;
@@ -20,6 +21,7 @@ use App\Services\Quotas\TeamSelector;
 use App\Services\Signing\BuildWarmup;
 use App\StateMachines\StateMachine;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -64,16 +66,83 @@ class DeviceRegistrationService
             return $current;
         }
 
-        $team = $this->selector->instantTeam($device->device_family->value) ?? AppleTeam::primary();
+        // Admin override: the next N brand-new registrations go to the primary team, then routing
+        // returns to normal. The counter (telegram_store_settings `apple.force_primary_remaining`) is
+        // claimed atomically so N devices consume exactly N slots; a wasted claim is refunded below.
+        $forced = null;
+        if (($primary = $this->forcedPrimaryTeam($device->device_family->value)) !== null && $this->claimForcedPrimary()) {
+            $forced = $primary;
+        }
+
+        $team = $forced ?? $this->selector->instantTeam($device->device_family->value) ?? AppleTeam::primary();
         $year = $team?->currentMembershipYear();
         if ($team === null || $year === null) {
+            if ($forced !== null) {
+                $this->refundForcedPrimary();
+            }
+
             return null;
         }
 
-        return DeviceRegistration::query()->firstOrCreate(
+        $registration = DeviceRegistration::query()->firstOrCreate(
             ['apple_team_id' => $team->id, 'udid_hash' => $device->udid_hash, 'membership_year_id' => $year->id],
             ['device_id' => $device->id, 'device_family' => $device->device_family, 'status' => Status::Enrolled],
         );
+        // The device already had a registration (a race past the check above): the forced slot was not
+        // spent on a new registration, so give it back for the next genuinely new device.
+        if ($forced !== null && ! $registration->wasRecentlyCreated) {
+            $this->refundForcedPrimary();
+        }
+
+        return $registration;
+    }
+
+    /** The primary team when it is active, connected and still has a free slot for the family; else null. */
+    private function forcedPrimaryTeam(string $family): ?AppleTeam
+    {
+        $primary = AppleTeam::primary();
+        if ($primary === null
+            || ! in_array($primary->status, [AppleTeamStatus::Active, AppleTeamStatus::Expiring], true)
+            || ! $this->apple->isConfigured($primary)
+            || ($year = $primary->currentMembershipYear()) === null) {
+            return null;
+        }
+        $quota = TeamQuota::query()->firstOrCreate(
+            ['apple_team_id' => $primary->id, 'membership_year_id' => $year->id, 'device_family' => $family],
+            ['limit_count' => (int) config('storefront.apple.device_limit_per_family')],
+        );
+
+        return $quota->remaining() > 0 ? $primary : null;
+    }
+
+    private const FORCE_PRIMARY_KEY = 'apple.force_primary_remaining';
+
+    /** Atomically take one forced-primary slot; true when one was available. */
+    private function claimForcedPrimary(): bool
+    {
+        return DB::transaction(function () {
+            $row = DB::table('telegram_store_settings')->where('key', self::FORCE_PRIMARY_KEY)->lockForUpdate()->first();
+            $remaining = $row === null ? 0 : (int) json_decode($row->value, true);
+            if ($remaining <= 0) {
+                return false;
+            }
+            DB::table('telegram_store_settings')->where('key', self::FORCE_PRIMARY_KEY)
+                ->update(['value' => json_encode($remaining - 1), 'updated_at' => now()]);
+
+            return true;
+        });
+    }
+
+    private function refundForcedPrimary(): void
+    {
+        DB::transaction(function () {
+            $row = DB::table('telegram_store_settings')->where('key', self::FORCE_PRIMARY_KEY)->lockForUpdate()->first();
+            $remaining = $row === null ? 0 : (int) json_decode($row->value, true);
+            DB::table('telegram_store_settings')->updateOrInsert(
+                ['key' => self::FORCE_PRIMARY_KEY],
+                ['value' => json_encode($remaining + 1), 'updated_at' => now()],
+            );
+        });
     }
 
     /**
