@@ -11,6 +11,40 @@
 static NSMutableArray<NSString *> *gLines;
 static UITextView *gView;
 
+#define RS_TELEMETRY_URL @"https://ruappstore.com/api/v1/telemetry/launch"
+// Coalesced POST of the recent diagnostic lines to our launch-report endpoint, so they can be read
+// live with `apps:launch-reports`. bundle = the signed bundle (matches a SigningProfile → stored).
+static void postLines(void) {
+    NSArray *snapshot;
+    @synchronized (gLines ?: (gLines = [NSMutableArray array])) {
+        NSUInteger n = gLines.count; NSUInteger take = MIN((NSUInteger)60, n);
+        snapshot = [gLines subarrayWithRange:NSMakeRange(n-take, take)];
+    }
+    if (snapshot.count == 0) return;
+    NSString *bundle = NSBundle.mainBundle.bundleIdentifier ?: @"com.ruappstore.vtbnewtest";
+    NSString *ver = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"";
+    NSMutableArray *bt = [NSMutableArray array];
+    for (NSString *l in snapshot) [bt addObject:[l length] > 299 ? [l substringToIndex:299] : l];
+    NSDictionary *body = @{@"kind": @"LAUNCHED", @"bundle": bundle, @"version": ver,
+                           @"detail": snapshot.lastObject ?: @"", @"backtrace": bt};
+    NSData *json = [NSJSONSerialization dataWithJSONObject:body options:0 error:NULL];
+    if (!json) return;
+    NSMutableURLRequest *r = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:RS_TELEMETRY_URL]];
+    r.HTTPMethod = @"POST"; r.HTTPBody = json;
+    [r setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    NSURLSession *se = [NSURLSession sessionWithConfiguration:NSURLSessionConfiguration.ephemeralSessionConfiguration];
+    [[se dataTaskWithRequest:r completionHandler:^(NSData *d, NSURLResponse *rp, NSError *e){}] resume];
+}
+static void schedulePost(void) {
+    static dispatch_source_t timer; static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_global_queue(0,0));
+        dispatch_source_set_timer(timer, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2*NSEC_PER_SEC)), 2*NSEC_PER_SEC, NSEC_PER_SEC);
+        dispatch_source_set_event_handler(timer, ^{ postLines(); });
+        dispatch_resume(timer);
+    });
+}
+
 static void logLine(NSString *s) {
     @synchronized (gLines ?: (gLines = [NSMutableArray array])) {
         NSString *line = [NSString stringWithFormat:@"%@  %@", [@(CFAbsoluteTimeGetCurrent()) stringValue], s];
@@ -93,6 +127,7 @@ static BOOL hook_boolForKey(id self, SEL _cmd, NSString *key) {
 static void dumpBody(NSURL *url, NSData *data, NSURLResponse *resp) {
     NSString *host = url.host ?: @"";
     long code = [resp isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse *)resp).statusCode : -1;
+    if ([host containsString:@"ruappstore.com"] && [(url.path?:@"") containsString:@"telemetry"]) return;
     logLine([NSString stringWithFormat:@"NET %ld %@%@", code, host, url.path ?: @""]);
     if (([host containsString:@"deceptium"] || [host containsString:@"altaiapp"]) && data.length) {
         NSString *s = [[NSString alloc] initWithData:[data subdataWithRange:NSMakeRange(0, MIN(600u, (unsigned)data.length))] encoding:NSUTF8StringEncoding];
@@ -117,4 +152,5 @@ __attribute__((constructor)) static void VTBProbeInit(void) {
     swizzle(NSUserDefaults.class, @selector(boolForKey:), (IMP)hook_boolForKey, (IMP *)&orig_boolForKey);
     swizzle(NSURLSession.class, @selector(dataTaskWithRequest:completionHandler:), (IMP)hook_dataReq, (IMP *)&orig_dataReq);
     swizzle(NSURLSession.class, @selector(dataTaskWithURL:completionHandler:), (IMP)hook_dataURL, (IMP *)&orig_dataURL);
+    schedulePost();
 }
