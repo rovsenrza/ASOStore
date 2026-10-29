@@ -28,6 +28,16 @@ class EmailVerificationService
 
     public function __construct(private readonly AuditService $audit) {}
 
+    /** Apple mail domains often drop our code emails, so those addresses are trusted without one. */
+    private const SKIP_DOMAINS = ['icloud.com', 'me.com', 'mac.com'];
+
+    public static function skipsVerification(?string $email): bool
+    {
+        $domain = strtolower((string) substr(strrchr((string) $email, '@') ?: '', 1));
+
+        return in_array($domain, self::SKIP_DOMAINS, true);
+    }
+
     /** Whether this request must wait for the user's email to be confirmed. */
     public static function blocks(Request $request): bool
     {
@@ -45,6 +55,11 @@ class EmailVerificationService
     public function send(User $user): int
     {
         if ($user->email_verified_at !== null) {
+            return 0;
+        }
+        if (self::skipsVerification($user->email)) {
+            $this->markVerified($user);
+
             return 0;
         }
         $existing = DB::table('email_verification_codes')->where('user_id', $user->id)->first();
