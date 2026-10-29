@@ -14,6 +14,7 @@
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <Security/Security.h>
+#import <dlfcn.h>
 
 static NSString *const kPasteboard = @"ru.appstore.maxshare";
 static NSString *const kType = @"ru.appstore.maxshare.package";
@@ -32,10 +33,88 @@ static NSString *BridgeRoot(void) {
     return root;
 }
 
-#pragma mark - Extension side
+#pragma mark - Keychain transport (fallback when the named pasteboard is not shared)
+
+// Called through dlsym: diyorde hooks SecItem* in MAX and would rewrite our queries.
+static OSStatus RealSecItem(const char *name, CFDictionaryRef query, CFTypeRef *result) {
+    static void *security;
+    if (!security) security = dlopen("/System/Library/Frameworks/Security.framework/Security", RTLD_NOW);
+    if (strcmp(name, "SecItemCopyMatching") == 0) return ((OSStatus (*)(CFDictionaryRef, CFTypeRef *))dlsym(security, name))(query, result);
+    if (strcmp(name, "SecItemAdd") == 0) return ((OSStatus (*)(CFDictionaryRef, CFTypeRef *))dlsym(security, name))(query, result);
+    return ((OSStatus (*)(CFDictionaryRef))dlsym(security, name))(query);
+}
 
 typedef void *SecTaskRef; // private on iOS
 extern CFTypeRef SecTaskCopyValueForEntitlement(SecTaskRef task, CFStringRef entitlement, CFErrorRef *error);
+extern SecTaskRef SecTaskCreateFromSelf(CFAllocatorRef allocator);
+
+// "<TEAM>.rsb.share": covered by the profiles' <TEAM>.* keychain-access-groups in both processes.
+static NSString *KeychainGroup(void) {
+    static NSString *group;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        SecTaskRef task = SecTaskCreateFromSelf(NULL);
+        if (!task) return;
+        NSString *appID = CFBridgingRelease(SecTaskCopyValueForEntitlement(task, CFSTR("application-identifier"), NULL));
+        CFRelease(task);
+        NSString *team = [appID isKindOfClass:[NSString class]] ? [appID componentsSeparatedByString:@"."].firstObject : nil;
+        if (team.length == 10) group = [team stringByAppendingString:@".rsb.share"];
+    });
+    return group;
+}
+
+static NSDictionary *KeychainQuery(NSString *token, NSString *account) {
+    return @{(__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+             (__bridge id)kSecAttrService: [@"rsb." stringByAppendingString:token],
+             (__bridge id)kSecAttrAccount: account,
+             (__bridge id)kSecAttrAccessGroup: KeychainGroup() ?: @""};
+}
+
+static const NSUInteger kChunk = 512 * 1024;
+
+static BOOL KeychainPut(NSString *token, NSData *package) {
+    if (!KeychainGroup()) return NO;
+    NSUInteger count = (package.length + kChunk - 1) / kChunk;
+    for (NSUInteger i = 0; i < count; i++) {
+        NSMutableDictionary *item = [KeychainQuery(token, [NSString stringWithFormat:@"%lu", (unsigned long)i]) mutableCopy];
+        item[(__bridge id)kSecValueData] = [package subdataWithRange:NSMakeRange(i * kChunk, MIN(kChunk, package.length - i * kChunk))];
+        item[(__bridge id)kSecAttrAccessible] = (__bridge id)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly;
+        if (RealSecItem("SecItemAdd", (__bridge CFDictionaryRef)item, NULL) != errSecSuccess) return NO;
+    }
+    NSMutableDictionary *meta = [KeychainQuery(token, @"n") mutableCopy];
+    meta[(__bridge id)kSecValueData] = [[NSString stringWithFormat:@"%lu", (unsigned long)count] dataUsingEncoding:NSUTF8StringEncoding];
+    meta[(__bridge id)kSecAttrAccessible] = (__bridge id)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly;
+    return RealSecItem("SecItemAdd", (__bridge CFDictionaryRef)meta, NULL) == errSecSuccess;
+}
+
+static NSData *KeychainRead(NSString *token, NSString *account) {
+    NSMutableDictionary *query = [KeychainQuery(token, account) mutableCopy];
+    query[(__bridge id)kSecReturnData] = @YES;
+    query[(__bridge id)kSecMatchLimit] = (__bridge id)kSecMatchLimitOne;
+    CFTypeRef result = NULL;
+    if (RealSecItem("SecItemCopyMatching", (__bridge CFDictionaryRef)query, &result) != errSecSuccess) return nil;
+    return CFBridgingRelease(result);
+}
+
+// Reads and removes the package; nil when the keychain has none for this token.
+static NSData *KeychainTake(NSString *token) {
+    if (!KeychainGroup()) return nil;
+    NSUInteger count = (NSUInteger)[[[NSString alloc] initWithData:KeychainRead(token, @"n") ?: [NSData data] encoding:NSUTF8StringEncoding] integerValue];
+    if (count == 0) return nil;
+    NSMutableData *package = [NSMutableData data];
+    for (NSUInteger i = 0; i < count; i++) {
+        NSData *chunk = KeychainRead(token, [NSString stringWithFormat:@"%lu", (unsigned long)i]);
+        if (!chunk) return nil;
+        [package appendData:chunk];
+    }
+    NSDictionary *all = @{(__bridge id)kSecClass: (__bridge id)kSecClassGenericPassword,
+                          (__bridge id)kSecAttrService: [@"rsb." stringByAppendingString:token],
+                          (__bridge id)kSecAttrAccessGroup: KeychainGroup()};
+    RealSecItem("SecItemDelete", (__bridge CFDictionaryRef)all, NULL);
+    return package;
+}
+
+#pragma mark - Extension side
 
 // dyld __interpose, not fishhook: share is linked with chained fixups, which fishhook cannot rebind.
 // Inside this image the call below still reaches the real function.
@@ -124,10 +203,32 @@ static void hook_openMAXWithFolder(UIViewController *self, SEL _cmd, NSString *f
                                             requiringSecureCoding:NO error:nil];
     UIPasteboard *board = [UIPasteboard pasteboardWithName:kPasteboard create:YES];
     [board setData:package forPasteboardType:kType];
-    ((void (*)(id, SEL, NSString *))orig_openMAXWithFolder)(self, _cmd, [kPrefix stringByAppendingString:token]);
+    BOOL inKeychain = KeychainPut(token, package);
+    NSString *dir = [kPrefix stringByAppendingString:token];
+#ifdef RSB_DEBUG
+    // Extension-side facts ride along in dir ("|..."); the app side shows them.
+    dir = [dir stringByAppendingFormat:@"|ext files=%lu bytes=%lu board=%@ types=%lu kc=%@ group=%@",
+           (unsigned long)files.count, (unsigned long)package.length, board ? @"yes" : @"nil", (unsigned long)board.pasteboardTypes.count,
+           inKeychain ? @"yes" : @"no", KeychainGroup() ?: @"nil"];
+#else
+    (void)inKeychain;
+#endif
+    ((void (*)(id, SEL, NSString *))orig_openMAXWithFolder)(self, _cmd, dir);
 }
 
 #pragma mark - App side
+
+static NSString *gSource;
+
+// The package's root dictionary when it belongs to this token.
+static NSDictionary *Decode(NSData *package, NSString *token) {
+    if (package == nil) return nil;
+    NSKeyedUnarchiver *unarchiver = [[NSKeyedUnarchiver alloc] initForReadingFromData:package error:nil];
+    unarchiver.requiresSecureCoding = NO;
+    NSDictionary *root = [unarchiver decodeObjectForKey:NSKeyedArchiveRootObjectKey];
+    [unarchiver finishDecoding];
+    return [root isKindOfClass:[NSDictionary class]] && [root[@"token"] isEqual:token] ? root : nil;
+}
 
 // Unpacks the package for this token into tmp/RuShareBridge/<token>; returns the folder or nil.
 static NSString *Unpack(NSString *token) {
@@ -136,14 +237,14 @@ static NSString *Unpack(NSString *token) {
     dispatch_once(&once, ^{ done = [NSMutableDictionary dictionary]; });
     @synchronized (done) {
         if (done[token]) return done[token];
-        UIPasteboard *board = [UIPasteboard pasteboardWithName:kPasteboard create:NO];
-        NSData *package = [board dataForPasteboardType:kType];
-        if (package == nil) return nil;
-        NSKeyedUnarchiver *unarchiver = [[NSKeyedUnarchiver alloc] initForReadingFromData:package error:nil];
-        unarchiver.requiresSecureCoding = NO;
-        NSDictionary *root = [unarchiver decodeObjectForKey:NSKeyedArchiveRootObjectKey];
-        [unarchiver finishDecoding];
-        if (![root isKindOfClass:[NSDictionary class]] || ![root[@"token"] isEqual:token]) return nil;
+        UIPasteboard *board = [UIPasteboard pasteboardWithName:kPasteboard create:YES];
+        NSDictionary *root = Decode([board dataForPasteboardType:kType], token);
+        gSource = root ? @"pasteboard" : nil;
+        if (!root) {
+            root = Decode(KeychainTake(token), token);
+            gSource = root ? @"keychain" : @"none";
+        }
+        if (!root) return nil;
 
         NSString *folder = [BridgeRoot() stringByAppendingPathComponent:token];
         [[NSFileManager defaultManager] createDirectoryAtPath:folder withIntermediateDirectories:YES attributes:nil error:nil];
@@ -152,7 +253,10 @@ static NSString *Unpack(NSString *token) {
             if ([name containsString:@"/"] || [name containsString:@".."]) continue;
             [files[name] writeToFile:[folder stringByAppendingPathComponent:name] atomically:YES];
         }
-        board.items = @[];
+        if ([gSource isEqualToString:@"pasteboard"]) {
+            board.items = @[];
+            KeychainTake(token); // the extension wrote both; drop the keychain copy
+        }
         done[token] = folder;
         return folder;
     }
@@ -189,12 +293,13 @@ static IMP orig_queryItemValue;
 static NSString *hook_queryItemValue(NSURLQueryItem *self, SEL _cmd) {
     NSString *value = ((NSString *(*)(id, SEL))orig_queryItemValue)(self, _cmd);
     if ([value hasPrefix:kPrefix] && [self.name isEqualToString:@"dir"]) {
-        NSString *folder = Unpack([value substringFromIndex:kPrefix.length]);
+        NSString *token = [[value substringFromIndex:kPrefix.length] componentsSeparatedByString:@"|"].firstObject;
+        NSString *folder = Unpack(token);
 #ifdef RSB_DEBUG
         NSArray *names = folder ? [[NSFileManager defaultManager] contentsOfDirectoryAtPath:folder error:nil] : nil;
-        UIPasteboard *board = [UIPasteboard pasteboardWithName:kPasteboard create:NO];
-        ShowDiagnostic([NSString stringWithFormat:@"dir=%@\nunpacked=%@\nfiles=%@\npasteboard=%@ types=%@",
-            value, folder ?: @"NO", names ?: @[], board ? @"yes" : @"nil", board.pasteboardTypes ?: @[]]);
+        UIPasteboard *board = [UIPasteboard pasteboardWithName:kPasteboard create:YES];
+        ShowDiagnostic([NSString stringWithFormat:@"dir=%@\nunpacked=%@ via %@\nfiles=%@\napp pasteboard=%@ types=%@\napp kc group=%@",
+            value, folder ?: @"NO", gSource ?: @"-", names ?: @[], board ? @"yes" : @"nil", board.pasteboardTypes ?: @[], KeychainGroup() ?: @"nil"]);
 #endif
         return folder ?: @"";
     }
