@@ -48,7 +48,8 @@ typedef void *SecTaskRef; // private on iOS
 extern CFTypeRef SecTaskCopyValueForEntitlement(SecTaskRef task, CFStringRef entitlement, CFErrorRef *error);
 extern SecTaskRef SecTaskCreateFromSelf(CFAllocatorRef allocator);
 
-// "<TEAM>.rsb.share": covered by the profiles' <TEAM>.* keychain-access-groups in both processes.
+// "<TEAM>.*": the signed keychain-access-groups entitlement of both MAX and share.appex. iOS reads it as a
+// literal group name (no wildcard at runtime), so this exact string is the one group both may use.
 static NSString *KeychainGroup(void) {
     static NSString *group;
     static dispatch_once_t once;
@@ -58,7 +59,7 @@ static NSString *KeychainGroup(void) {
         NSString *appID = CFBridgingRelease(SecTaskCopyValueForEntitlement(task, CFSTR("application-identifier"), NULL));
         CFRelease(task);
         NSString *team = [appID isKindOfClass:[NSString class]] ? [appID componentsSeparatedByString:@"."].firstObject : nil;
-        if (team.length == 10) group = [team stringByAppendingString:@".rsb.share"];
+        if (team.length == 10) group = [team stringByAppendingString:@".*"];
     });
     return group;
 }
@@ -72,6 +73,8 @@ static NSDictionary *KeychainQuery(NSString *token, NSString *account) {
 
 static const NSUInteger kChunk = 512 * 1024;
 
+static OSStatus gKeychainStatus;
+
 static BOOL KeychainPut(NSString *token, NSData *package) {
     if (!KeychainGroup()) return NO;
     NSUInteger count = (package.length + kChunk - 1) / kChunk;
@@ -79,12 +82,14 @@ static BOOL KeychainPut(NSString *token, NSData *package) {
         NSMutableDictionary *item = [KeychainQuery(token, [NSString stringWithFormat:@"%lu", (unsigned long)i]) mutableCopy];
         item[(__bridge id)kSecValueData] = [package subdataWithRange:NSMakeRange(i * kChunk, MIN(kChunk, package.length - i * kChunk))];
         item[(__bridge id)kSecAttrAccessible] = (__bridge id)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly;
-        if (RealSecItem("SecItemAdd", (__bridge CFDictionaryRef)item, NULL) != errSecSuccess) return NO;
+        gKeychainStatus = RealSecItem("SecItemAdd", (__bridge CFDictionaryRef)item, NULL);
+        if (gKeychainStatus != errSecSuccess) return NO;
     }
     NSMutableDictionary *meta = [KeychainQuery(token, @"n") mutableCopy];
     meta[(__bridge id)kSecValueData] = [[NSString stringWithFormat:@"%lu", (unsigned long)count] dataUsingEncoding:NSUTF8StringEncoding];
     meta[(__bridge id)kSecAttrAccessible] = (__bridge id)kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly;
-    return RealSecItem("SecItemAdd", (__bridge CFDictionaryRef)meta, NULL) == errSecSuccess;
+    gKeychainStatus = RealSecItem("SecItemAdd", (__bridge CFDictionaryRef)meta, NULL);
+    return gKeychainStatus == errSecSuccess;
 }
 
 static NSData *KeychainRead(NSString *token, NSString *account) {
@@ -207,9 +212,9 @@ static void hook_openMAXWithFolder(UIViewController *self, SEL _cmd, NSString *f
     NSString *dir = [kPrefix stringByAppendingString:token];
 #ifdef RSB_DEBUG
     // Extension-side facts ride along in dir ("|..."); the app side shows them.
-    dir = [dir stringByAppendingFormat:@"|ext files=%lu bytes=%lu board=%@ types=%lu kc=%@ group=%@",
+    dir = [dir stringByAppendingFormat:@"|ext files=%lu bytes=%lu board=%@ types=%lu kc=%@(%d) group=%@",
            (unsigned long)files.count, (unsigned long)package.length, board ? @"yes" : @"nil", (unsigned long)board.pasteboardTypes.count,
-           inKeychain ? @"yes" : @"no", KeychainGroup() ?: @"nil"];
+           inKeychain ? @"yes" : @"no", (int)gKeychainStatus, KeychainGroup() ?: @"nil"];
 #else
     (void)inKeychain;
 #endif
