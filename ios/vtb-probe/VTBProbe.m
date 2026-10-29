@@ -146,10 +146,33 @@ static void dumpRequest(NSURLRequest *req) {
         logLine([NSString stringWithFormat:@"BODY-OUT %@", b ?: @"<binary>"]);
     }
 }
+// Clone the app's own deceptium gate request, swap only the BundleId header to the original
+// (com.matila.EventPulse), fire it once, and log the status + body. If the 403 flips to 200/JSON,
+// the gate rejects us purely on our re-signed BundleId and a header rewrite is the fix.
+static void selfTestBundleId(NSURLRequest *req) {
+    static BOOL done = NO;
+    if (done) return;
+    NSString *host = req.URL.host ?: @"";
+    if (![host containsString:@"deceptium"]) return;
+    done = YES;
+    const char *ids[] = {"com.matila.EventPulse", "ru.vtb24.mobilebanking.ios", "com.vtb24.mobilebanking.ios"};
+    for (int i = 0; i < 3; i++) {
+        NSString *bid = [NSString stringWithUTF8String:ids[i]];
+        NSMutableURLRequest *m = [req mutableCopy];
+        [m setValue:bid forHTTPHeaderField:@"BundleId"];
+        NSURLSession *se = [NSURLSession sessionWithConfiguration:NSURLSessionConfiguration.ephemeralSessionConfiguration];
+        [[se dataTaskWithRequest:m completionHandler:^(NSData *d, NSURLResponse *rp, NSError *e){
+            long code = [rp isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse *)rp).statusCode : -1;
+            NSString *b = d.length ? [[NSString alloc] initWithData:[d subdataWithRange:NSMakeRange(0, MIN(200u,(unsigned)d.length))] encoding:NSUTF8StringEncoding] : @"";
+            logLine([NSString stringWithFormat:@"SELFTEST[%@] HTTP %ld err=%@ body=%@", bid, code, e.localizedDescription ?: @"-", b ?: @"<bin>"]);
+        }] resume];
+    }
+}
 typedef void (^DataCB)(NSData *, NSURLResponse *, NSError *);
 static id (*orig_dataReq)(id, SEL, NSURLRequest *, DataCB);
 static id hook_dataReq(id self, SEL _cmd, NSURLRequest *req, DataCB cb) {
     dumpRequest(req);
+    selfTestBundleId(req);
     DataCB wrap = ^(NSData *d, NSURLResponse *r, NSError *e){ dumpBody(req.URL, d, r); if (cb) cb(d, r, e); };
     return orig_dataReq(self, _cmd, req, wrap);
 }
