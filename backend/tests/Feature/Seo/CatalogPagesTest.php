@@ -71,7 +71,7 @@ it('serves an indexable app page with its facts, install steps, FAQ and structur
         ->and($software['offers']['priceCurrency'])->toBe('RUB')
         ->and($graph->firstWhere('@type', 'ItemPage')['mainEntity'])->toBe(['@id' => 'https://ruappstore.com/apps/sberbank-onlayn#app'])
         ->and($graph->firstWhere('@type', 'BreadcrumbList')['@id'])->toBe('https://ruappstore.com/apps/sberbank-onlayn#breadcrumb');
-    expect($graph->firstWhere('@type', 'Organization'))->toMatchArray(['taxID' => '131656459264', 'founder' => ['@type' => 'Person', 'name' => 'Железнов Максим Алексеевич']]);
+    expect($graph->firstWhere('@type', 'Organization'))->not->toHaveKeys(['taxID', 'founder']);
 });
 
 it('gives same-named listings different titles, by version', function () {

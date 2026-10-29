@@ -2,7 +2,7 @@
 
 > Ru App Store (ruappstore.com) is a Russian-language app store for iPhone and iPad. It installs apps that are missing from the Russian App Store (banks, marketplaces, social networks, streaming services) directly on the iPhone, without a computer or jailbreak. Each install is signed for the user's own device. Access is a one-time purchase per iPhone, with no auto-renewal.
 
-Operator: Железнов Максим Алексеевич, ИНН 131656459264. Ru App Store is not affiliated with the developers of the apps in its catalog. Site language: Russian.
+Ru App Store is not affiliated with the developers of the apps in its catalog. Site language: Russian.
 
 ## Main pages
 

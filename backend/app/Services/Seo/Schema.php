@@ -29,8 +29,6 @@ class Schema
             'logo' => ['@type' => 'ImageObject', 'url' => $base.'/assets/brand/ru-app-store-logo-256.png', 'width' => 256, 'height' => 256],
             'sameAs' => ['https://t.me/ruappstors', 'https://t.me/RuAppStor_bot'],
             'description' => 'Магазин приложений для iPhone: установка приложений, которых нет в российском App Store, без компьютера и джейлбрейка.',
-            'founder' => ['@type' => 'Person', 'name' => 'Железнов Максим Алексеевич'],
-            'taxID' => '131656459264',
             'areaServed' => 'RU',
             'contactPoint' => [
                 ['@type' => 'ContactPoint', 'contactType' => 'customer support', 'url' => $base.'/support.html', 'availableLanguage' => 'ru'],
