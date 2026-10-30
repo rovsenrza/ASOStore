@@ -41,6 +41,11 @@ final class ImportCenter: ObservableObject {
 
     private let repository: ImportRepository
     private let installations: InstallationCoordinator?
+    /// Sends chunks through an iOS background session (nil in tests and mock mode: chunks then go
+    /// one by one through the API client while the app is open).
+    private let uploader: BackgroundChunkUploader?
+    /// Background uploads waiting for their last chunk, by server upload id.
+    private var waiters: [String: CheckedContinuation<Void, any Error>] = [:]
     private var tasks: [UUID: Task<Void, Never>] = [:]
     private var sources: [UUID: Source] = [:]
     private var poll: Task<Void, Never>?
@@ -58,11 +63,25 @@ final class ImportCenter: ObservableObject {
         let ownsFile: Bool
         var session: ImportUploadDTO?
         var sent: Set<Int> = []
+        /// Chunks were handed to the background session: they keep going while the app is away.
+        var background = false
+        var hashes: [Int: String] = [:]
+        var failures: [Int: Int] = [:]
     }
 
-    init(repository: ImportRepository, installations: InstallationCoordinator?) {
+    init(repository: ImportRepository, installations: InstallationCoordinator?, uploader: BackgroundChunkUploader? = nil) {
         self.repository = repository
         self.installations = installations
+        self.uploader = uploader
+        if let uploader {
+            uploader.activate { [weak self] uploadID, number, outcome in
+                Task { @MainActor in self?.chunkFinished(uploadID: uploadID, number: number, outcome: outcome) }
+            }
+            Task { [weak self] in
+                let active = await uploader.activeUploads()
+                self?.removeLeftoverChunks(keeping: active)
+            }
+        }
         // Customers leave mid-upload (to install another app, say); carry on when they come back.
         NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.resumeInterrupted() }
@@ -161,6 +180,9 @@ final class ImportCenter: ObservableObject {
         tasks[uploadID]?.cancel()
         tasks[uploadID] = nil
         let importID = uploads.first { $0.id == uploadID }?.importID
+        if let session = sources[uploadID]?.session, sources[uploadID]?.background == true {
+            await uploader?.cancel(uploadID: session.id)
+        }
         finish(uploadID)
         if let importID {
             try? await repository.delete(importID: importID)
@@ -209,15 +231,16 @@ final class ImportCenter: ObservableObject {
                 $0.phase = .uploading
                 $0.progress = 0.05 + Double(sentBefore) / Double(max(session.chunkCount, 1)) * 0.93
             }
-            for number in 0..<session.chunkCount where !source.sent.contains(number) {
-                try Task.checkCancellation()
-                let chunk = try await Self.readChunk(source.url, number: number, size: session.chunkSize)
-                let digest = SHA256.hash(data: chunk).map { String(format: "%02x", $0) }.joined()
-                try await retrying { try await self.repository.putChunk(uploadID: session.id, number: number, data: chunk, sha256: digest) }
-                source.sent.insert(number)
-                sources[id] = source
-                let fraction = Double(source.sent.count) / Double(max(session.chunkCount, 1))
-                update(id) { $0.progress = 0.05 + fraction * 0.93 }
+            if let token = session.uploadToken, try await uploadInBackground(id, session: session, token: token) {
+                // Every chunk reached the server through the background session.
+            } else {
+                for number in 0..<session.chunkCount where sources[id]?.sent.contains(number) == false {
+                    try Task.checkCancellation()
+                    let chunk = try await Self.readChunk(source.url, number: number, size: session.chunkSize)
+                    let digest = SHA256.hash(data: chunk).map { String(format: "%02x", $0) }.joined()
+                    try await retrying { try await self.repository.putChunk(uploadID: session.id, number: number, data: chunk, sha256: digest) }
+                    markSent(id, number: number)
+                }
             }
 
             update(id) { $0.phase = .finishing }
@@ -227,9 +250,10 @@ final class ImportCenter: ObservableObject {
             finish(id)
         } catch is CancellationError {
             // The customer's own cancel removes the upload first; anything else is iOS stopping us.
-            guard sources[id] != nil else { return }
+            guard let source = sources[id] else { return }
             interrupted.insert(id)
-            update(id) { $0.phase = .paused }
+            // Background chunks keep going while the app is away; only the waiting stopped.
+            update(id) { $0.phase = source.background ? .uploading : .paused }
         } catch let error as APIError {
             if Self.isTransient(error) {
                 interrupted.insert(id)
@@ -241,17 +265,114 @@ final class ImportCenter: ObservableObject {
         }
     }
 
-    /// A dropped connection or a busy server costs a wait, not the upload: about two minutes of
-    /// retries before giving up (and then it continues on its own when the app is reopened).
+    /// A dropped connection or a busy server costs a wait, not the upload: it keeps retrying (at
+    /// most every 30 s) for as long as the app is open. Giving up after two minutes made customers
+    /// delete the import and start over from zero on a VPN that drops every few minutes.
     private func retrying<Value>(_ operation: () async throws -> Value) async throws -> Value {
         var attempt = 0
         while true {
             do {
                 return try await operation()
-            } catch let error as APIError where Self.isTransient(error) && attempt < 7 {
+            } catch let error as APIError where Self.isTransient(error) {
                 attempt += 1
-                try await Task.sleep(for: .seconds(min(1 << attempt, 30)))
+                try await Task.sleep(for: .seconds(min(1 << min(attempt, 5), 30)))
             }
+        }
+    }
+
+    private func markSent(_ id: UUID, number: Int) {
+        guard var source = sources[id], let session = source.session else { return }
+        source.sent.insert(number)
+        sources[id] = source
+        let fraction = Double(source.sent.count) / Double(max(session.chunkCount, 1))
+        update(id) { $0.progress = 0.05 + fraction * 0.93 }
+    }
+
+    // MARK: Background session
+
+    /// Hands the chunks not yet on the server to the background session and waits until they all
+    /// are. Returns false (nothing handed over) when there is no room to stage them as files.
+    private func uploadInBackground(_ id: UUID, session: ImportUploadDTO, token: String) async throws -> Bool {
+        guard let uploader, let url = sources[id]?.url else { return false }
+        let inFlight = await uploader.pending(uploadID: session.id)
+        let missing = (0..<session.chunkCount).filter { sources[id]?.sent.contains($0) == false && !inFlight.contains($0) }
+        if !missing.isEmpty {
+            // No room to stage them: send what is left from the open app (a chunk the background
+            // session also sends is simply acknowledged twice).
+            guard Self.hasRoom(for: Int64(missing.count) * Int64(session.chunkSize)) else { return false }
+            try BackgroundChunkUploader.prepareDirectory(for: session.id)
+            sources[id]?.background = true
+            for number in missing {
+                try Task.checkCancellation()
+                let digest = try await Self.stageChunk(url, number: number, size: session.chunkSize, to: BackgroundChunkUploader.file(for: session.id, number: number))
+                sources[id]?.hashes[number] = digest
+                uploader.enqueue(await repository.backgroundChunkRequest(uploadID: session.id, number: number, token: token, sha256: digest), uploadID: session.id, number: number)
+            }
+        } else if !inFlight.isEmpty {
+            sources[id]?.background = true
+        }
+
+        guard sources[id]?.background == true else { return false }
+        try Task.checkCancellation()
+        if (sources[id]?.sent.count ?? 0) < session.chunkCount {
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                    waiters.removeValue(forKey: session.id)?.resume(throwing: CancellationError())
+                    if (sources[id]?.sent.count ?? 0) >= session.chunkCount {
+                        continuation.resume()
+                    } else {
+                        waiters[session.id] = continuation
+                    }
+                }
+            } onCancel: {
+                Task { @MainActor [weak self] in self?.waiters.removeValue(forKey: session.id)?.resume(throwing: CancellationError()) }
+            }
+        }
+        return true
+    }
+
+    /// A chunk the background session finished (also ones from before the app was relaunched).
+    private func chunkFinished(uploadID: String, number: Int, outcome: BackgroundChunkUploader.Outcome) {
+        guard let id = sources.first(where: { $0.value.session?.id == uploadID })?.key, let session = sources[id]?.session else { return }
+        switch outcome {
+        case .stored:
+            markSent(id, number: number)
+            if (sources[id]?.sent.count ?? 0) >= session.chunkCount {
+                waiters.removeValue(forKey: uploadID)?.resume()
+            }
+        case .failed(transient: true, _):
+            let failures = (sources[id]?.failures[number] ?? 0) + 1
+            sources[id]?.failures[number] = failures
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(min(1 << min(failures, 5), 30)))
+                await self?.sendAgain(id, number: number)
+            }
+        case .failed:
+            // Refused for good (the session closed, say): let complete ask the server what it still needs.
+            waiters.removeValue(forKey: uploadID)?.resume()
+        }
+    }
+
+    private func sendAgain(_ id: UUID, number: Int) async {
+        guard let uploader, let source = sources[id], let session = source.session, let token = session.uploadToken,
+              let digest = source.hashes[number], !source.sent.contains(number) else { return }
+        uploader.enqueue(await repository.backgroundChunkRequest(uploadID: session.id, number: number, token: token, sha256: digest), uploadID: session.id, number: number)
+    }
+
+    nonisolated private static func hasRoom(for bytes: Int64) -> Bool {
+        let values = try? URL.applicationSupportDirectory.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey])
+        guard let free = values?.volumeAvailableCapacityForImportantUsage else { return false }
+        return free > bytes + 500 * 1024 * 1024
+    }
+
+    /// Deletes chunk files of uploads the background session no longer sends (finished, or from
+    /// a launch whose upload was abandoned).
+    private func removeLeftoverChunks(keeping active: Set<String>) {
+        let running = Set(sources.values.compactMap(\.session?.id))
+        let root = BackgroundChunkUploader.rootDirectory
+        let folders = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+        for folder in folders where !active.contains(folder.lastPathComponent) && !running.contains(folder.lastPathComponent) {
+            try? FileManager.default.removeItem(at: folder)
         }
     }
 
@@ -279,6 +400,9 @@ final class ImportCenter: ObservableObject {
     private func finish(_ id: UUID) {
         interrupted.remove(id)
         if let source = sources.removeValue(forKey: id) {
+            if source.background, let session = source.session {
+                try? FileManager.default.removeItem(at: BackgroundChunkUploader.directory(for: session.id))
+            }
             if source.scoped {
                 source.url.stopAccessingSecurityScopedResource()
             }
@@ -372,6 +496,18 @@ final class ImportCenter: ObservableObject {
             var name = url.lastPathComponent
             if !name.lowercased().hasSuffix(".ipa") { name += ".ipa" }
             return (name, read, digest)
+        }.value
+    }
+
+    /// Copies one chunk of the file into its own file for the background session; returns its SHA-256.
+    nonisolated private static func stageChunk(_ url: URL, number: Int, size: Int, to destination: URL) async throws -> String {
+        try await Task.detached(priority: .userInitiated) {
+            let handle = try FileHandle(forReadingFrom: url)
+            defer { try? handle.close() }
+            try handle.seek(toOffset: UInt64(number) * UInt64(size))
+            let data = try handle.read(upToCount: size) ?? Data()
+            try data.write(to: destination, options: .atomic)
+            return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         }.value
     }
 

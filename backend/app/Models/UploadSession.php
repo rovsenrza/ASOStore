@@ -30,6 +30,17 @@ class UploadSession extends Model
      * Chunk size for new upload sessions. Clients (iOS app, admin) read it from the session, so it
      * can differ per environment: the test suite uses small chunks to keep PHP within 128M.
      */
+    /**
+     * Credential for the token chunk route (PUT /import-uploads/{id}/chunks/{n}). The app hands chunks
+     * to an iOS background session that keeps sending them after the app is suspended or closed, long
+     * after the customer's access token has expired; this ties a request to one upload instead.
+     * Valid while the session is open (expires_at).
+     */
+    public function clientToken(): string
+    {
+        return hash_hmac('sha256', 'import-upload|'.$this->public_id, (string) config('app.key'));
+    }
+
     public static function chunkSize(): int
     {
         return max(1024, (int) config('storefront.uploads.chunk_bytes', self::CHUNK_SIZE));

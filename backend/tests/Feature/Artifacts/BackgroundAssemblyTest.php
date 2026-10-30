@@ -49,8 +49,8 @@ it('answers at once for a big file and assembles it in the background', function
 
     // The app calls again when it did not hear back: the same answer, not "session already closed".
     $this->postJson("/api/v1/imports/{$id}/complete")->assertStatus(202)->assertJsonPath('data.status', 'ASSEMBLING');
-    // Meanwhile the import is shown as uploading.
-    $this->getJson('/api/v1/imports')->assertOk()->assertJsonPath('data.0.status', 'UPLOADING');
+    // Meanwhile the import shows as UPLOADED (every chunk is in), which apps keep polling.
+    $this->getJson('/api/v1/imports')->assertOk()->assertJsonPath('data.0.status', 'UPLOADED');
 
     ($this->runJob)($id);
 

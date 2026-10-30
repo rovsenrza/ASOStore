@@ -2761,6 +2761,29 @@ paths:
         "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
 
+  /import-uploads/{upload}/chunks/{number}:
+    put:
+      tags: [Install]
+      operationId: putImportChunkWithToken
+      summary: Send one chunk from a background upload, authenticated by the upload token
+      description: 'Same as putImportChunk, but the credential is X-Upload-Token (upload_token from POST /imports), since an iOS background session may send it after the access token expired. When the last chunk lands the server completes the upload itself; a later complete call answers 202 ASSEMBLING or 201.'
+      security: []
+      parameters:
+        - { name: upload, in: path, required: true, schema: { $ref: "#/components/schemas/PublicId" } }
+        - { name: number, in: path, required: true, schema: { type: integer, minimum: 0 } }
+        - { name: X-Upload-Token, in: header, required: true, schema: { type: string } }
+        - { name: X-Chunk-SHA256, in: header, required: false, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200": { description: Chunk stored }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
   /imports/{upload}/complete:
     post:
       tags: [Install]
@@ -5267,6 +5290,7 @@ components:
                 received_chunks: { type: array, items: { type: integer } }
                 missing_chunks: { type: array, items: { type: integer } }
                 expires_at: { $ref: "#/components/schemas/Timestamp" }
+                upload_token: { type: string, description: 'Credential for PUT /import-uploads/{upload}/chunks/{number} (iOS background uploads).' }
 
     LibraryResponse:
       allOf:

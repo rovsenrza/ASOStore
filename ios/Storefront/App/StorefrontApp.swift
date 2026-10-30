@@ -1,7 +1,15 @@
 import SwiftUI
 
+/// iOS relaunches the app in the background to deliver finished import chunks.
+final class StorefrontAppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
+        BackgroundChunkUploader.shared.handleEvents(for: identifier, completion: completionHandler)
+    }
+}
+
 @main
 struct StorefrontApp: App {
+    @UIApplicationDelegateAdaptor(StorefrontAppDelegate.self) private var appDelegate
     private let apiClient: APIClient
     @StateObject private var session: SessionStore
     @StateObject private var router = AppRouter()
@@ -24,7 +32,12 @@ struct StorefrontApp: App {
             openURL: { url in await UIApplication.shared.open(url) }
         )
         _installations = StateObject(wrappedValue: installations)
-        _imports = StateObject(wrappedValue: ImportCenter(repository: ImportRepository(api: apiClient), installations: installations))
+        #if DEBUG
+        let uploader: BackgroundChunkUploader? = apiClient.environment.mode == .mock ? nil : .shared
+        #else
+        let uploader: BackgroundChunkUploader? = .shared
+        #endif
+        _imports = StateObject(wrappedValue: ImportCenter(repository: ImportRepository(api: apiClient), installations: installations, uploader: uploader))
     }
 
     var body: some Scene {

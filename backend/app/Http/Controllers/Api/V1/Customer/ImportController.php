@@ -74,10 +74,49 @@ class ImportController extends Controller
         return ApiResponse::ok($this->uploads->storeChunk($session, $number, $request->getContent(), $declaredHash));
     }
 
+    /**
+     * A chunk from the app's background upload session, authenticated by the upload's own token
+     * (X-Upload-Token) instead of the customer's access token. The app may be suspended or closed
+     * when the last chunk lands, so the server completes the upload itself then.
+     */
+    public function chunkWithToken(Request $request, string $upload, int $number): JsonResponse
+    {
+        $session = UploadSession::query()->where('public_id', strtolower($upload))->with('app')->first();
+        $token = (string) $request->header('X-Upload-Token', '');
+        if ($session === null || $session->app === null || $session->app->imported_by_user_id !== $session->uploaded_by
+            || $token === '' || ! hash_equals($session->clientToken(), $token)) {
+            throw new ApiException(ErrorCode::NotFound);
+        }
+        $declaredHash = $request->header('X-Chunk-SHA256');
+        if ($declaredHash !== null && preg_match('/^[a-fA-F0-9]{64}$/', $declaredHash) !== 1) {
+            throw new ApiException(ErrorCode::ValidationFailed, details: ['X-Chunk-SHA256' => 'Неверная контрольная сумма.']);
+        }
+
+        $stored = $this->uploads->storeChunk($session, $number, $request->getContent(), $declaredHash);
+        $this->completeWhenAllReceived($session);
+
+        return ApiResponse::ok($stored);
+    }
+
+    private function completeWhenAllReceived(UploadSession $session): void
+    {
+        $session->refresh();
+        if ($session->status !== 'OPEN' || $session->chunks()->count() < $session->chunk_count) {
+            return;
+        }
+        try {
+            $this->uploads->completeInBackground($session);
+        } catch (ApiException $exception) {
+            // Sizes do not add up: the app's own complete call reports it and re-sends what is missing.
+            report($exception);
+        }
+    }
+
     public function complete(Request $request, string $upload): JsonResponse
     {
         $session = $this->ownedUpload($request, $upload);
-        if ($this->uploads->assemblesInBackground($session)) {
+        // Already assembling (the last background chunk started it): answer like a big upload does.
+        if ($session->status === 'ASSEMBLING' || $this->uploads->assemblesInBackground($session)) {
             // A multi-gigabyte file takes minutes to assemble and the app waits 30 seconds: answer now,
             // the import shows as uploading until the job has stored it (and again on a repeated call).
             $session = $this->uploads->completeInBackground($session);
@@ -160,6 +199,24 @@ class ImportController extends Controller
             'installable' => in_array($artifact?->status, [ArtifactStatus::ProvenanceReview, ArtifactStatus::Published], true),
             'failure_reason' => $failure,
             'created_at' => $app->created_at?->toIso8601ZuluString(),
+        ] + ($status === 'UPLOADING' ? $this->uploadProgress($app) : []);
+    }
+
+    /**
+     * How far an upload from Files got, and whether chunks are still arriving: an iOS background
+     * session keeps sending them while the app is closed, so the row is not necessarily abandoned.
+     *
+     * @return array{upload_progress: float, upload_active: bool}
+     */
+    private function uploadProgress(CatalogApp $app): array
+    {
+        $upload = UploadSession::query()->where('app_id', $app->id)->latest('id')->first();
+        $received = $upload?->chunks()->count() ?? 0;
+        $latest = $upload?->chunks()->max('created_at');
+
+        return [
+            'upload_progress' => $upload !== null && $upload->chunk_count > 0 ? round($received / $upload->chunk_count, 3) : 0.0,
+            'upload_active' => $latest !== null && now()->diffInSeconds($latest, true) < 120,
         ];
     }
 
@@ -182,7 +239,11 @@ class ImportController extends Controller
         }
 
         $upload = UploadSession::query()->where('app_id', $app->id)->latest('id')->first();
-        if ($upload !== null && in_array($upload->status, ['OPEN', 'ASSEMBLING'], true) && $upload->expires_at->isFuture()) {
+        if ($upload !== null && $upload->status === 'ASSEMBLING') {
+            // Every chunk is in; the file is being put together (apps poll while UPLOADED).
+            return ['UPLOADED', null];
+        }
+        if ($upload !== null && $upload->status === 'OPEN' && $upload->expires_at->isFuture()) {
             return ['UPLOADING', null];
         }
 
@@ -205,6 +266,7 @@ class ImportController extends Controller
             'received_chunks' => $received,
             'missing_chunks' => array_values(array_diff(range(0, $upload->chunk_count - 1), $received)),
             'expires_at' => $upload->expires_at->toIso8601ZuluString(),
+            'upload_token' => $upload->clientToken(),
         ];
     }
 

@@ -60,6 +60,9 @@ Route::post('/tg-relay/diag', [TelemetryController::class, 'tgDiag'])->middlewar
 // sibling /v1/mx-relay/register is an nginx exact-match proxy to the relay, not a Laravel route.
 Route::post('/mx-relay/entitlement', [MxRelayController::class, 'entitlement'])->middleware('throttle:telemetry')->name('api.mx-relay.entitlement');
 
+// Import chunks from the app's iOS background upload session; X-Upload-Token (per upload) is the credential.
+Route::put('/import-uploads/{upload}/chunks/{number}', [ImportController::class, 'chunkWithToken'])->whereNumber('number')->name('api.imports.chunk-token');
+
 // Plans, prices and payment options for the website's purchase page.
 Route::get('/store/offer', StoreOfferController::class)->name('api.store.offer');
 // Order state for the payment result page (website and bot orders); the ULID is the credential.

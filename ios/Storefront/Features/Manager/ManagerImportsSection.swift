@@ -266,6 +266,8 @@ private struct ImportRow: View {
         }
         switch item.status {
         case "DOWNLOADING": return "Сервер скачивает файл…"
+        case "UPLOADING" where item.isUploadingInBackground:
+            return "Загружается в фоне — \(Int(((item.uploadProgress ?? 0) * 100).rounded()))%"
         case "UPLOADING": return "Загрузка прервана. Выберите этот файл снова — она продолжится с того же места."
         case "PUBLISHED", "PROVENANCE_REVIEW", "READY": return "Проверено"
         default: return "Проверяем файл…"

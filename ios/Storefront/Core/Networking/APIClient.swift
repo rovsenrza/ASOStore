@@ -70,6 +70,17 @@ actor APIClient {
         try await send(method: "PUT", path: path, query: [], body: data, contentType: "application/octet-stream", headers: headers, timeout: 180)
     }
 
+    /// A chunk PUT for `BackgroundChunkUploader`: the body comes from a file and the credential is
+    /// in `headers` (the upload's own token), since iOS may send it long after the access token expired.
+    func backgroundUploadRequest(_ path: String, headers: [String: String]) -> URLRequest {
+        var request = makeRequest(method: "PUT", path: path, query: [], body: nil, timeout: 180)
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        for (name, value) in headers {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        return request
+    }
+
     func delete<Payload: Decodable & Sendable>(
         _ path: String,
         as type: Payload.Type = Payload.self

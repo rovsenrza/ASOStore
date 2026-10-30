@@ -28,6 +28,11 @@ nonisolated struct ImportRepository: Sendable {
         _ = try await api.put("/imports/\(uploadID)/chunks/\(number)", data: data, headers: ["X-Chunk-SHA256": sha256], as: ImportChunkDTO.self)
     }
 
+    /// A chunk request for the background session (body from a file, upload token as credential).
+    func backgroundChunkRequest(uploadID: String, number: Int, token: String, sha256: String) async -> URLRequest {
+        await api.backgroundUploadRequest("/import-uploads/\(uploadID)/chunks/\(number)", headers: ["X-Upload-Token": token, "X-Chunk-SHA256": sha256])
+    }
+
     func complete(uploadID: String) async throws -> ImportCompleteDTO {
         try await api.post("/imports/\(uploadID)/complete", as: ImportCompleteDTO.self).data
     }
