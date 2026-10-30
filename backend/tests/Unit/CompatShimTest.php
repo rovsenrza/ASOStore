@@ -243,3 +243,48 @@ it('also keeps the vendor bundle ID for apps in the tool-managed list file', fun
     expect($shim->originalBundleFor($artifact))->toBe('com.vendor.game');
     @unlink($file);
 });
+
+it('injects the matching VTBUnmask variant for a deceptium mask, and nothing for other apps', function () {
+    $dir = sys_get_temp_dir().'/vtb-'.bin2hex(random_bytes(4));
+    @mkdir($dir);
+    file_put_contents($dir.'/VTBUnmask-com.matila.EventPulse.dylib', "\xCF\xFA\xED\xFE new");
+    file_put_contents($dir.'/VTBUnmask-com.sm.FlowTime.dylib', "\xCF\xFA\xED\xFE old");
+    config([
+        'storefront.signing.deceptium_unmask.dir' => $dir,
+        'storefront.signing.deceptium_unmask.bundle_ids' => ['com.matila.EventPulse', 'com.sm.FlowTime'],
+    ]);
+    $shim = app(CompatShim::class);
+
+    // VTB New carries the EventPulse id; it must get the EventPulse variant under the shared name.
+    $new = AppArtifact::factory()->make(['bundle_identifier' => 'com.matila.EventPulse', 'inspection' => []]);
+    $newDylibs = $shim->dylibsFor($new);
+    expect($shim->isDeceptiumMask($new))->toBeTrue()
+        ->and(array_column($newDylibs, 'name'))->toContain('VTBUnmask.dylib')
+        ->and(base64_decode(collect($newDylibs)->firstWhere('name', 'VTBUnmask.dylib')['content']))->toBe("\xCF\xFA\xED\xFE new");
+
+    // VTB Old carries a different original id and must get its own variant.
+    $old = AppArtifact::factory()->make(['bundle_identifier' => 'com.sm.FlowTime', 'inspection' => []]);
+    expect(base64_decode(collect($shim->dylibsFor($old))->firstWhere('name', 'VTBUnmask.dylib')['content']))->toBe("\xCF\xFA\xED\xFE old");
+
+    // An unlisted app never gets it.
+    $other = AppArtifact::factory()->make(['bundle_identifier' => 'com.yandex.pay', 'inspection' => []]);
+    expect($shim->isDeceptiumMask($other))->toBeFalse()
+        ->and(array_column($shim->dylibsFor($other), 'name'))->not->toContain('VTBUnmask.dylib');
+
+    array_map('unlink', glob($dir.'/*'));
+    @rmdir($dir);
+});
+
+it('ships real fat arm64/arm64e VTBUnmask variants at the configured default dir', function () {
+    config([
+        'storefront.signing.deceptium_unmask.dir' => base_path('../ios/vtb-unmask'),
+        'storefront.signing.deceptium_unmask.bundle_ids' => ['com.matila.EventPulse', 'com.sm.FlowTime'],
+    ]);
+    $shim = app(CompatShim::class);
+    foreach (['com.matila.EventPulse', 'com.sm.FlowTime'] as $bundle) {
+        $artifact = AppArtifact::factory()->make(['bundle_identifier' => $bundle, 'inspection' => []]);
+        $bytes = base64_decode(collect($shim->dylibsFor($artifact))->firstWhere('name', 'VTBUnmask.dylib')['content']);
+        expect(bin2hex(substr($bytes, 0, 4)))->toBe('cafebabe')
+            ->and(strlen($bytes))->toBeGreaterThan(10000);
+    }
+});

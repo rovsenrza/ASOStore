@@ -29,6 +29,8 @@ class CompatShim
 
     public const TG_RELAY_NAME = 'TGRelay.dylib';
 
+    public const VTB_UNMASK_NAME = 'VTBUnmask.dylib';
+
     private ?string $encoded = null;
 
     public function enabled(): bool
@@ -80,7 +82,64 @@ class CompatShim
             $dylibs[] = $tg;
         }
 
+        // VTBUnmask: appbankRU "deceptium" masks (ВТБ Онлайн New/Old) hide the real bank UI behind
+        // an "Altai" cover. The cover↔real switch is a GET to open-api.deceptium.ru carrying a
+        // BundleId header read from Bundle.main; the gate 403s our re-signed id, so the cover never
+        // lifts. The dylib rewrites that header to the app's original vendor id on *.deceptium.ru
+        // requests, so the gate returns 200 and the real app shows. Device-confirmed 2026-10-30.
+        $unmask = $this->deceptiumUnmaskDylibFor($artifact);
+        if ($unmask !== null) {
+            $dylibs[] = $unmask;
+        }
+
         return $dylibs;
+    }
+
+    /**
+     * Whether this app is an appbankRU deceptium-gated mask: its IPA bundle id is listed in
+     * storefront.signing.deceptium_unmask.bundle_ids (each entry is also the original vendor id the
+     * gate whitelists, so it names the variant dylib to inject).
+     */
+    public function isDeceptiumMask(AppArtifact $artifact): bool
+    {
+        return $this->deceptiumOriginalFor($artifact) !== null;
+    }
+
+    /** The listed original vendor bundle id matching this artifact, or null. */
+    private function deceptiumOriginalFor(AppArtifact $artifact): ?string
+    {
+        $bundle = $artifact->bundle_identifier;
+        if (! is_string($bundle) || $bundle === '') {
+            return null;
+        }
+        foreach ((array) config('storefront.signing.deceptium_unmask.bundle_ids', []) as $pattern) {
+            if (is_string($pattern) && $pattern !== '' && fnmatch($pattern, $bundle)) {
+                return $bundle;
+            }
+        }
+
+        return null;
+    }
+
+    /** @return array{name: string, content: string}|null */
+    private function deceptiumUnmaskDylibFor(AppArtifact $artifact): array|null
+    {
+        $original = $this->deceptiumOriginalFor($artifact);
+        if ($original === null) {
+            return null;
+        }
+        // One prebuilt variant per original vendor id (the gate whitelists the app's own id), named
+        // VTBUnmask-<original>.dylib; injected under the shared name VTBUnmask.dylib.
+        $dir = (string) config('storefront.signing.deceptium_unmask.dir', base_path('../ios/vtb-unmask'));
+        $path = $dir.'/VTBUnmask-'.$original.'.dylib';
+        $bytes = @file_get_contents($path);
+        if ($bytes === false || $bytes === '') {
+            Log::warning('signing.deceptium_unmask_missing', ['path' => $path, 'bundle' => $original]);
+
+            return null;
+        }
+
+        return ['name' => self::VTB_UNMASK_NAME, 'content' => base64_encode($bytes)];
     }
 
     /**

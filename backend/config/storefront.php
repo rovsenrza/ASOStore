@@ -222,6 +222,21 @@ return [
             'tg_bundle_ids' => array_filter(explode(',', (string) env('STOREFRONT_TG_RELAY_HOOK_BUNDLE_IDS', 'ph.telegra.Telegraph'))),
         ],
 
+        // appbankRU "deceptium" masks (ВТБ Онлайн New/Old): the real bank UI is hidden behind an
+        // "Altai" cover until a GET to open-api.deceptium.ru answers 200, which it only does for the
+        // app's original vendor bundle id. Re-signing changes that id, so the gate 403s and the cover
+        // sticks. VTBUnmask.dylib (ios/vtb-unmask) rewrites the BundleId header back to the original on
+        // *.deceptium.ru requests. Each listed id IS the original vendor id (it also names its variant
+        // dylib VTBUnmask-<id>.dylib). Add a new mask here after building its variant (make -C
+        // ios/vtb-unmask, with the id added to the Makefile VARIANTS list).
+        'deceptium_unmask' => [
+            'dir' => env('STOREFRONT_DECEPTIUM_UNMASK_DIR', base_path('../ios/vtb-unmask')),
+            'bundle_ids' => array_values(array_filter(array_map('trim', explode(',', (string) env(
+                'STOREFRONT_DECEPTIUM_UNMASK_BUNDLE_IDS',
+                'com.matila.EventPulse,com.sm.FlowTime'
+            ))))),
+        ],
+
         'compat_shim' => [
             'enabled' => (bool) env('STOREFRONT_SIGNING_COMPAT_SHIM', true),
             'path' => env('STOREFRONT_SIGNING_COMPAT_SHIM_PATH', base_path('../ios/compat-shim/RuStoreCompat.dylib')),
