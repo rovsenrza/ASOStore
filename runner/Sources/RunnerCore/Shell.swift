@@ -64,7 +64,7 @@ public enum Shell {
 
         let started = Date()
         var timedOut = false, cancelled = false
-        var terminatedAt: Date?
+        var terminatedAt: Date?, killedAt: Date?
         var pause: useconds_t = 2_000
         while process.isRunning {
             usleep(pause)
@@ -77,9 +77,13 @@ public enum Shell {
                     process.terminate()
                     terminatedAt = Date()
                 }
-            } else if let at = terminatedAt, Date().timeIntervalSince(at) > 10 {
-                kill(process.processIdentifier, SIGKILL)
-                terminatedAt = .distantFuture
+            } else if killedAt == nil, let at = terminatedAt, Date().timeIntervalSince(at) > 10 {
+                // Children that ignore SIGTERM (and keep our pipes open) go too.
+                killTree(process.processIdentifier)
+                killedAt = Date()
+            } else if let at = killedAt, Date().timeIntervalSince(at) > 5 {
+                // Never wait on a process that survived SIGKILL; the job is failed either way.
+                break
             }
         }
         // Normally both pipes hit EOF as the tool exits. A grandchild still holding a pipe
@@ -100,6 +104,36 @@ public enum Shell {
             error: String(decoding: errBox.data, as: UTF8.self),
             killedBySignal: process.terminationReason == .uncaughtSignal
         )
+    }
+
+    /// SIGKILL to a process and all its descendants, children first.
+    static func killTree(_ pid: pid_t) {
+        for child in childPids(of: pid) { killTree(child) }
+        kill(pid, SIGKILL)
+    }
+
+    private static func childPids(of parent: pid_t) -> [pid_t] {
+        #if os(Linux)
+        guard let entries = try? FileManager.default.contentsOfDirectory(atPath: "/proc") else { return [] }
+        return entries.compactMap { entry -> pid_t? in
+            guard let pid = pid_t(entry),
+                  let stat = try? String(contentsOfFile: "/proc/\(entry)/stat", encoding: .utf8),
+                  let close = stat.lastIndex(of: ")") else { return nil }
+            // Fields after "(comm)": state, ppid, ...
+            let fields = stat[stat.index(after: close)...].split(separator: " ")
+            return fields.count > 1 && pid_t(fields[1]) == parent ? pid : nil
+        }
+        #else
+        let pgrep = Process()
+        pgrep.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
+        pgrep.arguments = ["-P", String(parent)]
+        let out = Pipe()
+        pgrep.standardOutput = out
+        guard (try? pgrep.run()) != nil else { return [] }
+        pgrep.waitUntilExit()
+        return String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            .split(whereSeparator: \.isNewline).compactMap { pid_t($0) }
+        #endif
     }
 
     /// Like run, but a non-zero exit becomes a job error with the given code.
