@@ -83,9 +83,13 @@ class ImportController extends Controller
     {
         $session = UploadSession::query()->where('public_id', strtolower($upload))->with('app')->first();
         $token = (string) $request->header('X-Upload-Token', '');
-        if ($session === null || $session->app === null || $session->app->imported_by_user_id !== $session->uploaded_by
-            || $token === '' || ! hash_equals($session->clientToken(), $token)) {
+        $check = $session?->checkClientToken($token) ?? 'invalid';
+        if ($session === null || $session->app === null || $session->app->imported_by_user_id !== $session->uploaded_by || $check === 'invalid') {
             throw new ApiException(ErrorCode::NotFound);
+        }
+        if ($check === 'expired') {
+            // A genuine token past its expiry: the app gets a new one from POST /imports/{upload}/token.
+            throw new ApiException(ErrorCode::Unauthenticated, 'Срок действия токена загрузки истёк.', details: ['reason' => 'UPLOAD_TOKEN_EXPIRED']);
         }
         $declaredHash = $request->header('X-Chunk-SHA256');
         if ($declaredHash !== null && preg_match('/^[a-fA-F0-9]{64}$/', $declaredHash) !== 1) {
@@ -110,6 +114,23 @@ class ImportController extends Controller
             // Sizes do not add up: the app's own complete call reports it and re-sends what is missing.
             report($exception);
         }
+    }
+
+    /**
+     * A fresh upload_token for the owner's open upload, for when the background session's token has
+     * expired (the token chunk route answered 401 UPLOAD_TOKEN_EXPIRED). Same shape as POST /imports.
+     */
+    public function token(Request $request, string $upload): JsonResponse
+    {
+        $session = $this->ownedUpload($request, $upload);
+        if ($session->expires_at->isPast()) {
+            throw new ApiException(ErrorCode::Conflict, 'Срок действия сессии загрузки истёк.', status: 410);
+        }
+        if ($session->status !== 'OPEN') {
+            throw new ApiException(ErrorCode::Conflict, 'Сессия загрузки уже закрыта.');
+        }
+
+        return ApiResponse::ok($this->presentUpload($session));
     }
 
     public function complete(Request $request, string $upload): JsonResponse
@@ -256,6 +277,7 @@ class ImportController extends Controller
     private function presentUpload(UploadSession $upload): array
     {
         $received = $upload->chunks()->orderBy('number')->pluck('number')->all();
+        $tokenExpiresAt = $upload->clientTokenExpiresAt();
 
         return [
             'id' => $upload->public_id,
@@ -266,7 +288,8 @@ class ImportController extends Controller
             'received_chunks' => $received,
             'missing_chunks' => array_values(array_diff(range(0, $upload->chunk_count - 1), $received)),
             'expires_at' => $upload->expires_at->toIso8601ZuluString(),
-            'upload_token' => $upload->clientToken(),
+            'upload_token' => $upload->clientToken($tokenExpiresAt),
+            'upload_token_expires_at' => $tokenExpiresAt->toIso8601ZuluString(),
         ];
     }
 

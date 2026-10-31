@@ -31,12 +31,23 @@ class OrderService
     {
         $plan = $this->settings->plan($planKey) ?? throw new InvalidArgumentException("Unknown plan {$planKey}.");
 
-        TelegramStoreOrder::query()
-            ->where('customer_id', $customer->id)
-            ->where('status', TelegramStoreOrder::PENDING)
-            ->get()
-            ->each(fn (TelegramStoreOrder $order) => $this->close($order, TelegramStoreOrder::CANCELLED));
+        // The customer row lock makes cancel-then-create atomic: a double tap waits here and then
+        // cancels the first tap's order, so at most one order stays PENDING.
+        return DB::transaction(function () use ($customer, $plan, $planKey) {
+            TelegramStoreCustomer::query()->whereKey($customer->id)->lockForUpdate()->firstOrFail();
+            TelegramStoreOrder::query()
+                ->where('customer_id', $customer->id)
+                ->where('status', TelegramStoreOrder::PENDING)
+                ->get()
+                ->each(fn (TelegramStoreOrder $order) => $this->close($order, TelegramStoreOrder::CANCELLED));
 
+            return $this->openFor($customer, $plan, $planKey);
+        }, 3);
+    }
+
+    /** @param array{months: int, days: int, price: int} $plan */
+    private function openFor(TelegramStoreCustomer $customer, array $plan, string $planKey): TelegramStoreOrder
+    {
         return TelegramStoreOrder::create([
             'public_id' => strtolower((string) Str::ulid()),
             'customer_id' => $customer->id,

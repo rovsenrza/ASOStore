@@ -63,7 +63,18 @@ class InstallDeliveryController extends Controller
         /** @var FilesystemAdapter $disk */
         $disk = Storage::disk('signed');
         $relative = $this->installations->downloadPath($model);
-        $size = (int) $disk->size($relative);
+        // The size recorded with the build saves a HEAD request to object storage. Without one, a
+        // missing object or a throttled (429) bucket is a temporary failure for iOS to retry, not a 500.
+        $size = (int) $model->signedBuild?->size_bytes;
+        if ($size <= 0) {
+            try {
+                $size = (int) $disk->size($relative);
+            } catch (\Throwable $exception) {
+                Log::warning('install.download_size_unavailable', ['installation' => $model->public_id, 'error' => $exception->getMessage()]);
+
+                return new SymfonyResponse('', 503, ['Retry-After' => '30', 'Cache-Control' => 'private, no-store']);
+            }
+        }
         $range = (string) $request->header('Range');
         [$start, $end] = self::range($range, $size);
 

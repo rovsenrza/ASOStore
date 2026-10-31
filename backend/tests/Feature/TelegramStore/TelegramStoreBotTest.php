@@ -14,6 +14,7 @@ use App\Services\TelegramStore\Bot\Messenger;
 use App\Services\TelegramStore\Bot\UpdateRouter;
 use App\Services\TelegramStore\OrderService;
 use App\Services\TelegramStore\PromoService;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -594,4 +595,24 @@ it('lets customers buy when Telegram cannot say whether they are subscribed', fu
 
     ($this->text)(BUYER_ID, '/start buy_month1');
     expect(TelegramStoreOrder::sole()->plan_key)->toBe('month1');
+});
+
+it('locks the customer before cancelling pending orders, so a double tap leaves one pending order', function () {
+    ($this->text)(BUYER_ID, '/start');
+    $customer = customer(BUYER_ID);
+    $orders = app(OrderService::class);
+    $queries = [];
+    DB::listen(function (QueryExecuted $query) use (&$queries) {
+        $queries[] = $query->sql;
+    });
+
+    $first = $orders->create($customer, 'month1');
+    $second = $orders->create($customer, 'month1');
+
+    $lock = collect($queries)->search(fn (string $sql) => str_contains($sql, 'from `telegram_store_customers`') && str_contains($sql, 'for update'));
+    $pending = collect($queries)->search(fn (string $sql) => str_contains($sql, 'from `telegram_store_orders`'));
+    expect($lock)->not->toBeFalse()
+        ->and($lock)->toBeLessThan($pending)
+        ->and($first->refresh()->status)->toBe(TelegramStoreOrder::CANCELLED)
+        ->and(TelegramStoreOrder::query()->where('status', TelegramStoreOrder::PENDING)->pluck('id')->all())->toBe([$second->id]);
 });

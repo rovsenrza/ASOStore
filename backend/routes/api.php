@@ -115,6 +115,7 @@ Route::middleware(['auth:sanctum', 'active', 'verified.web'])->group(function ()
     Route::post('/imports', [ImportController::class, 'store'])->middleware('throttle:imports')->name('api.imports.store');
     Route::post('/imports/link', [ImportController::class, 'link'])->middleware('throttle:imports')->name('api.imports.link');
     Route::put('/imports/{upload}/chunks/{number}', [ImportController::class, 'chunk'])->whereNumber('number')->name('api.imports.chunk');
+    Route::post('/imports/{upload}/token', [ImportController::class, 'token'])->middleware('throttle:60,1')->name('api.imports.token');
     Route::post('/imports/{upload}/complete', [ImportController::class, 'complete'])->middleware('throttle:imports')->name('api.imports.complete');
     Route::post('/imports/{import}/install', [ImportController::class, 'install'])->middleware(['throttle:installs', 'idempotent'])->name('api.imports.install');
     Route::delete('/imports/{import}', [ImportController::class, 'destroy'])->middleware('throttle:imports')->name('api.imports.destroy');

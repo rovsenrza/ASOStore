@@ -95,6 +95,8 @@ return [
         // A customer import bigger than this is assembled by a queued job instead of inside the request
         // (the app waits 30 seconds for `complete`; a multi-gigabyte IPA takes minutes).
         'background_assembly_bytes' => (int) env('STOREFRONT_UPLOAD_BACKGROUND_ASSEMBLY_BYTES', 100 * 1024 * 1024),
+        // Lifetime of a customer import's upload_token (never past the session's own expires_at).
+        'token_ttl_minutes' => (int) env('STOREFRONT_UPLOAD_TOKEN_TTL_MINUTES', 1440),
     ],
 
     // Customer self-import of IPAs (from Files or a link). Signed on the Apple certificate for one

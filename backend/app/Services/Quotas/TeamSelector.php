@@ -34,9 +34,29 @@ class TeamSelector
     ) {}
 
     /**
-     * Called inside QuotaService's transaction, with the exhausted quota row locked.
+     * The quota rows handleExhausted may switch the registration to. QuotaService locks them
+     * together with the exhausted row in ascending id order before calling it, so two callers
+     * moving devices between the same teams can never lock two quota rows in opposite orders.
+     *
+     * @return list<int>
      */
-    public function handleExhausted(DeviceRegistration $registration, TeamQuota $exhausted): string
+    public function switchQuotaIds(DeviceRegistration $registration): array
+    {
+        $family = $registration->device_family->value;
+
+        return array_map(fn (AppleTeam $team) => (int) TeamQuota::query()
+            ->where(['apple_team_id' => $team->id, 'membership_year_id' => $team->currentMembershipYear()->id, 'device_family' => $family])
+            ->value('id'), $this->automaticTeams($family, exclude: $registration->apple_team_id));
+    }
+
+    /**
+     * Called inside QuotaService's transaction, with the exhausted quota row and the rows from
+     * switchQuotaIds ($lockedQuotaIds) already locked. A team that became a candidate since is
+     * skipped: locking its row now could invert the order.
+     *
+     * @param  list<int>|null  $lockedQuotaIds
+     */
+    public function handleExhausted(DeviceRegistration $registration, TeamQuota $exhausted, ?array $lockedQuotaIds = null): string
     {
         $family = $registration->device_family;
         $previous = TeamAssignment::query()
@@ -50,10 +70,11 @@ class TeamSelector
 
         foreach ($this->automaticTeams($family->value, exclude: $registration->apple_team_id) as $team) {
             $year = $team->currentMembershipYear();
-            $quota = TeamQuota::query()
-                ->where(['apple_team_id' => $team->id, 'membership_year_id' => $year->id, 'device_family' => $family->value])
-                ->lockForUpdate()
-                ->firstOrFail();
+            $where = ['apple_team_id' => $team->id, 'membership_year_id' => $year->id, 'device_family' => $family->value];
+            if ($lockedQuotaIds !== null && ! in_array((int) TeamQuota::query()->where($where)->value('id'), $lockedQuotaIds, true)) {
+                continue;
+            }
+            $quota = TeamQuota::query()->where($where)->lockForUpdate()->firstOrFail();
             if ($quota->remaining() <= 0) {
                 continue;
             }

@@ -99,7 +99,10 @@ class ActivationCodeService
                 'redeemed_at' => now(),
             ])->save();
 
-            // A new code extends the current subscription instead of overlapping it.
+            // A new code extends the current subscription instead of overlapping it. The user row
+            // lock serialises this with another redemption and with DelayCompensation, which
+            // would otherwise both extend the same ends_at they read and lose each other's days.
+            User::query()->whereKey($user->id)->lockForUpdate()->first();
             $current = $user->activeSubscription()->first();
             $endsAt = match (true) {
                 $record->duration_days === null, $current !== null && $current->ends_at === null => null,

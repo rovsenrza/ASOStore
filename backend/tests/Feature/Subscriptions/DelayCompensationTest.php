@@ -9,7 +9,9 @@ use App\Models\DeviceRegistration;
 use App\Models\Subscription;
 use App\Services\Subscriptions\DelayCompensation;
 use Illuminate\Console\Scheduling\Schedule;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 // A customer whose device registration took more than 30 minutes gets the wait and a week added.
 
@@ -137,4 +139,18 @@ it('runs from the command and is scheduled every five minutes', function () {
     $scheduled = collect(app(Schedule::class)->events())
         ->first(fn ($event) => str_contains((string) $event->command, 'subscriptions:compensate-delays'));
     expect($scheduled)->not->toBeNull()->and($scheduled->expression)->toBe('*/5 * * * *');
+});
+
+it('locks the customer row before reading the subscription it extends', function () {
+    ($this->register)(900, 300);
+    $queries = [];
+    DB::listen(function (QueryExecuted $query) use (&$queries) {
+        $queries[] = $query->sql;
+    });
+
+    ($this->compensation)()->run(now: $this->now);
+
+    $lock = collect($queries)->search(fn (string $sql) => str_contains($sql, 'from `users`') && str_contains($sql, 'for update'));
+    $read = collect($queries)->search(fn (string $sql) => str_contains($sql, 'from `subscriptions`'));
+    expect($lock)->not->toBeFalse()->and($lock)->toBeLessThan($read);
 });
