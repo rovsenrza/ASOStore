@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\AppleTeam;
 use App\Services\Apple\AppGroupProvisioner;
+use App\Services\Apple\SecretStore;
 use Illuminate\Console\Command;
 
 /**
@@ -16,7 +17,7 @@ class ApplePortalStatus extends Command
 
     protected $description = 'Show which Apple teams have a working developer-portal login for App Groups';
 
-    public function handle(AppGroupProvisioner $portal): int
+    public function handle(AppGroupProvisioner $portal, SecretStore $secrets): int
     {
         $rows = [];
         $missing = 0;
@@ -29,8 +30,12 @@ class ApplePortalStatus extends Command
                 continue;
             }
             $own = $path === AppGroupProvisioner::credentialsFor($team->apple_team_id) ? 'own' : 'shared';
+            $login = json_decode($secrets->read('encrypted-file:'.$path), true);
+            $age = isset($login['session_captured_at'])
+                ? (int) now()->diffInDays($login['session_captured_at'], absolute: true).'d old'
+                : (empty($login['session']) ? 'no session' : 'legacy');
             if ($this->option('no-check')) {
-                $rows[] = [$team->apple_team_id, $team->name, "stored ({$own})", '-'];
+                $rows[] = [$team->apple_team_id, $team->name, "stored ({$own}, {$age})", '-'];
 
                 continue;
             }

@@ -75,3 +75,30 @@ it('does not ask the portal for a team that no stored login can see', function (
         ->and($this->portal->run(['login'], 5, team: teamModel('BBBBBBBBBB')))
         ->toMatchArray(['ok' => false, 'code' => 'NOT_CONFIGURED']);
 });
+
+it('passes the stored reusable session to the portal script as FASTLANE_SESSION', function () {
+    // A fake interpreter that ignores the script and reports which Fastlane env vars it was given.
+    $fake = sys_get_temp_dir().'/fake-ruby-'.bin2hex(random_bytes(4));
+    file_put_contents($fake, "#!/bin/sh\necho \"{\\\"ok\\\":true,\\\"session\\\":\\\"\${FASTLANE_SESSION}\\\",\\\"user\\\":\\\"\${FASTLANE_USER}\\\"}\"\n");
+    chmod($fake, 0700);
+    config(['storefront.apple.portal_ruby' => $fake]);
+
+    storeLogin($this, AppGroupProvisioner::credentialsFor('ABCDE12345'), ['user' => 'owner@example.com', 'password' => 'pw', 'session' => 'cookie-30day']);
+    $result = $this->portal->run(['login'], 30, team: teamModel('ABCDE12345'));
+
+    expect($result['ok'])->toBeTrue()
+        ->and($result['session'])->toBe('cookie-30day')
+        ->and($result['user'])->toBe('owner@example.com');
+    @unlink($fake);
+});
+
+it('omits FASTLANE_SESSION when the stored login has none (legacy password login)', function () {
+    $fake = sys_get_temp_dir().'/fake-ruby-'.bin2hex(random_bytes(4));
+    file_put_contents($fake, "#!/bin/sh\necho \"{\\\"ok\\\":true,\\\"session\\\":\\\"\${FASTLANE_SESSION}\\\"}\"\n");
+    chmod($fake, 0700);
+    config(['storefront.apple.portal_ruby' => $fake]);
+
+    storeLogin($this, AppGroupProvisioner::credentialsFor('ABCDE12345'), ['user' => 'owner@example.com', 'password' => 'pw']);
+    expect($this->portal->run(['login'], 30, team: teamModel('ABCDE12345'))['session'])->toBe('');
+    @unlink($fake);
+});

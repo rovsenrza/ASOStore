@@ -42,27 +42,46 @@ class ApplePortalLogin extends Command
 
         $path = $team === null ? AppGroupProvisioner::CREDENTIALS : AppGroupProvisioner::credentialsFor($team);
         $previous = is_file(storage_path('app/private/'.$path)) ? file_get_contents(storage_path('app/private/'.$path)) : null;
+        // Store the password so spaceauth only prompts for the 2FA code, not the password.
         $secrets->storeEncrypted($path, (string) json_encode(['user' => $user, 'password' => $password]));
         $this->info('Password stored encrypted. Signing in; enter the code Apple sends to your devices when asked.');
 
-        $result = $portal->run(['login'], 600, interactive: true, team: $team);
-        // With a terminal attached the script's JSON goes to the screen; check the session non-interactively.
+        // Capture a reusable ~30-day session (one 2FA code). spaceauth writes it to this file; with
+        // a terminal attached its own output goes to the screen, so the session comes back via the file.
+        $sessionFile = tempnam(sys_get_temp_dir(), 'fls');
+        try {
+            $result = $portal->run(['spaceauth', $sessionFile], 600, interactive: true, team: $team);
+            $session = is_file($sessionFile) ? trim((string) file_get_contents($sessionFile)) : '';
+        } finally {
+            @unlink($sessionFile);
+        }
+        if ($session === '') {
+            $previous === null ? @unlink(storage_path('app/private/'.$path)) : file_put_contents(storage_path('app/private/'.$path), $previous);
+            $this->error('Sign-in failed: '.($result['message'] ?? 'no session was captured. Check the Apple ID, password and 2FA code.'));
+
+            return self::FAILURE;
+        }
+        // Store the session now so the verification call below reuses it (no second 2FA).
+        $secrets->storeEncrypted($path, (string) json_encode(['user' => $user, 'password' => $password, 'session' => $session]));
+
         $check = $portal->run(['login'], 120, team: $team);
         $teams = array_map('strval', (array) ($check['teams'] ?? []));
         if (($check['ok'] ?? false) !== true || ($team !== null && ! in_array($team, $teams, true))) {
-            // Do not keep a login that cannot serve the team: restore what was there before.
             $previous === null ? @unlink(storage_path('app/private/'.$path)) : file_put_contents(storage_path('app/private/'.$path), $previous);
             $this->error(($check['ok'] ?? false) === true
                 ? "Signed in, but this Apple ID is not a member of team {$team} (it sees: ".implode(', ', $teams).'). Nothing was stored.'
-                : 'Sign-in failed: '.($check['message'] ?? $result['message'] ?? 'unknown error'));
+                : 'Session check failed: '.($check['message'] ?? 'unknown error'));
 
             return self::FAILURE;
         }
 
         // The teams this Apple ID can see: later App Group calls use it only for those teams.
-        $secrets->storeEncrypted($path, (string) json_encode(['user' => $user, 'password' => $password, 'teams' => $teams]));
+        $secrets->storeEncrypted($path, (string) json_encode([
+            'user' => $user, 'password' => $password, 'session' => $session,
+            'session_captured_at' => now()->toIso8601String(), 'teams' => $teams,
+        ]));
         $audit->record('apple.portal_login', after: ['apple_id' => $user, 'for_team' => $team, 'teams' => $teams], actor: Actor::system('cli'));
-        $this->info('Signed in. Teams: '.implode(', ', $teams).'. App Groups are now created automatically'.($team !== null ? " for {$team}." : '.'));
+        $this->info('Signed in with a ~30-day session. Teams: '.implode(', ', $teams).'. App Groups are now created automatically'.($team !== null ? " for {$team}." : '.'));
 
         return self::SUCCESS;
     }

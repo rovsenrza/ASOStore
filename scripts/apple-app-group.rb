@@ -8,9 +8,11 @@
 #   apple-app-group.rb login                                      # interactive, once: password + 2FA
 #   apple-app-group.rb ensure TEAM_ID GROUP_ID GROUP_NAME BUNDLE_ID
 #
-# Credentials: FASTLANE_USER, FASTLANE_PASSWORD. Spaceship keeps the session cookie in
-# ~/.fastlane/spaceship/<user>/ (about a month); `ensure` never prompts, it fails instead.
-# Prints one JSON line: {"ok":true,...} or {"ok":false,"code":"...","message":"..."}.
+#   apple-app-group.rb spaceauth SESSION_FILE                     # interactive 2FA once, writes a 30-day session
+#
+# Credentials: FASTLANE_USER, and either FASTLANE_SESSION (a reusable ~30-day session captured by
+# `spaceauth`, preferred) or FASTLANE_PASSWORD. With a session set, `login`/`ensure` never prompt
+# for 2FA. Prints one JSON line: {"ok":true,...} or {"ok":false,"code":"...","message":"..."}.
 
 require 'json'
 require 'spaceship'
@@ -25,11 +27,23 @@ user = ENV.fetch('FASTLANE_USER', '')
 answer({ ok: false, code: 'NOT_CONFIGURED', message: 'FASTLANE_USER is not set' }, 2) if user.empty?
 
 begin
+  # Capture a reusable ~30-day session: this is the only step that needs a 2FA code typed in.
+  if mode == 'spaceauth'
+    session_file = ARGV[1]
+    answer({ ok: false, code: 'USAGE', message: 'spaceauth SESSION_FILE' }, 2) if session_file.nil?
+    runner = Spaceship::SpaceauthRunner.new(username: user).run
+    File.write(session_file, runner.session_string)
+    answer({ ok: true })
+  end
+
   if mode == 'ensure'
     # A new 2FA code would be needed: never wait for input that nobody will type.
     $stdin.reopen(File::NULL)
   end
-  Spaceship::Portal.login(user, ENV['FASTLANE_PASSWORD'])
+  # With FASTLANE_SESSION set, Spaceship reuses it (no password, no 2FA); otherwise it falls back
+  # to the password, which only `login` with a terminal attached can answer a 2FA prompt for.
+  password = ENV['FASTLANE_PASSWORD'].to_s.empty? ? nil : ENV['FASTLANE_PASSWORD']
+  Spaceship::Portal.login(user, password)
 
   case mode
   when 'login'

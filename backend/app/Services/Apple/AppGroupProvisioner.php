@@ -110,10 +110,14 @@ class AppGroupProvisioner
             return ['ok' => false, 'code' => 'NOT_CONFIGURED', 'message' => 'No Apple ID is signed in to the developer portal for this team.'];
         }
         $login = json_decode($this->secrets->read('encrypted-file:'.$path), true);
-        $process = Process::timeout($timeoutSeconds)
-            ->env(['FASTLANE_USER' => (string) ($login['user'] ?? ''), 'FASTLANE_PASSWORD' => (string) ($login['password'] ?? ''),
-                'FASTLANE_SKIP_UPDATE_CHECK' => '1', 'FASTLANE_HIDE_TIMESTAMP' => '1', 'LANG' => 'en_US.UTF-8'])
-            ->path(base_path());
+        $env = ['FASTLANE_USER' => (string) ($login['user'] ?? ''), 'FASTLANE_PASSWORD' => (string) ($login['password'] ?? ''),
+            'FASTLANE_SKIP_UPDATE_CHECK' => '1', 'FASTLANE_HIDE_TIMESTAMP' => '1', 'LANG' => 'en_US.UTF-8'];
+        // The reusable ~30-day session captured by `spaceauth`: with it set, the portal never asks
+        // for a 2FA code again until it expires. apple:portal-login refreshes it.
+        if (! empty($login['session'])) {
+            $env['FASTLANE_SESSION'] = (string) $login['session'];
+        }
+        $process = Process::timeout($timeoutSeconds)->env($env)->path(base_path());
         if ($interactive) {
             $process = $process->tty();
         }
