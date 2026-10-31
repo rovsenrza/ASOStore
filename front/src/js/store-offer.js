@@ -17,7 +17,8 @@ export function applyTelegramLinks(offer, root = document) {
   const urls = { bot: telegram.bot_url, news: telegram.news_url, support: telegram.support_url };
   root.querySelectorAll('[data-tg-link]').forEach((link) => {
     const url = urls[link.dataset.tgLink];
-    if (url) link.href = url;
+    // Server-configured: only https links, so a bad setting can never become a javascript: URL.
+    if (typeof url === 'string' && /^https:\/\//i.test(url)) link.href = url;
   });
   if (telegram.bot_username) {
     root.querySelectorAll('[data-tg-username]').forEach((node) => { node.textContent = `@${telegram.bot_username}`; });
