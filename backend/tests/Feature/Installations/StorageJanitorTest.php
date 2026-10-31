@@ -54,7 +54,7 @@ function storedBuild(object $test, ?InstallationStatus $installation = null, int
     $build = SignedBuild::create(['artifact_id' => $test->artifact->id, 'device_id' => $test->device->id, 'last_used_at' => now()]);
     $path = "signed/{$build->public_id}.ipa";
     $content = Str::random($bytes);
-    Storage::disk('artifacts')->put($path, $content);
+    Storage::disk('signed')->put($path, $content);
     $build->forceFill(['status' => SignedBuildStatus::Deliverable, 'storage_path' => $path, 'sha256' => hash('sha256', $content), 'size_bytes' => $bytes])->save();
     if ($installation !== null) {
         Installation::create([
@@ -81,14 +81,14 @@ it('removes idle signed builds after the time their kind allows', function () {
     expect($warm->refresh()->status)->toBe(SignedBuildStatus::Expired)
         ->and($warm->status_reason)->toBe('IDLE')
         ->and($warm->purged_at)->not->toBeNull()
-        ->and(Storage::disk('artifacts')->exists($warm->storage_path))->toBeFalse()
+        ->and(Storage::disk('signed')->exists($warm->storage_path))->toBeFalse()
         ->and($delivered->refresh()->status)->toBe(SignedBuildStatus::Deliverable)
         ->and($ready->refresh()->status)->toBe(SignedBuildStatus::Deliverable);
 
     $this->travel(12)->hours();
     janitor()->run();
     expect($delivered->refresh()->status)->toBe(SignedBuildStatus::Expired)
-        ->and(Storage::disk('artifacts')->exists($delivered->storage_path))->toBeFalse()
+        ->and(Storage::disk('signed')->exists($delivered->storage_path))->toBeFalse()
         ->and(Installation::where('signed_build_id', $delivered->id)->sole()->status)->toBe(InstallationStatus::Delivered)
         ->and($ready->refresh()->status)->toBe(SignedBuildStatus::Deliverable);
 
@@ -180,8 +180,9 @@ it('removes files that cannot be installed, objects nothing refers to and stale 
     $revoked = storedBuild($this);
     DB::table('signed_builds')->where('id', $revoked->id)->update(['status' => 'REVOKED']);
     $disk = Storage::disk('artifacts');
+    $signed = Storage::disk('signed');
     $orphan = 'signed/'.strtolower((string) Str::ulid()).'.ipa';
-    $disk->put($orphan, 'left by a crashed upload');
+    $signed->put($orphan, 'left by a crashed upload');
     $foreign = 'backups/keep-me.bin';
     $disk->put($foreign, 'not ours to judge');
     $abandoned = 'uploads/'.strtolower((string) Str::ulid()).'/chunks/0.part';
@@ -191,7 +192,8 @@ it('removes files that cannot be installed, objects nothing refers to and stale 
     file_put_contents($this->temp.'/ipaNEW456', 'running');
 
     $this->travel(3)->days();
-    foreach ([$orphan, $foreign, $abandoned] as $path) {
+    touch($signed->path($orphan), now()->subDays(3)->getTimestamp());
+    foreach ([$foreign, $abandoned] as $path) {
         touch($disk->path($path), now()->subDays(3)->getTimestamp());
     }
     touch($this->temp.'/ipaOLD123', now()->subHours(7)->getTimestamp());
@@ -200,18 +202,18 @@ it('removes files that cannot be installed, objects nothing refers to and stale 
     $dry = janitor()->run(dryRun: true);
     expect($dry['orphan_objects'])->toBe(2)
         ->and($dry['builds_purged'])->toBe(1)
-        ->and($disk->exists($orphan))->toBeTrue()
+        ->and($signed->exists($orphan))->toBeTrue()
         ->and($revoked->refresh()->purged_at)->toBeNull();
 
     $summary = janitor()->run(sweepObjects: true);
     expect($summary['orphan_objects'])->toBe(2)
         ->and($summary['temp_files'])->toBe(1)
-        ->and($disk->exists($orphan))->toBeFalse()
+        ->and($signed->exists($orphan))->toBeFalse()
         ->and($disk->exists($abandoned))->toBeFalse()
         ->and($disk->exists($foreign))->toBeTrue()
         ->and($disk->exists($this->artifact->storage_path))->toBeTrue()
         ->and($revoked->refresh()->purged_at)->not->toBeNull()
-        ->and($disk->exists($revoked->storage_path))->toBeFalse()
+        ->and($signed->exists($revoked->storage_path))->toBeFalse()
         ->and(is_file($this->temp.'/ipaOLD123'))->toBeFalse()
         ->and(is_file($this->temp.'/ipaNEW456'))->toBeTrue();
 });

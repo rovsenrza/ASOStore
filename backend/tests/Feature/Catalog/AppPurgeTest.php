@@ -26,7 +26,7 @@ beforeEach(function () {
     asStaff($this->manager)->postJson("/api/v1/admin/artifacts/{$this->artifact->public_id}/publish")->assertOk();
     $this->build = SignedBuild::create(['artifact_id' => $this->artifact->id, 'device_id' => Device::factory()->create()->id]);
     $this->build->forceFill(['storage_path' => "signed/{$this->build->public_id}.ipa"])->save();
-    Storage::disk('artifacts')->put($this->build->storage_path, 'signed ipa');
+    Storage::disk('signed')->put($this->build->storage_path, 'signed ipa');
 });
 
 it('revokes the builds of a deleted app and deletes their files from disk', function () {
@@ -42,7 +42,7 @@ it('revokes the builds of a deleted app and deletes their files from disk', func
         ->and($this->artifact->purged_at)->not->toBeNull()
         ->and($this->build->refresh()->purged_at)->not->toBeNull()
         ->and(Storage::disk('artifacts')->exists($original))->toBeFalse()
-        ->and(Storage::disk('artifacts')->exists($this->build->storage_path))->toBeFalse();
+        ->and(Storage::disk('signed')->exists($this->build->storage_path))->toBeFalse();
 });
 
 it('cleans up listings deleted before purging existed', function () {

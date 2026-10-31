@@ -156,7 +156,7 @@ it('retries a flaky object-storage write of the signed build', function () {
     forgetGuards();
 
     // The next write of the signed build to object storage fails once, as a broken multipart upload would.
-    $real = Storage::disk('artifacts');
+    $real = Storage::disk('signed');
     $flaky = new class($real->getDriver(), $real->getAdapter(), $real->getConfig()) extends Illuminate\Filesystem\FilesystemAdapter
     {
         public int $failures = 1;
@@ -171,7 +171,7 @@ it('retries a flaky object-storage write of the signed build', function () {
             return parent::put($path, $contents, $options);
         }
     };
-    Storage::set('artifacts', $flaky);
+    Storage::set('signed', $flaky);
 
     $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
     $profile = SigningProfile::sole();
@@ -179,7 +179,7 @@ it('retries a flaky object-storage write of the signed build', function () {
     worker('PUT', $lease['upload_path'], $signed)->assertCreated()->assertJsonPath('data.sha256', hash('sha256', $signed));
 
     expect($flaky->failures)->toBe(0)
-        ->and(Storage::disk('artifacts')->exists('signed/'.SignedBuild::sole()->public_id.'.ipa'))->toBeTrue();
+        ->and(Storage::disk('signed')->exists('signed/'.SignedBuild::sole()->public_id.'.ipa'))->toBeTrue();
 });
 
 it('installs a published app on a registered iPhone through the whole flow', function () {
@@ -235,7 +235,7 @@ it('installs a published app on a registered iPhone through the whole flow', fun
     $this->get($link['manifest_url'])->assertStatus(410)->assertJsonPath('error.code', 'INSTALL_TOKEN_EXPIRED');
 
     $download = $this->get($downloadUrl)->assertOk();
-    expect(file_get_contents($download->baseResponse->getFile()->getPathname()))->toBe(Storage::disk('artifacts')->get($build->storage_path));
+    expect(file_get_contents($download->baseResponse->getFile()->getPathname()))->toBe(Storage::disk('signed')->get($build->storage_path));
     app()->terminate();
 
     $model = Installation::sole();
@@ -291,7 +291,7 @@ it('delivers object storage IPAs with range support, with and without a cached u
     preg_match('#<string>(http[^<]+/downloads/installations/[^<]+)</string>#', $this->get($link['manifest_url'])->getContent(), $match);
     $downloadUrl = html_entity_decode($match[1]);
     $path = SignedBuild::sole()->storage_path;
-    $bytes = Storage::disk('artifacts')->get($path);
+    $bytes = Storage::disk('signed')->get($path);
 
     // The same file, now served by an S3 bucket (the AWS SDK's mock handler plays the bucket).
     $requests = [];
@@ -311,7 +311,7 @@ it('delivers object storage IPAs with range support, with and without a cached u
     foreach (range(1, 12) as $ignored) {
         $mock->append($bucket);
     }
-    Storage::set('artifacts', Storage::build([
+    Storage::set('signed', Storage::build([
         'driver' => 's3', 'key' => 'key', 'secret' => 'secret', 'region' => 'default', 'bucket' => 'ruappstore-artifacts',
         'endpoint' => 'https://storage.test', 'use_path_style_endpoint' => true, 'throw' => true, 'handler' => $mock,
     ]));
@@ -321,7 +321,7 @@ it('delivers object storage IPAs with range support, with and without a cached u
         config(['storefront.artifacts.file_cache_path' => $this->artifactCacheRoot]);
         $source = fopen('php://temp', 'w+b');
         fwrite($source, $bytes);
-        app(ArtifactFileCache::class)->store(Storage::disk('artifacts'), $path, hash('sha256', $bytes), strlen($bytes), $source);
+        app(ArtifactFileCache::class)->store(Storage::disk('signed'), $path, hash('sha256', $bytes), strlen($bytes), $source);
         fclose($source);
     }
     $content = function ($response) use ($cached) {

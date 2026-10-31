@@ -24,7 +24,7 @@ use Tests\Support\IpaBuilder;
 
 beforeEach(function () {
     Storage::fake('artifacts');
-    Storage::disk('artifacts')->buildTemporaryUrlsUsing(fn (string $path) => 'https://s3.test/'.$path);
+    Storage::disk('signed')->buildTemporaryUrlsUsing(fn (string $path) => 'https://s3.test/'.$path);
     $this->keepFile = sys_get_temp_dir().'/keep-ids-'.bin2hex(random_bytes(4)).'.txt';
     // A scanner that reports every file clean: copies are approved only after a clean scan.
     $this->scanner = tempnam(sys_get_temp_dir(), 'clamd');
@@ -82,7 +82,7 @@ function publishLive(object $test, string $ipa): AppArtifact
 function deliverableBuild(AppArtifact $artifact, Device $device): SignedBuild
 {
     $build = SignedBuild::create(['artifact_id' => $artifact->id, 'device_id' => $device->id, 'last_used_at' => now()->subHour()]);
-    Storage::disk('artifacts')->put("signed/{$build->public_id}.ipa", 'signed');
+    Storage::disk('signed')->put("signed/{$build->public_id}.ipa", 'signed');
     $build->forceFill(['status' => SignedBuildStatus::Deliverable, 'storage_path' => "signed/{$build->public_id}.ipa", 'size_bytes' => 6])->save();
 
     return $build;
