@@ -386,7 +386,7 @@ class SigningService
     }
 
     /**
-     * @param  array{status: string, sha256?: string|null, error_code?: string|null, error_message?: string|null, report?: array<string, mixed>|null}  $result
+     * @param  array{status: string, sha256?: string|null, error_code?: string|null, error_message?: string|null, retryable?: bool|null, report?: array<string, mixed>|null}  $result
      */
     public function complete(PipelineJob $job, Runner $runner, array $result): SignedBuild
     {
@@ -416,6 +416,11 @@ class SigningService
 
         $code = mb_substr((string) ($result['error_code'] ?? 'SIGNING_FAILED'), 0, 64);
         DB::transaction(function () use ($job, $attempt, $build, $result, $code, $actor) {
+            // The runner says retrying cannot help (e.g. NESTED_PROFILE_REQUIRED): spend the
+            // remaining attempts. Older runners send no flag and keep the attempt budget.
+            if (($result['retryable'] ?? null) === false) {
+                $job->max_attempts = $job->attempt;
+            }
             $retryable = $this->jobs->fail($job, $attempt, new RuntimeException($code.': '.($result['error_message'] ?? '')));
             if ($retryable) {
                 $this->states->transition($job, PipelineJobStatus::Queued, 'Runner retry.', $actor, extra: [
