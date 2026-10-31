@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\RoleSlug;
+use App\Http\Middleware\RequireStaffSession;
 use App\Models\ActivationCode;
 use App\Models\AppCategory;
 use App\Models\AppPublisher;
@@ -10,6 +11,8 @@ use App\Models\Device;
 use App\Models\PipelineJob;
 use App\Models\Runner;
 use App\Models\User;
+use Illuminate\Auth\Middleware\Authenticate;
+use Illuminate\Auth\Middleware\Authorize;
 use Illuminate\Support\Facades\Route;
 
 /**
@@ -53,8 +56,24 @@ function concrete(string $uri): string
     ]);
 }
 
-it('covers every admin route', function () {
-    expect(adminRoutes())->toHaveCount(79);
+it('guards every admin route with a staff session and an ability', function () {
+    // Derived from the router instead of a hard-coded count, so a new route is checked, not miscounted.
+    $routes = collect(Route::getRoutes()->getRoutes())
+        ->filter(fn ($route) => str_starts_with($route->uri(), 'api/v1/admin/')
+            && ! in_array($route->getName(), ['api.admin.auth.login', 'api.admin.auth.totp', 'api.admin.auth.logout'], true));
+    expect($routes)->not->toBeEmpty()
+        ->and($routes)->toHaveCount(count(adminRoutes()));
+
+    foreach ($routes as $route) {
+        $middleware = collect(app('router')->gatherRouteMiddleware($route))->map(fn ($m) => (string) $m);
+        $label = implode('|', $route->methods()).' '.$route->uri();
+        expect($middleware->contains(Authenticate::class.':sanctum'))->toBeTrue($label.' is not authenticated')
+            ->and($middleware->contains(RequireStaffSession::class))->toBeTrue($label.' has no staff session');
+        // Only "who am I" is open to every staff role; everything else names an ability.
+        if ($route->getName() !== 'api.admin.auth.me') {
+            expect($middleware->contains(fn ($m) => str_starts_with($m, Authorize::class.':')))->toBeTrue($label.' has no ability');
+        }
+    }
 });
 
 it('turns away guests and customers on every admin route', function () {
