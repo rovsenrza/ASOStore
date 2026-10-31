@@ -78,7 +78,9 @@ class QuotaService
      */
     private function reserveLocked(DeviceRegistration $registration, int $quotaId, ?array $switchQuotaIds): string
     {
-        $quota = TeamQuota::query()->whereIn('id', $switchQuotaIds ?? [$quotaId])->orderBy('id')->lockForUpdate()->get()->firstWhere('id', $quotaId)
+        // Every candidate row is locked (in id order) even though only one is used here.
+        $lockedQuotas = TeamQuota::query()->whereIn('id', $switchQuotaIds ?? [$quotaId])->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+        $quota = $lockedQuotas->get($quotaId)
             ?? throw (new ModelNotFoundException)->setModel(TeamQuota::class, [$quotaId]);
         $locked = DeviceRegistration::query()->whereKey($registration->getKey())->lockForUpdate()->firstOrFail();
 

@@ -78,9 +78,6 @@ class AppArtifact extends Model
         return $this->belongsTo(AppArtifact::class, 'derived_from_artifact_id');
     }
 
-    /**
-     * @return BelongsTo<CatalogApp, $this>
-     */
     protected static function booted(): void
     {
         // A newly published (or withdrawn) build changes the version and size on the public app page.
@@ -93,6 +90,9 @@ class AppArtifact extends Model
         });
     }
 
+    /**
+     * @return BelongsTo<CatalogApp, $this>
+     */
     public function app(): BelongsTo
     {
         return $this->belongsTo(CatalogApp::class, 'app_id');
