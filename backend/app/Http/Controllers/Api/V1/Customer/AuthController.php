@@ -24,7 +24,6 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Password as PasswordRule;
 use Laravel\Sanctum\PersonalAccessToken;
-use Throwable;
 
 /**
  * Browser sign-in for the portal (Sanctum session cookies, IMPLEMENTATION_PLAN D2).
@@ -61,12 +60,8 @@ class AuthController extends Controller
         Auth::guard('web')->login($user);
         $request->session()->regenerate();
 
-        try {
-            $this->verification->send($user);
-        } catch (Throwable $exception) {
-            // The account exists; the customer can ask for the code again.
-            report($exception);
-        }
+        // No email code step: devices are identified by UDID, so the address is trusted as entered.
+        $this->verification->markVerified($user);
 
         return ApiResponse::ok((new MeResource($user->fresh()))->resolve($request), 201);
     }

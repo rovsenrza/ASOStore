@@ -10,9 +10,6 @@ bindForm(document.querySelector('#register-form'), t, {
     email: data.get('email'),
     password: data.get('password'),
   }),
-  // ?next= (e.g. back to the purchase page) survives the email confirmation step.
-  onSuccess: () => {
-    const next = safeNext(null);
-    location.assign(next ? `/verify-email.html?next=${encodeURIComponent(next)}` : '/verify-email.html');
-  },
+  // ?next= (e.g. back to the purchase page) is honoured right after sign-up.
+  onSuccess: () => location.assign(safeNext('/')),
 });

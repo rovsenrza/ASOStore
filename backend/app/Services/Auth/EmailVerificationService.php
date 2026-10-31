@@ -11,7 +11,6 @@ use App\Services\Audit\AuditService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
-use Laravel\Sanctum\PersonalAccessToken;
 
 /**
  * Six-digit email codes for accounts registered on the website. Only browser
@@ -41,11 +40,9 @@ class EmailVerificationService
     /** Whether this request must wait for the user's email to be confirmed. */
     public static function blocks(Request $request): bool
     {
-        $user = $request->user();
-
-        return $user instanceof User
-            && $user->email_verified_at === null
-            && ! $user->currentAccessToken() instanceof PersonalAccessToken;
+        // Email confirmation is no longer required (devices are identified by UDID);
+        // accounts registered before the change are not held back either.
+        return false;
     }
 
     /**
