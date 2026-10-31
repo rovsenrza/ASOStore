@@ -140,6 +140,14 @@ it('leaves unknown libraries alone when asked to, but still removes the reviewed
 
     expect($data['stage'])->toBe('PUBLISHED')
         ->and($data['result']['removed_libraries'])->toBe(['libobjcpatch.dylib']);
+
+    // The cleaner recommends the rule-less hook too; the admin's "keep unknown libraries" wins.
+    $published = AppArtifact::query()->where('public_id', $data['result']['artifact_id'])->sole();
+    $zip = new ZipArchive;
+    $zip->open(Storage::disk('artifacts')->path($published->storage_path));
+    $names = collect(range(0, $zip->numFiles - 1))->map(fn ($i) => basename((string) $zip->getNameIndex($i)));
+    $zip->close();
+    expect($names)->toContain('hook.dylib')->not->toContain('libobjcpatch.dylib');
 });
 
 it('replaces the live build of the listing that already carries the bundle ID', function () {

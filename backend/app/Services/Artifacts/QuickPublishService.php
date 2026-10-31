@@ -335,16 +335,37 @@ class QuickPublishService
             return 'Не удалось безопасно убрать: '.implode('; ', $blocked).'. Файл остаётся на проверке.';
         }
 
-        $recommended = ($analysis['recommended']['remove'] ?? []) !== [] || ($analysis['recommended']['patch'] ?? []) !== [] || ($analysis['recommended']['fix_metadata'] ?? false);
+        $recommendedRemove = $analysis['recommended']['remove'] ?? [];
+        $fixMetadata = (bool) ($analysis['recommended']['fix_metadata'] ?? false);
+        $recommended = $recommendedRemove !== [] || ($analysis['recommended']['patch'] ?? []) !== [] || $fixMetadata;
+        $selection = ['remove' => $remove, 'recommended' => $recommended];
+
+        // The cleaner also recommends unknown injected hooks (no reviewed rule, only a hook marker).
+        // "Keep unknown libraries" must win over that: then only rule-backed removals (reviewed ads,
+        // promotions, trackers) are passed explicitly instead of the blanket --recommended.
+        if (! $options['remove_unknown_libraries']) {
+            $unknown = [];
+            foreach ($analysis['modules'] ?? [] as $module) {
+                if (($module['recommended'] ?? false) && ($module['rule'] ?? null) === null) {
+                    $unknown[] = (string) $module['path'];
+                }
+            }
+            if ($unknown !== []) {
+                $recommendedRemove = array_values(array_diff($recommendedRemove, $unknown));
+                $selection = ['remove' => $recommendedRemove, 'recommended' => false, 'fix_metadata' => $fixMetadata];
+                $recommended = $recommendedRemove !== [] || $fixMetadata;
+            }
+        }
+
         if ($remove === [] && ! $recommended) {
             return null;
         }
-        $names = array_map('basename', array_merge($analysis['recommended']['remove'] ?? [], $remove));
-        if (($analysis['recommended']['fix_metadata'] ?? false) && $names === []) {
+        $names = array_map('basename', array_merge($recommendedRemove, $remove));
+        if ($fixMetadata && $names === []) {
             $names = ['исправление Info.plist'];
         }
 
-        return ['selection' => ['remove' => $remove, 'recommended' => $recommended], 'names' => array_values(array_unique($names))];
+        return ['selection' => $selection, 'names' => array_values(array_unique($names))];
     }
 
     /**
