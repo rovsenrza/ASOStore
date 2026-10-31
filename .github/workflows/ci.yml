@@ -4,7 +4,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, phase-5-artifacts]  # phase-5-artifacts is what prod deploys from
   pull_request:
   workflow_dispatch:
 
