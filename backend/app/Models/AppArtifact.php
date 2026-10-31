@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\ArtifactStatus;
 use App\Enums\SourceType;
 use App\Models\Concerns\HasPublicId;
+use App\Support\SeoCache;
 use Database\Factories\AppArtifactFactory;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -80,6 +81,18 @@ class AppArtifact extends Model
     /**
      * @return BelongsTo<CatalogApp, $this>
      */
+    protected static function booted(): void
+    {
+        // A newly published (or withdrawn) build changes the version and size on the public app page.
+        static::saved(function (AppArtifact $artifact) {
+            if ($artifact->wasChanged('status') || ($artifact->wasRecentlyCreated && $artifact->status === ArtifactStatus::Published)) {
+                if ($artifact->source_type !== SourceType::UserImport) {
+                    SeoCache::flush();
+                }
+            }
+        });
+    }
+
     public function app(): BelongsTo
     {
         return $this->belongsTo(CatalogApp::class, 'app_id');

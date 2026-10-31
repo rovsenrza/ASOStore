@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\CatalogApp;
+use App\Support\SeoCache;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 
@@ -41,7 +42,7 @@ class SeoAboutCommand extends Command
             $changed++;
             if (! $this->option('dry-run')) {
                 $app->forceFill(['seo_about' => $text])->saveQuietly();
-                Cache::forget('seo:page:apps/'.$slug);
+                Cache::forget(SeoCache::key('apps/'.$slug));
             }
         }
         $this->info(($this->option('dry-run') ? 'Would update ' : 'Updated ').$changed.' pages.');

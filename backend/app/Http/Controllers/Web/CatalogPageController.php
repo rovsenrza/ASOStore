@@ -11,6 +11,7 @@ use App\Services\Seo\PageShell;
 use App\Services\Seo\Schema;
 use App\Services\Seo\SeoPage;
 use App\Services\TelegramStore\StoreSettings;
+use App\Support\SeoCache;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\Response;
@@ -287,11 +288,11 @@ class CatalogPageController extends Controller
     /** @param  callable(): SeoPage  $page */
     private function cached(string $key, callable $page): Response
     {
-        $html = Cache::remember('seo:page:'.$key, config('seo.cache_seconds'), fn () => $this->shell->render($page()));
+        $html = Cache::remember(SeoCache::key($key), config('seo.cache_seconds'), fn () => $this->shell->render($page()));
 
         return response($html, 200, [
             'Content-Type' => 'text/html; charset=UTF-8',
-            'Cache-Control' => 'public, max-age=300',
+            'Cache-Control' => 'public, max-age=300, stale-while-revalidate=86400',
         ]);
     }
 

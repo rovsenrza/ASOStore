@@ -7,6 +7,7 @@ use App\Enums\ArtifactStatus;
 use App\Enums\SourceType;
 use App\Models\Concerns\HasPublicId;
 use App\Services\Seo\SeoSlugs;
+use App\Support\SeoCache;
 use Database\Factories\CatalogAppFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -70,6 +71,16 @@ class CatalogApp extends Model
                 $app->seo_slug = app(SeoSlugs::class)->unique($app->name, $app->id);
             }
         });
+
+        // Publishing, editing or hiding a listing changes public pages (its own, its category,
+        // related apps on others): drop the rendered SEO cache. Customers' private imports never show.
+        $flushSeo = function (CatalogApp $app) {
+            if (($app->getAttributes()['imported_by_user_id'] ?? null) === null) {
+                SeoCache::flush();
+            }
+        };
+        static::saved($flushSeo);
+        static::deleted($flushSeo);
     }
 
     /** The public, indexable page of a published listing. */

@@ -107,7 +107,7 @@ function render(order) {
           summary,
           'Откройте бот: код уже в чате и в разделе «Профиль → Мои заказы». Введите его на странице регистрации iPhone.',
         ])];
-        buttons = [order.bot_url && link('Открыть бот', order.bot_url, true), link('Ввести код', '/activate.html', !order.bot_url)].filter(Boolean);
+        buttons = [/^https:\/\//i.test(order.bot_url ?? '') && link('Открыть бот', order.bot_url, true), link('Ввести код', '/activate.html', !order.bot_url)].filter(Boolean);
       }
       break;
     case 'REVIEW':

@@ -76,7 +76,7 @@ class ImportService
         if ($resumable !== null) {
             return $resumable;
         }
-        $this->assertWithinLimits($user);
+        $this->assertWithinLimits($user, $sizeBytes);
 
         return DB::transaction(function () use ($user, $filename, $sizeBytes, $sha256, $ip) {
             $app = $this->createOwnedApp($user, $filename);
@@ -236,8 +236,10 @@ class ImportService
             ->first();
     }
 
-    private function assertWithinLimits(User $user): void
+    private function assertWithinLimits(User $user, int $newBytes = 0): void
     {
+        $this->assertWithinUnpaidLimits($user, $newBytes);
+
         // Deleted imports still count toward today, so delete-and-retry cannot get round the daily cap,
         // unless their file never reached the server: nothing was stored or signed for an abandoned
         // or failed upload, and counting it punishes a dropped connection rather than abuse.
@@ -252,6 +254,31 @@ class ImportService
         }
         if ($today >= $this->dailyLimit()) {
             throw new ApiException(ErrorCode::QuotaExhausted, "Сегодня достигнут лимит в {$this->dailyLimit()} импортов (удалённые тоже считаются). Попробуйте после 03:00 МСК.");
+        }
+    }
+
+    /**
+     * Free accounts (no active subscription) can be created without any verification, so until the
+     * customer has paid, imports are capped further: a few at a time and a modest total size.
+     */
+    private function assertWithinUnpaidLimits(User $user, int $newBytes): void
+    {
+        if ($user->activeSubscription()->exists()) {
+            return;
+        }
+        $maxCount = (int) config('storefront.imports.unpaid_max_active', 3);
+        $maxBytes = (int) config('storefront.imports.unpaid_max_bytes', 2 * 1024 ** 3);
+
+        $active = CatalogApp::query()->where('imported_by_user_id', $user->id);
+        $count = (clone $active)->count();
+        $bytes = (int) UploadSession::query()
+            ->where('uploaded_by', $user->id)
+            ->where('source_type', SourceType::UserImport->value)
+            ->whereIn('app_id', (clone $active)->select('id'))
+            ->sum('expected_size');
+
+        if ($count >= $maxCount || $bytes + $newBytes > $maxBytes) {
+            throw new ApiException(ErrorCode::QuotaExhausted, 'Без активной подписки доступно не больше '.$maxCount.' импортов общим объёмом до '.round($maxBytes / 1024 ** 3, 1).' ГБ. Удалите старый импорт или оформите подписку.');
         }
     }
 

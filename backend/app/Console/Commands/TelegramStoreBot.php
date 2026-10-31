@@ -7,8 +7,11 @@ use App\Services\TelegramStore\Bot\UpdateRouter;
 use App\Services\TelegramStore\OrderService;
 use App\Services\TelegramStore\Payments\GatewayResolver;
 use App\Services\TelegramStore\TelegramApi;
+use App\Services\TelegramStore\TelegramApiException;
 use Illuminate\Console\Command;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 class TelegramStoreBot extends Command
@@ -53,6 +56,22 @@ class TelegramStoreBot extends Command
 
             try {
                 $updates = $api->getUpdates($offset, $this->option('once') ? 0 : 25);
+            } catch (ConnectionException $exception) {
+                // An idle long poll that outlives the HTTP timeout (cURL 28) is routine, not an error.
+                Log::debug('telegram.get_updates_timeout', ['message' => $exception->getMessage()]);
+                sleep(1);
+
+                continue;
+            } catch (TelegramApiException $exception) {
+                if (in_array($exception->getCode(), [502, 504], true)) {
+                    Log::warning('telegram.get_updates_bad_gateway', ['message' => $exception->getMessage()]);
+                } else {
+                    report($exception);
+                }
+                $this->warn('Telegram polling failed; retrying shortly.');
+                sleep(3);
+
+                continue;
             } catch (Throwable $exception) {
                 report($exception);
                 $this->warn('Telegram polling failed; retrying shortly.');
