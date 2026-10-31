@@ -190,6 +190,8 @@ return [
     ],
 
     'signing' => [
+        // SHA-256 list of builds published «as is»: re-signed only (CompatShim::asIs).
+        'as_is_file' => env('STOREFRONT_SIGNING_AS_IS_FILE', storage_path('app/private/signing-as-is.txt')),
         // Re-prefix Info.plist values built from the vendor's team ID (e.g. a KeychainAccessGroup the app
         // uses as-is) with the signing team's, so they fall under its `<TEAM>.*` keychain access.
         'rewrite_team_prefix' => (bool) env('STOREFRONT_SIGNING_REWRITE_TEAM_PREFIX', true),

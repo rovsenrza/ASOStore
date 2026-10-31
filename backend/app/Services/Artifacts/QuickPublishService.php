@@ -25,6 +25,7 @@ use App\Services\Catalog\StoreMetadataLookup;
 use App\Services\Catalog\TeamEligibilityGranter;
 use App\Services\Pipeline\PipelineJobService;
 use App\Services\Pipeline\RetryLater;
+use App\Services\Signing\CompatShim;
 use App\StateMachines\StateMachine;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -56,7 +57,7 @@ class QuickPublishService
 
     public const TERMINAL = [self::STAGE_PUBLISHED, self::STAGE_HELD, self::STAGE_REJECTED, self::STAGE_DUPLICATE, self::STAGE_FAILED];
 
-    public const DEFAULT_OPTIONS = ['remove_unknown_libraries' => true, 'allow_downgrade' => false, 'allow_other_sources' => false];
+    public const DEFAULT_OPTIONS = ['remove_unknown_libraries' => true, 'allow_downgrade' => false, 'allow_other_sources' => false, 'keep_as_is' => false];
 
     private const STAGING_PREFIX = 'quick-';
 
@@ -151,6 +152,9 @@ class QuickPublishService
             throw new ApiException(ErrorCode::NotFound);
         }
         $artifact = $this->uploads->complete($upload)->refresh();
+        if (($options['keep_as_is'] ?? false) === true) {
+            CompatShim::markAsIs((string) $artifact->sha256);
+        }
 
         $job = $this->jobs->create(QuickPublishJob::TYPE, QuickPublishJob::idempotencyKey($artifact), $artifact, [
             'artifact_id' => $artifact->public_id,
@@ -304,6 +308,12 @@ class QuickPublishService
     private function cleaningPlan(AppArtifact $source, array $options): array|string|null
     {
         $analysis = $source->inspection['cleaning'] ?? null;
+        // «As is»: publish the file exactly as uploaded (only an encrypted binary still stops it).
+        if ($options['keep_as_is'] ?? false) {
+            $encrypted = $analysis['encrypted_binaries'] ?? [];
+
+            return $encrypted === [] ? null : 'В файле есть зашифрованный FairPlay код ('.implode(', ', array_map('basename', $encrypted)).'): это копия из App Store, она не запустится. Нужен расшифрованный IPA.';
+        }
         if ($analysis === null) {
             return $options['remove_unknown_libraries']
                 ? 'Инструмент очистки IPA недоступен на сервере, поэтому файл не опубликован. Отключите «Удалять сторонние библиотеки», если нужно опубликовать как есть.'

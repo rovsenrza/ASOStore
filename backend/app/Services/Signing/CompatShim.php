@@ -45,6 +45,10 @@ class CompatShim
      */
     public function dylibsFor(AppArtifact $artifact, ?string $deviceUdid = null): array
     {
+        // A build published «as is» is only re-signed: nothing of ours goes into it.
+        if ($this->asIs($artifact)) {
+            return [];
+        }
         $dylibs = [];
         if ($this->enabled() && ! $this->skipped($artifact)
             && ($this->needsShim($artifact) || $this->originalBundleFor($artifact) !== null)) {
@@ -292,7 +296,7 @@ class CompatShim
      */
     public function originalTeamFor(AppArtifact $artifact, string $signingTeam): ?string
     {
-        if (! (bool) config('storefront.signing.rewrite_team_prefix', true)) {
+        if ($this->asIs($artifact) || ! (bool) config('storefront.signing.rewrite_team_prefix', true)) {
             return null;
         }
         $applicationIdentifier = $artifact->inspection['entitlements']['application-identifier'] ?? null;
@@ -322,6 +326,35 @@ class CompatShim
         return false;
     }
 
+    /**
+     * Builds published «as is» (quick publish option keep_as_is): listed by SHA-256 in
+     * storefront.signing.as_is_file. They get no dylibs and no Info.plist rewrites, only the
+     * re-signing itself. Keyed by build, not bundle ID, so other builds of the same app keep theirs.
+     */
+    public function asIs(AppArtifact $artifact): bool
+    {
+        return in_array(strtolower((string) $artifact->sha256), self::asIsHashes(), true);
+    }
+
+    /** @return list<string> */
+    public static function asIsHashes(): array
+    {
+        $file = (string) config('storefront.signing.as_is_file');
+        if ($file === '' || ! is_file($file)) {
+            return [];
+        }
+
+        return array_values(array_filter(array_map(fn ($line) => strtolower(trim($line)), file($file) ?: []), fn ($line) => preg_match('/^[a-f0-9]{64}$/', $line) === 1));
+    }
+
+    public static function markAsIs(string $sha256): void
+    {
+        $file = (string) config('storefront.signing.as_is_file');
+        if (! in_array(strtolower($sha256), self::asIsHashes(), true)) {
+            file_put_contents($file, strtolower($sha256).PHP_EOL, FILE_APPEND | LOCK_EX);
+        }
+    }
+
     /** An app sharing through an App Group or a keychain group loses it on re-sign. */
     public function needsShim(AppArtifact $artifact): bool
     {
@@ -342,7 +375,7 @@ class CompatShim
     public function originalBundleFor(AppArtifact $artifact): ?string
     {
         $original = $artifact->bundle_identifier;
-        if (! $this->enabled() || ! is_string($original) || $original === $artifact->signingBundleIdentifier()) {
+        if (! $this->enabled() || $this->asIs($artifact) || ! is_string($original) || $original === $artifact->signingBundleIdentifier()) {
             return null;
         }
 

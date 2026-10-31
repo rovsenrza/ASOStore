@@ -9,9 +9,11 @@ use App\Models\AppCategory;
 use App\Models\AuditLog;
 use App\Models\CatalogApp;
 use App\Models\PipelineJob;
+use App\Services\Signing\CompatShim;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Process;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Tests\Support\IpaBuilder;
 
 /*
@@ -148,6 +150,26 @@ it('leaves unknown libraries alone when asked to, but still removes the reviewed
     $names = collect(range(0, $zip->numFiles - 1))->map(fn ($i) => basename((string) $zip->getNameIndex($i)));
     $zip->close();
     expect($names)->toContain('hook.dylib')->not->toContain('libobjcpatch.dylib');
+});
+
+it('publishes the file exactly as uploaded when asked to keep it as is, and signs it with nothing of ours', function () {
+    config(['storefront.signing.as_is_file' => storage_path('framework/testing/as-is-'.Str::random(8).'.txt')]);
+    $bytes = qpInjected();
+    $data = qpUpload($this, $bytes, ['keep_as_is' => true]);
+
+    expect($data['stage'])->toBe('PUBLISHED')
+        ->and($data['result']['removed_libraries'] ?? [])->toBe([]);
+
+    // The published build is the uploaded file itself, byte for byte, injected libraries included.
+    $published = AppArtifact::query()->where('public_id', $data['result']['artifact_id'])->sole();
+    expect($published->sha256)->toBe(hash('sha256', $bytes))
+        ->and(Storage::disk('artifacts')->get($published->storage_path))->toBe($bytes);
+
+    $shim = app(CompatShim::class);
+    expect($shim->asIs($published))->toBeTrue()
+        ->and($shim->dylibsFor($published))->toBe([])
+        ->and($shim->originalBundleFor($published))->toBeNull()
+        ->and($shim->originalTeamFor($published, 'ABCDE12345'))->toBeNull();
 });
 
 it('replaces the live build of the listing that already carries the bundle ID', function () {
