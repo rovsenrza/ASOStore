@@ -56,6 +56,9 @@ public enum Shell {
         for (pipe, box) in [(out, outBox), (err, errBox)] {
             let thread = Thread {
                 box.data = pipe.fileHandleForReading.readDataToEndOfFile()
+                // Close explicitly: on Linux the Thread (and the Pipe it captures) is never
+                // deallocated, so relying on close-on-dealloc leaks two descriptors per run.
+                try? pipe.fileHandleForReading.close()
                 drained.signal()
             }
             thread.stackSize = 256 * 1024

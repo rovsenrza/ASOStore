@@ -6,6 +6,18 @@ import Testing
 @testable import RunnerCore
 
 @Suite struct ShellTests {
+    // The runner calls openssl several times per heartbeat; a per-run descriptor leak
+    // exhausted the 1024-fd limit within a minute on prod.
+    @Test func doesNotLeakDescriptors() throws {
+        func openDescriptors() -> Int {
+            (try? FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count) ?? 0
+        }
+        _ = try Shell.run("true", [])
+        let before = openDescriptors()
+        for _ in 0..<300 { _ = try Shell.run("true", []) }
+        #expect(openDescriptors() - before < 20)
+    }
+
     @Test func stopsAToolThatOverrunsItsDeadline() throws {
         let started = Date()
         #expect {
