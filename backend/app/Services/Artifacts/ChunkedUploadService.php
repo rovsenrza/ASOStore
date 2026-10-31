@@ -12,8 +12,10 @@ use App\Models\AppArtifact;
 use App\Models\UploadSession;
 use App\Services\Audit\AuditService;
 use App\Services\Pipeline\PipelineJobService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 
 class ChunkedUploadService
 {
@@ -64,7 +66,10 @@ class ChunkedUploadService
             throw new ApiException(ErrorCode::Conflict, 'Эта часть уже загружена с другим содержимым.');
         }
 
-        $path = "uploads/{$upload->public_id}/chunks/{$number}.part";
+        // Each attempt writes its own object: when two requests send the same chunk at once,
+        // the one that loses the row insert can only delete its own copy, never the object
+        // the winner's row points at. Assembly reads the path stored in the row.
+        $path = "uploads/{$upload->public_id}/chunks/{$number}.".strtolower((string) Str::ulid()).'.part';
         Storage::disk('artifacts')->put($path, $contents);
 
         try {
@@ -74,6 +79,15 @@ class ChunkedUploadService
                 'sha256' => $sha256,
                 'storage_path' => $path,
             ]);
+        } catch (UniqueConstraintViolationException $exception) {
+            // A concurrent request stored this chunk first.
+            Storage::disk('artifacts')->delete($path);
+            $winner = $upload->chunks()->where('number', $number)->first();
+            if ($winner !== null && $winner->size_bytes === $size && hash_equals($winner->sha256, $sha256)) {
+                return ['number' => $number, 'size_bytes' => $size, 'sha256' => $sha256, 'already_received' => true];
+            }
+
+            throw new ApiException(ErrorCode::Conflict, 'Эта часть уже загружена с другим содержимым.');
         } catch (\Throwable $exception) {
             Storage::disk('artifacts')->delete($path);
             throw $exception;

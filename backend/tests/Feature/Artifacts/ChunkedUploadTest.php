@@ -5,8 +5,10 @@ use App\Enums\RoleSlug;
 use App\Models\AppArtifact;
 use App\Models\AuditLog;
 use App\Models\CatalogApp;
+use App\Models\UploadChunk;
 use App\Models\UploadSession;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
@@ -148,4 +150,36 @@ it('requires a provenance declaration and limits upload changes to managers', fu
     $support = userWithRoles(RoleSlug::Support);
     asStaff($support)->getJson("/api/v1/admin/uploads/{$upload['id']}")->assertOk();
     $this->postJson('/api/v1/admin/uploads', [])->assertForbidden();
+});
+
+it('keeps the stored object when a concurrent request wins the same chunk', function () {
+    $contents = "PK\x03\x04synthetic ipa";
+    $sha256 = hash('sha256', $contents);
+    $upload = startUpload($this->manager, $this->catalogApp, $contents, $sha256);
+    $session = UploadSession::where('public_id', $upload['id'])->sole();
+
+    // The other request stores the chunk between this one's existence check and its insert.
+    $winnerPath = "uploads/{$session->public_id}/chunks/0.winner.part";
+    $raced = false;
+    UploadChunk::creating(function () use (&$raced, $session, $winnerPath, $contents, $sha256) {
+        if ($raced) {
+            return;
+        }
+        $raced = true;
+        Storage::disk('artifacts')->put($winnerPath, $contents);
+        DB::table('upload_chunks')->insert([
+            'upload_session_id' => $session->id, 'number' => 0, 'size_bytes' => strlen($contents),
+            'sha256' => $sha256, 'storage_path' => $winnerPath, 'created_at' => now(), 'updated_at' => now(),
+        ]);
+    });
+
+    putChunk($upload['id'], 0, $contents, $sha256)
+        ->assertOk()
+        ->assertJsonPath('data.already_received', true);
+
+    expect(Storage::disk('artifacts')->files("uploads/{$session->public_id}/chunks"))->toBe([$winnerPath]);
+
+    $this->postJson("/api/v1/admin/uploads/{$upload['id']}/complete")
+        ->assertCreated()
+        ->assertJsonPath('data.sha256', $sha256);
 });
