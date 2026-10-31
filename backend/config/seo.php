@@ -14,6 +14,7 @@ return [
         'endpoint' => env('SEO_INDEXNOW_ENDPOINT', 'https://api.indexnow.org/indexnow'),
     ],
 
-    // Rendered pages are cached briefly; catalog changes show up within this time.
-    'cache_seconds' => (int) env('SEO_CACHE_SECONDS', 600),
+    // Rendered pages are cached for hours; publishing, editing or hiding an app flushes them
+    // (App\Support\SeoCache), so this only bounds how stale other changes (prices, copy) get.
+    'cache_seconds' => (int) env('SEO_CACHE_SECONDS', 21600),
 ];

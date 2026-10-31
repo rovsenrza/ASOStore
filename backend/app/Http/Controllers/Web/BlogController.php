@@ -9,6 +9,7 @@ use App\Services\Seo\BlogPost;
 use App\Services\Seo\PageShell;
 use App\Services\Seo\Schema;
 use App\Services\Seo\SeoPage;
+use App\Support\SeoCache;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Cache;
 
@@ -101,8 +102,8 @@ class BlogController extends Controller
     /** @param  callable(): SeoPage  $page */
     private function cached(string $key, callable $page): Response
     {
-        $html = Cache::remember('seo:page:'.$key, config('seo.cache_seconds'), fn () => $this->shell->render($page()));
+        $html = Cache::remember(SeoCache::key($key), config('seo.cache_seconds'), fn () => $this->shell->render($page()));
 
-        return response($html, 200, ['Content-Type' => 'text/html; charset=UTF-8', 'Cache-Control' => 'public, max-age=300']);
+        return response($html, 200, ['Content-Type' => 'text/html; charset=UTF-8', 'Cache-Control' => 'public, max-age=300, stale-while-revalidate=86400']);
     }
 }

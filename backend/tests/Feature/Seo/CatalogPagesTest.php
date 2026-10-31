@@ -256,3 +256,19 @@ it('shows Russian banks from «Русские приложения» first under
     $this->get('/categories/russkie-prilozheniya')->assertOk()->assertSee('Т-Банк');
     $this->get('/apps')->assertOk()->assertSeeInOrder(['Банковские', 'Т-Банк', 'СберБанк Онлайн']);
 });
+
+it('drops cached pages when a listing is edited, hidden or gets a new build', function () {
+    config(['seo.cache_seconds' => 3600]);
+
+    $this->get('/apps/sberbank-onlayn')->assertOk()
+        ->assertHeader('Cache-Control', 'max-age=300, public, stale-while-revalidate=86400');
+    $this->listing->update(['subtitle' => 'Новый подзаголовок']);
+    expect($this->get('/apps/sberbank-onlayn')->getContent())->toContain('Новый подзаголовок');
+
+    AppArtifact::factory()->for($this->listing, 'app')->create(['status' => ArtifactStatus::Published, 'version' => '15.3.0', 'min_ios_version' => '15.0', 'size_bytes' => 1048576]);
+    expect($this->get('/apps/sberbank-onlayn')->getContent())->toContain('15.3.0');
+
+    expect($this->get('/apps')->getContent())->toContain('sberbank-onlayn');
+    $this->listing->update(['visibility' => AppVisibility::Hidden]);
+    expect($this->get('/apps')->getContent())->not->toContain('sberbank-onlayn');
+});
