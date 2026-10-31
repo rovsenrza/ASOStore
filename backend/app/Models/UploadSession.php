@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\SourceType;
 use App\Models\Concerns\HasPublicId;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -34,11 +35,41 @@ class UploadSession extends Model
      * Credential for the token chunk route (PUT /import-uploads/{id}/chunks/{n}). The app hands chunks
      * to an iOS background session that keeps sending them after the app is suspended or closed, long
      * after the customer's access token has expired; this ties a request to one upload instead.
-     * Valid while the session is open (expires_at).
+     * Shaped "<expiry unix time>.<hmac>": it expires after storefront.uploads.token_ttl_minutes (never
+     * later than the session), and the owner gets a fresh one from POST /imports/{upload}/token.
      */
-    public function clientToken(): string
+    public function clientToken(CarbonInterface $expiresAt): string
     {
-        return hash_hmac('sha256', 'import-upload|'.$this->public_id, (string) config('app.key'));
+        return $expiresAt->getTimestamp().'.'.$this->clientTokenSignature('|'.$expiresAt->getTimestamp());
+    }
+
+    public function clientTokenExpiresAt(): Carbon
+    {
+        $ttl = now()->addMinutes(max(1, (int) config('storefront.uploads.token_ttl_minutes', 1440)))->startOfSecond();
+
+        return $this->expires_at->lt($ttl) ? $this->expires_at->copy()->startOfSecond() : $ttl;
+    }
+
+    /**
+     * 'valid', 'expired' (genuine but past its expiry: the app should refresh it) or 'invalid'.
+     * The bare signature issued before tokens expired stays valid while the session is open.
+     */
+    public function checkClientToken(string $token): string
+    {
+        if ($token !== '' && hash_equals($this->clientTokenSignature(''), $token)) {
+            return 'valid';
+        }
+        if (preg_match('/^(\d{1,12})\.([0-9a-f]{64})$/', $token, $match) !== 1
+            || ! hash_equals($this->clientTokenSignature('|'.$match[1]), $match[2])) {
+            return 'invalid';
+        }
+
+        return (int) $match[1] > now()->getTimestamp() ? 'valid' : 'expired';
+    }
+
+    private function clientTokenSignature(string $suffix): string
+    {
+        return hash_hmac('sha256', 'import-upload|'.$this->public_id.$suffix, (string) config('app.key'));
     }
 
     public static function chunkSize(): int

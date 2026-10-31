@@ -35,9 +35,9 @@ use App\Http\Controllers\Api\V1\Customer\StorefrontStatusController;
 use App\Http\Controllers\Api\V1\Customer\SupportController;
 use App\Http\Controllers\Api\V1\Customer\TokenController;
 use App\Http\Controllers\Api\V1\HealthController;
+use App\Http\Controllers\Api\V1\MxRelayController;
 use App\Http\Controllers\Api\V1\StoreOfferController;
 use App\Http\Controllers\Api\V1\StoreOrderController;
-use App\Http\Controllers\Api\V1\MxRelayController;
 use App\Http\Controllers\Api\V1\TelemetryController;
 use App\Http\Middleware\RejectStaleBearerToken;
 use Illuminate\Support\Facades\Route;
@@ -115,6 +115,7 @@ Route::middleware(['auth:sanctum', 'active', 'verified.web'])->group(function ()
     Route::post('/imports', [ImportController::class, 'store'])->middleware('throttle:imports')->name('api.imports.store');
     Route::post('/imports/link', [ImportController::class, 'link'])->middleware('throttle:imports')->name('api.imports.link');
     Route::put('/imports/{upload}/chunks/{number}', [ImportController::class, 'chunk'])->whereNumber('number')->name('api.imports.chunk');
+    Route::post('/imports/{upload}/token', [ImportController::class, 'token'])->middleware('throttle:60,1')->name('api.imports.token');
     Route::post('/imports/{upload}/complete', [ImportController::class, 'complete'])->middleware('throttle:imports')->name('api.imports.complete');
     Route::post('/imports/{import}/install', [ImportController::class, 'install'])->middleware(['throttle:installs', 'idempotent'])->name('api.imports.install');
     Route::delete('/imports/{import}', [ImportController::class, 'destroy'])->middleware('throttle:imports')->name('api.imports.destroy');
