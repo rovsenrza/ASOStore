@@ -102,6 +102,16 @@ return [
     'imports' => [
         'daily_limit' => (int) env('STOREFRONT_IMPORT_DAILY_LIMIT', 15),
         'total_limit' => (int) env('STOREFRONT_IMPORT_TOTAL_LIMIT', 30),
+        // Customers without an active subscription: at most this many imports at once and this
+        // many bytes in total (registration needs no verification, so free accounts are cheap).
+        'unpaid_max_active' => (int) env('STOREFRONT_IMPORT_UNPAID_MAX_ACTIVE', 3),
+        'unpaid_max_bytes' => (int) env('STOREFRONT_IMPORT_UNPAID_MAX_BYTES', 2 * 1024 ** 3),
+    ],
+
+    // Sign-up caps on top of the per-IP 10/hour (AppServiceProvider auth-register limiter).
+    'registration' => [
+        'per_subnet_hourly' => (int) env('STOREFRONT_REGISTER_PER_SUBNET_HOURLY', 30),
+        'global_hourly' => (int) env('STOREFRONT_REGISTER_GLOBAL_HOURLY', 300),
     ],
 
     'claims' => [

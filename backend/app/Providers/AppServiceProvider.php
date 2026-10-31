@@ -52,6 +52,20 @@ class AppServiceProvider extends ServiceProvider
         }
     }
 
+    /** The /24 network of an IPv4 address or the /64 of an IPv6 one, as a rate-limit key. */
+    public static function subnet(string $ip): string
+    {
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+            return implode('.', array_slice(explode('.', $ip), 0, 3)).'.0/24';
+        }
+        $packed = @inet_pton($ip);
+        if ($packed !== false && strlen($packed) === 16) {
+            return bin2hex(substr($packed, 0, 8)).'/64';
+        }
+
+        return $ip;
+    }
+
     /**
      * FULL_PLAN §13: rate limits on authentication and other abuse-prone endpoints.
      */
@@ -72,7 +86,13 @@ class AppServiceProvider extends ServiceProvider
             Limit::perMinute(5)->by('login:'.$email($request).'|'.$request->ip()),
             Limit::perMinute(30)->by('login-ip:'.$request->ip()),
         ]);
-        RateLimiter::for('auth-register', fn (Request $request) => Limit::perHour(10)->by('register:'.$request->ip()));
+        // Registration needs no email code, so besides the per-IP cap a whole /24 (IPv4) or /64
+        // (IPv6) and the site as a whole are capped too, against address-hopping sign-up bots.
+        RateLimiter::for('auth-register', fn (Request $request) => [
+            Limit::perHour(10)->by('register:'.$request->ip()),
+            Limit::perHour((int) config('storefront.registration.per_subnet_hourly', 30))->by('register-net:'.self::subnet((string) $request->ip())),
+            Limit::perHour((int) config('storefront.registration.global_hourly', 300))->by('register-all'),
+        ]);
         RateLimiter::for('email-verify', fn (Request $request) => Limit::perMinute(10)->by('email-verify:'.($request->user()->id ?? $request->ip())));
         RateLimiter::for('email-resend', fn (Request $request) => Limit::perHour(10)->by('email-resend:'.($request->user()->id ?? $request->ip())));
         RateLimiter::for('auth-refresh', fn (Request $request) => Limit::perMinute(30)->by('refresh:'.$request->ip()));
