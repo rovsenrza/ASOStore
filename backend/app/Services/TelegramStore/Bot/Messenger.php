@@ -5,6 +5,7 @@ namespace App\Services\TelegramStore\Bot;
 use App\Models\TelegramStoreCustomer;
 use App\Models\TelegramStoreOrder;
 use App\Services\TelegramStore\CompletedOrder;
+use App\Services\TelegramStore\StoreSettings;
 use App\Services\TelegramStore\TelegramApi;
 use App\Services\TelegramStore\TelegramApiException;
 use Illuminate\Support\Facades\Cache;
@@ -24,7 +25,7 @@ class Messenger
     public function __construct(
         private readonly TelegramApi $api,
         private readonly CustomerScreens $screens,
-        private readonly \App\Services\TelegramStore\StoreSettings $settings,
+        private readonly StoreSettings $settings,
     ) {}
 
     /**

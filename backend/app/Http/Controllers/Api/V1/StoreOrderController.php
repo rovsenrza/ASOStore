@@ -12,6 +12,7 @@ use App\Services\TelegramStore\OrderService;
 use App\Services\TelegramStore\Payments\PlategaClient;
 use App\Services\TelegramStore\Payments\PlategaException;
 use App\Services\TelegramStore\Payments\PlategaPayments;
+use App\Services\TelegramStore\PurchaseAnalytics;
 use App\Services\TelegramStore\StoreSettings;
 use App\Services\TelegramStore\TelegramApi;
 use Illuminate\Http\JsonResponse;
@@ -130,7 +131,7 @@ class StoreOrderController extends Controller
             'currency' => 'RUB',
             // For the Yandex.Metrika purchase goal on the success page: is this the buyer's 1st or Nth?
             'is_repeat' => $order->status === TelegramStoreOrder::PAID
-                && app(\App\Services\TelegramStore\PurchaseAnalytics::class)->isRepeatBuyer($order),
+                && app(PurchaseAnalytics::class)->isRepeatBuyer($order),
             'expires_at' => $order->expires_at->toIso8601ZuluString(),
             'paid_at' => $order->paid_at?->toIso8601ZuluString(),
             'bot_url' => $order->isWeb() ? null : $this->botUrl(),

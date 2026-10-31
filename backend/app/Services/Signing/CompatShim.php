@@ -122,7 +122,7 @@ class CompatShim
     }
 
     /** @return array{name: string, content: string}|null */
-    private function deceptiumUnmaskDylibFor(AppArtifact $artifact): array|null
+    private function deceptiumUnmaskDylibFor(AppArtifact $artifact): ?array
     {
         $original = $this->deceptiumOriginalFor($artifact);
         if ($original === null) {
@@ -153,7 +153,7 @@ class CompatShim
     }
 
     /** @return array{name: string, content: string}|null */
-    private function tgRelayDylibFor(AppArtifact $artifact): array|null
+    private function tgRelayDylibFor(AppArtifact $artifact): ?array
     {
         if (! $this->isTgRelayHook($artifact)) {
             return null;
@@ -170,7 +170,7 @@ class CompatShim
     }
 
     /** @return array{name: string, content: string}|null */
-    private function glassDylibFor(AppArtifact $artifact): array|null
+    private function glassDylibFor(AppArtifact $artifact): ?array
     {
         // MAX-only (OMUIKit tab bar); never injected into VK.
         if (! $this->isRelayHook($artifact) || $this->isVkRelayHook($artifact)) {
@@ -188,7 +188,7 @@ class CompatShim
     }
 
     /** @return array{name: string, content: string}|null */
-    private function featuresDylibFor(AppArtifact $artifact): array|null
+    private function featuresDylibFor(AppArtifact $artifact): ?array
     {
         // MAX-only (reactions / stories feature flags); never injected into VK.
         if (! $this->isRelayHook($artifact) || $this->isVkRelayHook($artifact)) {
@@ -256,7 +256,7 @@ class CompatShim
     }
 
     /** @return array{name: string, content: string}|null */
-    private function relayDylibFor(AppArtifact $artifact, ?string $deviceUdid = null): array|null
+    private function relayDylibFor(AppArtifact $artifact, ?string $deviceUdid = null): ?array
     {
         if (! $this->isRelayHook($artifact)) {
             return null;

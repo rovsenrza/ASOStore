@@ -10,6 +10,7 @@ use App\Services\Artifacts\StorageJanitor;
 use App\Services\Audit\AuditService;
 use App\Services\Operations\MetricsCollector;
 use App\Services\Privacy\AccountDataService;
+use App\Services\TelegramStore\PurchaseAnalytics;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -24,7 +25,7 @@ class OperationsController extends Controller
     }
 
     /** Repeat-purchase analytics over paid store orders (bot + website). */
-    public function purchases(Request $request, \App\Services\TelegramStore\PurchaseAnalytics $analytics): JsonResponse
+    public function purchases(Request $request, PurchaseAnalytics $analytics): JsonResponse
     {
         $data = $request->validate(['days' => ['nullable', 'integer', 'min:1', 'max:3650']]);
 

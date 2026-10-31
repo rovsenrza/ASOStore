@@ -39,11 +39,13 @@ use Aws\CommandInterface;
 use Aws\MockHandler;
 use Aws\Result;
 use GuzzleHttp\Psr7\Utils;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
+use League\Flysystem\UnableToWriteFile;
 use Tests\Support\FakeLinkFetcher;
 use Tests\Support\IpaBuilder;
 use Tests\Support\OpenApiContract;
@@ -157,7 +159,7 @@ it('retries a flaky object-storage write of the signed build', function () {
 
     // The next write of the signed build to object storage fails once, as a broken multipart upload would.
     $real = Storage::disk('signed');
-    $flaky = new class($real->getDriver(), $real->getAdapter(), $real->getConfig()) extends Illuminate\Filesystem\FilesystemAdapter
+    $flaky = new class($real->getDriver(), $real->getAdapter(), $real->getConfig()) extends FilesystemAdapter
     {
         public int $failures = 1;
 
@@ -165,7 +167,7 @@ it('retries a flaky object-storage write of the signed build', function () {
         {
             if (str_starts_with($path, 'signed/') && $this->failures > 0) {
                 $this->failures--;
-                throw League\Flysystem\UnableToWriteFile::atLocation($path, 'An exception occurred while uploading parts to a multipart upload.');
+                throw UnableToWriteFile::atLocation($path, 'An exception occurred while uploading parts to a multipart upload.');
             }
 
             return parent::put($path, $contents, $options);

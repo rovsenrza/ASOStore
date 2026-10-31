@@ -8,6 +8,7 @@ use App\Models\Device;
 use App\Models\DeviceRegistration;
 use App\Models\Subscription;
 use App\Services\Subscriptions\DelayCompensation;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Carbon;
 
 // A customer whose device registration took more than 30 minutes gets the wait and a week added.
@@ -133,7 +134,7 @@ it('runs from the command and is scheduled every five minutes', function () {
 
     $this->artisan('subscriptions:compensate-delays', ['--dry-run' => true])->assertSuccessful();
 
-    $scheduled = collect(app(Illuminate\Console\Scheduling\Schedule::class)->events())
+    $scheduled = collect(app(Schedule::class)->events())
         ->first(fn ($event) => str_contains((string) $event->command, 'subscriptions:compensate-delays'));
     expect($scheduled)->not->toBeNull()->and($scheduled->expression)->toBe('*/5 * * * *');
 });

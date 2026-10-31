@@ -8,6 +8,7 @@ use App\Services\Apple\DisabledAppleIntegration;
 use App\Services\Apple\FakeAppleIntegration;
 use App\Services\Apple\SecretStore;
 use App\Services\Devices\UdidHasher;
+use App\Services\TelegramStore\StoreSettings;
 use App\Support\Abilities;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
@@ -25,7 +26,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(UdidHasher::class, fn () => new UdidHasher(config('storefront.udid_hmac_key')));
         // One settings instance per request, so a write (which flushes its cache) is seen by every
         // reader in the same request (e.g. admin edit vs. the bot screens reading it back).
-        $this->app->singleton(\App\Services\TelegramStore\StoreSettings::class);
+        $this->app->singleton(StoreSettings::class);
 
         $this->app->singleton(AppleIntegration::class, fn ($app) => match (config('storefront.apple.driver')) {
             'fake' => new FakeAppleIntegration($app['cache']->store(), (int) config('storefront.apple.fake_processing_seconds'), $app->isProduction()),

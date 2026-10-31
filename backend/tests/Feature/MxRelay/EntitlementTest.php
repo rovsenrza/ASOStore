@@ -3,7 +3,6 @@
 use App\Models\Device;
 use App\Models\Subscription;
 use App\Models\User;
-use App\Services\Devices\UdidHasher;
 
 beforeEach(function () {
     config(['storefront.mx_relay.secret' => 'topsecret']);
