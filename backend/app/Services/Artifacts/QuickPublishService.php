@@ -57,7 +57,7 @@ class QuickPublishService
 
     public const TERMINAL = [self::STAGE_PUBLISHED, self::STAGE_HELD, self::STAGE_REJECTED, self::STAGE_DUPLICATE, self::STAGE_FAILED];
 
-    public const DEFAULT_OPTIONS = ['remove_unknown_libraries' => true, 'allow_downgrade' => false, 'allow_other_sources' => false, 'keep_as_is' => false];
+    public const DEFAULT_OPTIONS = ['remove_unknown_libraries' => true, 'allow_downgrade' => false, 'allow_other_sources' => false, 'keep_as_is' => false, 'new_listing' => false];
 
     private const STAGING_PREFIX = 'quick-';
 
@@ -397,7 +397,7 @@ class QuickPublishService
             $this->note($job, 'PUBLISHING', 'Ищу приложение в каталоге по Bundle ID.');
             if (! str_starts_with($home->slug, self::STAGING_PREFIX)) {
                 $target = $home; // The staging listing became the real one on an earlier run.
-            } elseif (($target = $this->matchListing($bundle, $home)) !== null) {
+            } elseif (! $options['new_listing'] && ($target = $this->matchListing($bundle, $home)) !== null) {
                 if ($target->source_type !== SourceType::CustomerProvided && ! $options['allow_other_sources']) {
                     return $this->finish($job, self::STAGE_HELD, "Листинг «{$target->name}» создан из другого источника ({$target->source_type->value}). Обновить его автоматически можно только с разрешением.", ['hold_code' => 'OTHER_SOURCE']);
                 }
@@ -407,7 +407,7 @@ class QuickPublishService
                 $work = $this->adopt($target, $home, $work, $user);
                 $this->note($job, 'PUBLISHING', "Нашёл приложение в каталоге: «{$target->name}».", ['adopted' => $work->public_id]);
             } else {
-                $target = $this->promote($home, $work);
+                $target = $this->promote($home, $work, $options['new_listing']);
                 if (is_string($target)) {
                     return $this->finish($job, self::STAGE_HELD, $target, ['hold_code' => 'LISTING_EXISTS']);
                 }
@@ -547,10 +547,12 @@ class QuickPublishService
     /**
      * Turns the staging listing into the real one. Returns a reason when it cannot.
      */
-    private function promote(CatalogApp $staging, AppArtifact $work): CatalogApp|string
+    private function promote(CatalogApp $staging, AppArtifact $work, bool $separate = false): CatalogApp|string
     {
         $bundle = (string) $work->bundle_identifier;
-        $key = substr(hash('sha256', $bundle), 0, 20);
+        // A separate listing for a bundle ID the catalog already has (option new_listing): keyed by
+        // the file too, so its slug and signing bundle ID never collide with the existing listing's.
+        $key = substr(hash('sha256', $separate ? $bundle.'|'.$work->sha256 : $bundle), 0, 20);
         if (CatalogApp::withTrashed()->where('slug', 'tg-'.$key)->exists()) {
             return "Листинг для Bundle ID {$bundle} уже существует, но удалён или скрыт. Восстановите его в разделе «Приложения» и загрузите файл снова.";
         }

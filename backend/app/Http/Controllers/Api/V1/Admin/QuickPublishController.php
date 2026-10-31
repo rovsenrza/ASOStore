@@ -65,6 +65,7 @@ class QuickPublishController extends Controller
             'options.allow_downgrade' => ['boolean'],
             'options.allow_other_sources' => ['boolean'],
             'options.keep_as_is' => ['boolean'],
+            'options.new_listing' => ['boolean'],
         ]);
 
         $job = $this->quick->complete($upload, $request->user(), $data['options'] ?? [], $request->ip());
@@ -82,6 +83,7 @@ class QuickPublishController extends Controller
             'options.allow_downgrade' => ['boolean'],
             'options.allow_other_sources' => ['boolean'],
             'options.keep_as_is' => ['boolean'],
+            'options.new_listing' => ['boolean'],
         ]);
 
         return ApiResponse::ok($this->present($this->quick->resume($job, $request->user(), $data['options'])->refresh()), 202);

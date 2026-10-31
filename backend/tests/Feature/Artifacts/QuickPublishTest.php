@@ -172,6 +172,20 @@ it('publishes the file exactly as uploaded when asked to keep it as is, and sign
         ->and($shim->originalTeamFor($published, 'ABCDE12345'))->toBeNull();
 });
 
+it('puts the file into a separate new listing when asked, leaving the listing with the same bundle ID alone', function () {
+    [$existing, $live] = qpExistingListing($this, 'com.example.fresh', '1.0');
+
+    $data = qpUpload($this, qpIpa('com.example.fresh', '2.0', '20')->build(), ['new_listing' => true, 'keep_as_is' => true]);
+
+    expect($data['stage'])->toBe('PUBLISHED');
+    $published = AppArtifact::query()->where('public_id', $data['result']['artifact_id'])->sole();
+    $listing = CatalogApp::query()->findOrFail($published->app_id);
+    expect($listing->id)->not->toBe($existing->id)
+        ->and($listing->bundle_identifier)->not->toBe($existing->bundle_identifier)
+        ->and($live->refresh()->status)->toBe(ArtifactStatus::Published)
+        ->and($existing->refresh()->publishedArtifact?->id)->toBe($live->id);
+});
+
 it('replaces the live build of the listing that already carries the bundle ID', function () {
     [$app, $old] = qpExistingListing($this);
 
