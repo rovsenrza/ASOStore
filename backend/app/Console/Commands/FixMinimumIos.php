@@ -25,13 +25,14 @@ class FixMinimumIos extends Command
     {
         $rows = [];
         foreach (AppArtifact::query()->whereNull('purged_at')->whereNotNull('inspection')->with('app')->orderBy('id')->lazy() as $artifact) {
-            $binary = collect($artifact->inspection['binaries'] ?? [])->firstWhere('role', 'main');
+            $binaries = $artifact->inspection['binaries'] ?? [];
+            $binary = is_array($binaries) ? collect($binaries)->firstWhere('role', 'main') : null;
             $needed = is_array($binary) && is_string($binary['min_os'] ?? null) && ($binary['platform'] ?? null) === 'ios' ? $binary['min_os'] : null;
             $declared = $artifact->min_ios_version;
             if ($needed === null || ! IpaInspector::newerVersion($needed, $declared)) {
                 continue;
             }
-            $rows[] = [$artifact->id, $artifact->app?->name ?? '-', $artifact->status->value, $declared ?? '-', $needed];
+            $rows[] = [$artifact->id, $artifact->app->name ?? '-', $artifact->status->value, $declared ?? '-', $needed];
             if (! $this->option('apply')) {
                 continue;
             }

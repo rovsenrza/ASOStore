@@ -103,11 +103,11 @@ class TelemetryController extends Controller
         try {
             app(Messenger::class)->notifyAdmins(new Screen(sprintf(
                 "⚠️ <b>%s</b> %s\n%s · iOS %s · команда %s\n<code>%s</code>\nПодробно: <code>php artisan apps:launch-reports %d</code>",
-                e($report->app?->name ?? $report->bundle_identifier),
+                e($report->app->name ?? $report->bundle_identifier),
                 $what,
                 e($report->device_model ?? '?'),
                 e($report->os_version ?? '?'),
-                e($report->team?->apple_team_id ?? '?'),
+                e($report->team->apple_team_id ?? '?'),
                 e(Str::limit((string) $report->detail, 300)),
                 $report->id,
             )));

@@ -241,7 +241,7 @@ class AppleTeamController extends Controller
             ->selectRaw('status, count(*) as total, min(registered_at) as oldest')
             ->groupBy('status')
             ->get()
-            ->keyBy(fn ($row) => $row->getRawOriginal('status'));
+            ->keyBy(fn (DeviceRegistration $row): string => (string) $row->getRawOriginal('status'));
         $count = fn (string $status) => (int) ($rows[$status]->total ?? 0);
         $oldest = $rows['APPLE_PENDING']->oldest ?? null;
 

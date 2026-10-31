@@ -48,7 +48,7 @@ class LaunchReports extends Command
             ->latest('id')->limit(200)->get();
 
         $this->table(['id', 'when', 'kind', 'app', 'team', 'device', 'iOS', 'detail'], $reports->map(fn (AppLaunchReport $r) => [
-            $r->id, $r->created_at?->format('m-d H:i'), $r->kind, mb_substr($r->app?->name ?? $r->bundle_identifier, 0, 24),
+            $r->id, $r->created_at?->format('m-d H:i'), $r->kind, mb_substr($r->app->name ?? $r->bundle_identifier, 0, 24),
             $r->team?->apple_team_id, $r->device_model, $r->os_version, mb_substr((string) $r->detail, 0, 60),
         ]));
 
