@@ -54,6 +54,10 @@ class InstallationService
         $artifact = $this->eligibleArtifact($device, $app);
 
         return DB::transaction(function () use ($user, $device, $app, $artifact) {
+            // The device row first, as SigningService::requestBuild locks it: a second prepare for
+            // the same device waits here and then reuses this one's installation, instead of both
+            // creating one or deadlocking on installation and device locks taken in opposite orders.
+            Device::query()->whereKey($device->id)->lockForUpdate()->firstOrFail();
             $active = Installation::query()
                 ->where(['device_id' => $device->id, 'app_id' => $app->id])
                 ->whereIn('status', array_map(fn (InstallationStatus $status) => $status->value, Installation::ACTIVE))
@@ -113,7 +117,7 @@ class InstallationService
             }
 
             return $installation;
-        });
+        }, 3); // A deadlock that still happens (e.g. with another device on the same team) is retried.
     }
 
     /** Prepare a reusable build without an installation, authorization or download event. */

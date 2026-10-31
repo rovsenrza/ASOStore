@@ -39,11 +39,16 @@ use Aws\CommandInterface;
 use Aws\MockHandler;
 use Aws\Result;
 use GuzzleHttp\Psr7\Utils;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
 use Illuminate\Testing\TestResponse;
 use Laravel\Sanctum\Sanctum;
+use League\Flysystem\UnableToWriteFile;
 use Tests\Support\FakeLinkFetcher;
 use Tests\Support\IpaBuilder;
 use Tests\Support\OpenApiContract;
@@ -157,7 +162,7 @@ it('retries a flaky object-storage write of the signed build', function () {
 
     // The next write of the signed build to object storage fails once, as a broken multipart upload would.
     $real = Storage::disk('artifacts');
-    $flaky = new class($real->getDriver(), $real->getAdapter(), $real->getConfig()) extends Illuminate\Filesystem\FilesystemAdapter
+    $flaky = new class($real->getDriver(), $real->getAdapter(), $real->getConfig()) extends FilesystemAdapter
     {
         public int $failures = 1;
 
@@ -165,7 +170,7 @@ it('retries a flaky object-storage write of the signed build', function () {
         {
             if (str_starts_with($path, 'signed/') && $this->failures > 0) {
                 $this->failures--;
-                throw League\Flysystem\UnableToWriteFile::atLocation($path, 'An exception occurred while uploading parts to a multipart upload.');
+                throw UnableToWriteFile::atLocation($path, 'An exception occurred while uploading parts to a multipart upload.');
             }
 
             return parent::put($path, $contents, $options);
@@ -1341,4 +1346,32 @@ describe('builds shared by the Apple team', function () {
         expect($installation->signedBuild->device_id)->toBe($this->device->id)
             ->and(SigningProfile::sole()->device_id)->toBe($this->device->id);
     });
+});
+
+it('locks the device before the installations on prepare and reuses the active one', function () {
+    runnerHeartbeat()->assertOk();
+    $queries = [];
+    DB::listen(function (QueryExecuted $query) use (&$queries) {
+        $queries[] = $query->sql;
+    });
+
+    $first = app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+    $second = app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+
+    $deviceLock = collect($queries)->search(fn (string $sql) => str_contains($sql, 'from `devices`') && str_contains($sql, 'for update'));
+    $installations = collect($queries)->search(fn (string $sql) => str_contains($sql, 'from `installations`') && str_contains($sql, 'for update'));
+    expect($deviceLock)->not->toBeFalse()
+        ->and($deviceLock)->toBeLessThan($installations)
+        ->and($second->id)->toBe($first->id)
+        ->and(Installation::count())->toBe(1);
+});
+
+it('answers 503 with Retry-After when object storage cannot report the IPA size', function () {
+    runnerHeartbeat()->assertOk();
+    $installation = app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+    Storage::fake('signed');
+    $this->mock(InstallationService::class)->shouldReceive('downloadPath')->andReturn('builds/missing.ipa');
+
+    $url = URL::temporarySignedRoute('api.downloads.installation', now()->addMinutes(5), ['installation' => $installation->public_id]);
+    $this->get($url)->assertStatus(503)->assertHeader('Retry-After', '30');
 });
