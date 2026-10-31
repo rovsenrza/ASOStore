@@ -29,8 +29,14 @@ nonisolated struct ImportRepository: Sendable {
     }
 
     /// A chunk request for the background session (body from a file, upload token as credential).
-    func backgroundChunkRequest(uploadID: String, number: Int, token: String, sha256: String) async -> URLRequest {
-        await api.backgroundUploadRequest("/import-uploads/\(uploadID)/chunks/\(number)", headers: ["X-Upload-Token": token, "X-Chunk-SHA256": sha256])
+    func backgroundChunkRequest(uploadID: String, number: Int, token: String, sha256: String) async throws -> URLRequest {
+        try await api.backgroundUploadRequest("/import-uploads/\(uploadID)/chunks/\(number)", headers: ["X-Upload-Token": token, "X-Chunk-SHA256": sha256])
+    }
+
+    /// A new upload token (the old one expired or was refused). Throws `notFound` on servers
+    /// without the endpoint; callers then fall back to sending chunks with the access token.
+    func refreshUploadToken(uploadID: String) async throws -> ImportUploadTokenDTO {
+        try await api.post("/imports/\(uploadID)/token", as: ImportUploadTokenDTO.self).data
     }
 
     func complete(uploadID: String) async throws -> ImportCompleteDTO {
