@@ -5,6 +5,7 @@ namespace App\Services\Subscriptions;
 use App\Enums\SubscriptionStatus;
 use App\Models\DeviceRegistration;
 use App\Models\Subscription;
+use App\Models\User;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use Illuminate\Support\Carbon;
@@ -99,8 +100,14 @@ class DelayCompensation
             return;
         }
 
+        // Same lock as ActivationCodeService::redeem, so a code redeemed meanwhile extends the
+        // ends_at this run writes (and the other way round) instead of overwriting it.
+        $userId = $registration->device?->user_id;
+        if ($userId !== null) {
+            User::query()->whereKey($userId)->lockForUpdate()->first();
+        }
         $subscription = Subscription::query()
-            ->where('user_id', $registration->device?->user_id)
+            ->where('user_id', $userId)
             ->where('status', SubscriptionStatus::Active->value)->whereNotNull('ends_at')
             ->orderByDesc('ends_at')->lockForUpdate()->first();
         if ($subscription === null) {

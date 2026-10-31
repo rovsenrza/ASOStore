@@ -4,6 +4,8 @@ use App\Enums\RoleSlug;
 use App\Models\ActivationCode;
 use App\Models\AuditLog;
 use App\Models\Subscription;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 
 beforeEach(function () {
@@ -145,4 +147,18 @@ it('rate-limits redemption attempts', function () {
     }
 
     ($this->redeem)('AAAA-BBBB-CCCC-DDDD')->assertStatus(429);
+});
+
+it('locks the customer row before reading the subscription a code extends', function () {
+    [$code] = ($this->generate)();
+    $queries = [];
+    DB::listen(function (QueryExecuted $query) use (&$queries) {
+        $queries[] = $query->sql;
+    });
+
+    ($this->redeem)($code)->assertCreated();
+
+    $lock = collect($queries)->search(fn (string $sql) => str_contains($sql, 'from `users`') && str_contains($sql, 'for update'));
+    $read = collect($queries)->search(fn (string $sql) => str_contains($sql, 'from `subscriptions`'));
+    expect($lock)->not->toBeFalse()->and($lock)->toBeLessThan($read);
 });
