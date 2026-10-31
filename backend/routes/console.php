@@ -80,7 +80,9 @@ if (config('storefront.build_storage.janitor_enabled')) {
 
 // Shared-hosting queue mode (IMPLEMENTATION_PLAN D6): cron runs a short-lived worker every
 // minute. Set STOREFRONT_SCHEDULED_QUEUE_WORKER=false when a supervised worker runs instead.
+// Not the `files` queue: its jobs run for many minutes on the systemd workers (database_files),
+// and this connection's 360 s retry_after would hand a running one out a second time.
 if (config('storefront.scheduled_queue_worker')) {
-    Schedule::command('queue:work --queue=apple,default,files,background --stop-when-empty --max-time=50')
+    Schedule::command('queue:work --queue=apple,default,background --stop-when-empty --max-time=50')
         ->name('queue:work-scheduled')->everyMinute()->withoutOverlapping()->runInBackground();
 }

@@ -4,6 +4,16 @@ use App\Enums\RoleSlug;
 use App\Models\ActivationCode;
 use App\Models\AppleTeam;
 use App\Models\AuditLog;
+use Illuminate\Console\Scheduling\Schedule;
+
+it('leaves the files queue to its own workers in the scheduled queue worker', function () {
+    $worker = collect(app(Schedule::class)->events())
+        ->first(fn ($event) => str_contains((string) $event->command, 'queue:work'));
+
+    expect($worker)->not->toBeNull()
+        ->and((string) $worker->command)->toContain('--queue=apple,default,background ')
+        ->not->toMatch('/--queue=\S*files/');
+});
 
 it('issues activation codes as an admin and prints them once', function () {
     userWithRoles(RoleSlug::Admin);
