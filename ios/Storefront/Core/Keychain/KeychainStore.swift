@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import Security
 
 /// Minimal generic-password Keychain wrapper. Items are readable after the
@@ -22,12 +23,19 @@ nonisolated struct KeychainStore: Sendable {
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
-        let status = SecItemUpdate(baseQuery(account) as CFDictionary, attributes as CFDictionary)
+        var status = SecItemUpdate(baseQuery(account) as CFDictionary, attributes as CFDictionary)
+        var operation = "update"
         if status == errSecItemNotFound {
-            return SecItemAdd(baseQuery(account).merging(attributes) { $1 } as CFDictionary, nil) == errSecSuccess
+            status = SecItemAdd(baseQuery(account).merging(attributes) { $1 } as CFDictionary, nil)
+            operation = "add"
+        }
+        if status != errSecSuccess {
+            Self.log.error("keychain \(operation, privacy: .public) failed for \(service, privacy: .public)/\(account, privacy: .private): OSStatus \(status, privacy: .public)")
         }
         return status == errSecSuccess
     }
+
+    private static let log = Logger(subsystem: "storefront", category: "keychain")
 
     func remove(_ account: String) {
         SecItemDelete(baseQuery(account) as CFDictionary)

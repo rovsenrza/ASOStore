@@ -62,7 +62,7 @@ struct SignInSection: View {
             }
         }
         .task {
-            portalURL = await apiClient.environment.portalURL
+            portalURL = try? apiClient.environment.portalURL
         }
     }
 

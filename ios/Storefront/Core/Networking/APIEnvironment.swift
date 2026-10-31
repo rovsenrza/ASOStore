@@ -15,9 +15,22 @@ nonisolated struct APIEnvironment: Equatable, Sendable {
     /// The web portal on the same origin (IMPLEMENTATION_PLAN D1): registration,
     /// password reset and recovery happen there.
     var portalURL: URL {
-        var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)!
-        components.path = "/"
-        return components.url!
+        get throws {
+            guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
+                throw URLError(.badURL)
+            }
+            components.path = "/"
+            guard let url = components.url else { throw URLError(.badURL) }
+            return url
+        }
+    }
+
+    /// Used when Info.plist has no usable StorefrontAPIBaseURL (a local backend in development).
+    static let fallbackBaseURL = "http://127.0.0.1:8000/api/v1"
+
+    static func baseURL(from raw: String?) throws -> URL {
+        guard let raw, let url = URL(string: raw), url.scheme != nil else { throw URLError(.badURL) }
+        return url
     }
 
     static func current(
@@ -25,7 +38,9 @@ nonisolated struct APIEnvironment: Equatable, Sendable {
         arguments: [String] = ProcessInfo.processInfo.arguments
     ) -> APIEnvironment {
         let rawURL = bundle.object(forInfoDictionaryKey: "StorefrontAPIBaseURL") as? String
-        let baseURL = rawURL.flatMap(URL.init(string:)) ?? URL(string: "http://127.0.0.1:8000/api/v1")!
+        let baseURL = (try? baseURL(from: rawURL))
+            ?? (try? baseURL(from: fallbackBaseURL))
+            ?? URL(fileURLWithPath: "/")
 
         #if DEBUG
         var mode = (bundle.object(forInfoDictionaryKey: "StorefrontAPIMode") as? String).flatMap(Mode.init(rawValue:)) ?? .live

@@ -30,7 +30,7 @@ struct DiagnosticsSection: View {
     }
 
     private func load() async {
-        environment = await apiClient.environment
+        environment = apiClient.environment
         health = .loading
         do {
             health = .loaded(try await apiClient.get("/health", as: HealthDTO.self).data)

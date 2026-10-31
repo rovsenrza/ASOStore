@@ -52,7 +52,7 @@ struct UpdateAvailableSheet: View {
         .padding(.horizontal, 24)
         .padding(.bottom, 12)
         .presentationDetents([.medium])
-        .task { portalURL = await apiClient.environment.portalURL }
+        .task { portalURL = try? apiClient.environment.portalURL }
     }
 }
 
