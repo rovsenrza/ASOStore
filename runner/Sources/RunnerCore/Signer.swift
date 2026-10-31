@@ -28,6 +28,18 @@ public struct Signer: Sendable {
         public var report: [String: String]
     }
 
+    /// `sign` on a dedicated thread, for async callers: zsign, unzip and openssl block their
+    /// thread for minutes. Setting `cancellation` stops the running tool and fails the sign.
+    public func signDetached(job: SigningJob, identity: IdentityFiles, source: URL, workDirectory: URL, cancellation: Cancellation? = nil) async throws -> Output {
+        try await Blocking.run(cancellation: cancellation) { [self] in
+            try sign(job: job, identity: identity, source: source, workDirectory: workDirectory)
+        }
+    }
+
+    static func size(of file: URL) -> Int64 {
+        (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.int64Value ?? 0
+    }
+
     public func sign(job: SigningJob, identity: IdentityFiles, source: URL, workDirectory: URL) throws -> Output {
         guard (0...9).contains(zipLevel) else { throw RunnerError.configuration("ZIP level must be between 0 and 9") }
         let started = Date()
@@ -45,9 +57,10 @@ public struct Signer: Sendable {
         // keeps an injected signing tree separate from a plain one and versions the shim.
         let injected = try Self.prepareInjected(job.injectDylibs, workDirectory: workDirectory)
 
-        // The one-time bootstrap claim is part of the tree's identity, so a build for one customer
-        // is never reused for another (each has a different claim; most storefront signs are fresh).
-        let cacheKey = injected.map(\.key) + (job.bootstrapClaim.map { ["bootstrap:" + RequestSigner.sha256(Data($0.utf8))] } ?? [])
+        // The one-time bootstrap claim is not part of the key: it is written into Info.plist
+        // below on every run, cold or warm, before zsign signs (and seals Info.plist), and
+        // removed when the job has none, so a claim never outlives the build it was made for.
+        let cacheKey = injected.map(\.key)
             + (job.originalBundleIdentifier.map { ["original:" + $0] } ?? [])
             + (job.originalTeamIdentifier.map { ["team:" + $0] } ?? [])
 
@@ -98,6 +111,8 @@ public struct Signer: Sendable {
         // Embed the one-time login code (storefront app only) so first launch signs the customer in.
         if let claim = job.bootstrapClaim {
             try Self.setInfoValue(claim, forKey: "StorefrontBootstrapClaim", bundle: app)
+        } else {
+            try Self.removeInfoValue(forKey: "StorefrontBootstrapClaim", bundle: app)
         }
 
         let profileData = try Self.decodeProfile(job.profile)
@@ -137,10 +152,12 @@ public struct Signer: Sendable {
 
         let output = workDirectory.appendingPathComponent("signed.ipa")
         let signingStarted = Date()
-        let zsigned = try Shell.run(zsign, arguments + ["-o", output.path, app.path], in: workspace?.directory ?? workDirectory)
+        let zsigned = try Shell.run(zsign, arguments + ["-o", output.path, app.path], in: workspace?.directory ?? workDirectory,
+                                    timeout: Shell.timeout(forBytes: max(Int64(job.source.sizeBytes), Self.size(of: source))))
         let signingSeconds = Date().timeIntervalSince(signingStarted)
         guard zsigned.status == 0, FileManager.default.fileExists(atPath: output.path) else {
-            throw RunnerError.job(code: "CODESIGN_FAILED", message: Self.zsignError(zsigned.output + zsigned.error), retryable: false)
+            // Killed by a signal (OOM killer, container stop) is worth another try; a zsign error is not.
+            throw RunnerError.job(code: "CODESIGN_FAILED", message: Shell.truncated(Self.zsignError(zsigned.output + zsigned.error)), retryable: zsigned.killedBySignal)
         }
 
         // Non-ASCII names (Payload/Кинодом.app) must read as UTF-8 here and on the device.
@@ -351,6 +368,17 @@ public struct Signer: Sendable {
         try PropertyListSerialization.data(fromPropertyList: info, format: format, options: 0).write(to: file)
     }
 
+    /// Removes an Info.plist key (a warm signing tree may still carry the previous job's claim).
+    static func removeInfoValue(forKey key: String, bundle: URL) throws {
+        let file = bundle.appendingPathComponent("Info.plist")
+        var format = PropertyListSerialization.PropertyListFormat.xml
+        guard var info = try PropertyListSerialization.propertyList(from: Data(contentsOf: file), options: [], format: &format) as? [String: Any] else {
+            throw RunnerError.job(code: "INFO_PLIST_INVALID", message: "\(bundle.lastPathComponent)/Info.plist is not a dictionary", retryable: false)
+        }
+        guard info.removeValue(forKey: key) != nil else { return }
+        try PropertyListSerialization.data(fromPropertyList: info, format: format, options: 0).write(to: file)
+    }
+
     static let faceIDUsageDescription = "Face ID используется для быстрого и безопасного входа."
 
     /// Adds NSFaceIDUsageDescription when the bundle has none. Our profile's `<TEAM>.*` keychain
@@ -431,13 +459,61 @@ public struct Signer: Sendable {
 
     /// Unzips an IPA and returns its only Payload/*.app.
     static func unpack(_ ipa: URL, into folder: URL, code: String) throws -> URL {
-        try Shell.require(code, "unzip", ["-qq", ipa.path, "-d", folder.path])
+        try Shell.require(code, "unzip", ["-qq", ipa.path, "-d", folder.path], timeout: Shell.timeout(forFile: ipa))
         let payload = folder.appendingPathComponent("Payload", isDirectory: true)
         let apps = (try? FileManager.default.contentsOfDirectory(at: payload, includingPropertiesForKeys: nil).filter { $0.pathExtension == "app" }) ?? []
         guard apps.count == 1, let app = apps.first else {
             throw RunnerError.job(code: "NO_APP_BUNDLE", message: "Expected exactly one Payload/*.app", retryable: false)
         }
+        try checkSymlinks(in: folder, app: app)
         return app
+    }
+
+    /// Refuses an archive with a symbolic link that leads out of its app (e.g. to /etc or to
+    /// the runner's keys): zsign and the verification would follow it. Links inside the app
+    /// (framework Versions/Current) are fine. No link is ever followed here.
+    static func checkSymlinks(in folder: URL, app: URL) throws {
+        let root = app.standardizedFileURL.path
+        let base = folder.standardizedFileURL.path
+        func inside(_ path: String) -> Bool { path == root || path.hasPrefix(root + "/") }
+
+        var pending = [base]
+        while let directory = pending.popLast() {
+            guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory) else { continue }
+            for name in names {
+                let path = directory + "/" + name
+                switch Self.fileType(path) {
+                case .typeDirectory:
+                    pending.append(path)
+                case .typeSymbolicLink:
+                    let relative = String(path.dropFirst(base.count + 1))
+                    guard inside(path), let target = Self.resolveLink(path, root: root), inside(target) else {
+                        throw RunnerError.job(code: "UNSAFE_SYMLINK", message: "\(relative) links outside the app", retryable: false)
+                    }
+                default:
+                    continue
+                }
+            }
+        }
+    }
+
+    /// The type of the item itself (attributesOfItem uses lstat: links are not followed).
+    private static func fileType(_ path: String) -> FileAttributeType? {
+        (try? FileManager.default.attributesOfItem(atPath: path))?[.type] as? FileAttributeType
+    }
+
+    /// The lexical target of a link, following further links inside the app (at most 32 hops).
+    /// Nil for an absolute target or a chain that does not end.
+    private static func resolveLink(_ path: String, root: String) -> String? {
+        var current = path
+        for _ in 0..<32 {
+            guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: current), !destination.hasPrefix("/") else { return nil }
+            let parent = (current as NSString).deletingLastPathComponent
+            current = URL(fileURLWithPath: parent + "/" + destination).standardizedFileURL.path
+            guard current == root || current.hasPrefix(root + "/") else { return current }
+            guard fileType(current) == .typeSymbolicLink else { return current }
+        }
+        return nil
     }
 
     /// The profile's entitlements, narrowed to this app: application-identifier

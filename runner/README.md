@@ -88,8 +88,11 @@ certificate means every installed app must be reinstalled.
      -v /etc/storefront/signing:/run/secrets/signing:ro \
      -v storefront-runner-work:/var/lib/storefront-runner/work \
      --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges \
+     --cpus 6 --memory 10g --memory-swap 10g --pids-limit 512 \
+     --log-opt max-size=50m --log-opt max-file=5 \
      storefront-runner
    ```
+   The limits keep two cores and the rest of the memory for MySQL, PHP and the relays on a shared box.
    Logs: `docker logs -f storefront-runner`. The container runs as uid 10001 and needs no inbound port.
 
 | Variable | Meaning |
@@ -100,7 +103,7 @@ certificate means every installed app must be reinstalled.
 | `STOREFRONT_RUNNER_WORK_DIR` | Private scratch folder (image default `/var/lib/storefront-runner/work`) |
 | `STOREFRONT_RUNNER_ZSIGN` | zsign executable (default `zsign` from PATH) |
 | `STOREFRONT_RUNNER_ZIP_LEVEL` | ZIP compression 0–9, default 1 |
-| `STOREFRONT_RUNNER_CONCURRENCY` | Concurrent jobs 1–4, default 2 |
+| `STOREFRONT_RUNNER_CONCURRENCY` | Concurrent jobs 1–8, default 2 (6 on the shared 8-core prod box) |
 | `STOREFRONT_RUNNER_POLL_SECONDS` | Lease polling interval, default 10 |
 | `STOREFRONT_RUNNER_CACHE_ENABLED` | Set to `0` to disable source and signing caches; enabled by default |
 | `STOREFRONT_RUNNER_CACHE_DIR` | Persistent private cache, default `$STOREFRONT_RUNNER_WORK_DIR/.cache` |
@@ -142,6 +145,26 @@ Set `STOREFRONT_SIGNING_WARMUP_ENABLED=false` to disable, or
 requests are throttled for ten minutes and reuse pending or deliverable builds; normal expiry and
 revocation checks remain in the install flow. Run `ops/systemd/storefront-queue-background.service`
 alongside the Apple/files workers, or include `background` last in a shared worker's queue list.
+
+## Reliability
+
+- zsign, unzip and openssl run on dedicated threads, never on Swift's cooperative pool, so any number
+  of concurrent jobs cannot starve each other. Each tool has a deadline (zsign/unzip: 120 s + 60 s per GB,
+  at most 30 min; others 5 min): it gets SIGTERM, then SIGKILL 10 s later, and the job fails with the
+  retryable code `TIMEOUT`.
+- Downloads and uploads are retried up to 4 times with exponential backoff and jitter on network errors
+  and HTTP 5xx/408/429; an interrupted download resumes with an HTTP Range request. A request that is
+  idle for 120 s fails; a whole transfer may take up to 3 hours.
+- Failure reports carry `retryable`. `NESTED_PROFILE_REQUIRED`, `CODESIGN_FAILED` (unless zsign was
+  killed by a signal), `REPACK_FAILED` and `UNSAFE_SYMLINK` (a link in the IPA that leads outside the app)
+  are permanent: the backend fails the build at once. Messages are cut to 1,000 characters and the
+  runner's folders appear as `<work>`/`<cache>`.
+- A lease extension answered with 404/409 means the lease is gone: the job is stopped (its running tool
+  killed) and not reported. A success report is retried; 409 there means it was already recorded.
+- On start the runner deletes everything in the work folder except `.cache` (folders of jobs a crash left
+  behind) and lock files of cache entries that no longer exist (again every ten minutes).
+- The storefront app's bootstrap claim is written into Info.plist before every zsign run, so customers
+  share one cached signing tree; a job without a claim removes it.
 
 ## Development
 

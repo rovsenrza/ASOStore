@@ -125,6 +125,7 @@ class WorkerController extends Controller
             'sha256' => ['required_if:status,succeeded', 'nullable', 'string', 'regex:/^[a-fA-F0-9]{64}$/'],
             'error_code' => ['nullable', 'string', 'max:64'],
             'error_message' => ['nullable', 'string', 'max:2000'],
+            'retryable' => ['nullable', 'boolean'],
             'report' => ['nullable', 'array'],
         ]);
 

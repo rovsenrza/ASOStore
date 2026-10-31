@@ -596,6 +596,37 @@ it('queues a fresh runner job when an installation is retried after signing fail
         ->and($jobs[1]->status)->toBe(PipelineJobStatus::Queued);
 });
 
+it('fails a build at once when the runner reports a permanent error', function () {
+    runnerHeartbeat();
+    Sanctum::actingAs($this->customer);
+    $this->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")->assertStatus(202);
+    forgetGuards();
+    $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+
+    worker('POST', $lease['result_path'], json_encode([
+        'status' => 'failed', 'error_code' => 'NESTED_PROFILE_REQUIRED', 'error_message' => 'Watch/ bundles are not supported', 'retryable' => false,
+    ]))->assertOk();
+
+    $job = PipelineJob::where('type', SigningService::RUNNER_JOB_TYPE)->sole();
+    expect($job->status)->toBe(PipelineJobStatus::FailedPermanent)
+        ->and($job->attempt)->toBe(1)
+        ->and(SignedBuild::sole()->status)->toBe(SignedBuildStatus::SigningFailed)
+        ->and(SignedBuild::sole()->status_reason)->toBe('NESTED_PROFILE_REQUIRED');
+});
+
+it('requeues a failed signing when the runner does not say it is permanent', function () {
+    runnerHeartbeat();
+    Sanctum::actingAs($this->customer);
+    $this->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")->assertStatus(202);
+    forgetGuards();
+    $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+
+    worker('POST', $lease['result_path'], json_encode(['status' => 'failed', 'error_code' => 'TIMEOUT', 'error_message' => 'zsign timed out']))->assertOk();
+
+    expect(PipelineJob::where('type', SigningService::RUNNER_JOB_TYPE)->sole()->status)->toBe(PipelineJobStatus::Queued)
+        ->and(SignedBuild::sole()->status)->toBe(SignedBuildStatus::SigningPending);
+});
+
 it('rejects a signed build whose profile does not cover the device', function () {
     runnerHeartbeat();
     Sanctum::actingAs($this->customer);

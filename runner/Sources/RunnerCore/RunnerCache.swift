@@ -57,7 +57,7 @@ public actor RunnerCache {
 
     private static func fetch(job: SigningJob, settings: Settings, download: @Sendable (URL) async throws -> Void) async throws -> CachedSource {
         let key = "source-" + job.source.sha256.lowercased()
-        let lock = try CacheLock(settings: settings, key: key)
+        let lock = try await CacheLock.acquire(settings: settings, key: key)
         let entry = settings.directory.appendingPathComponent("entries/" + key, isDirectory: true)
         let file = entry.appendingPathComponent("source.ipa")
         if fresh(file, settings: settings), try RequestSigner.sha256(fileAt: file) == job.source.sha256.lowercased() {
@@ -81,8 +81,15 @@ public actor RunnerCache {
         return CachedSource(file: file, hit: false, lock: lock)
     }
 
+    private var lastLockSweep = Date.distantPast
+
     /// Called after a job releases its signing workspace. Locked entries are never evicted.
     public func prune() {
+        if Date().timeIntervalSince(lastLockSweep) > 600 {
+            lastLockSweep = Date()
+            let removed = Self.pruneLocks(settings: settings)
+            if removed > 0 { Log.info("removed \(removed) stale cache lock files") }
+        }
         let root = settings.directory.appendingPathComponent("entries", isDirectory: true)
         guard let entries = try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return }
         let rows = entries.map { entry -> (URL, Date, Int64) in
@@ -92,11 +99,48 @@ public actor RunnerCache {
         }.sorted { $0.1 < $1.1 }
         var used = rows.reduce(Int64(0)) { $0 + $1.2 }
         for (entry, date, size) in rows where date < Date().addingTimeInterval(-settings.ttl) || used > settings.maxBytes {
-            guard let lock = try? CacheLock(settings: settings, key: entry.lastPathComponent, nonblocking: true) else { continue }
+            guard let lock = try? CacheLock.tryAcquire(settings: settings, key: entry.lastPathComponent) else { continue }
             withExtendedLifetime(lock) {
                 if (try? FileManager.default.removeItem(at: entry)) != nil { used -= size }
             }
         }
+    }
+
+    /// Removes lock files whose cache entry is gone (one is left behind for every evicted or
+    /// failed entry). A lock that is held, or younger than `minimumAge`, is kept. CacheLock
+    /// re-checks the path after locking, so removing a file another worker has just opened
+    /// cannot give two workers the same entry.
+    @discardableResult
+    public static func pruneLocks(settings: Settings, minimumAge: TimeInterval = 600) -> Int {
+        let locks = settings.directory.appendingPathComponent("locks", isDirectory: true)
+        let entries = settings.directory.appendingPathComponent("entries", isDirectory: true)
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: locks.path) else { return 0 }
+        var removed = 0
+        for name in names where !FileManager.default.fileExists(atPath: entries.appendingPathComponent(name).path) {
+            let file = locks.appendingPathComponent(name)
+            if minimumAge > 0, let modified = (try? FileManager.default.attributesOfItem(atPath: file.path))?[.modificationDate] as? Date,
+               modified > Date().addingTimeInterval(-minimumAge) { continue }
+            guard let lock = try? CacheLock.tryAcquire(settings: settings, key: name) else { continue }
+            // Still no entry now that we hold the lock: nobody can be filling it.
+            if !FileManager.default.fileExists(atPath: entries.appendingPathComponent(name).path), unlink(file.path) == 0 {
+                removed += 1
+            }
+            withExtendedLifetime(lock) {}
+        }
+        return removed
+    }
+
+    /// Start-up: every folder in the work directory belongs to a job of a previous run (a crash
+    /// or a killed container skips the per-job clean-up). Keeps the cache.
+    @discardableResult
+    public static func sweepWorkDirectory(_ work: URL, keeping kept: [URL]) -> Int {
+        let keep = Set(kept.map { $0.standardizedFileURL.path })
+        guard let children = try? FileManager.default.contentsOfDirectory(at: work, includingPropertiesForKeys: nil) else { return 0 }
+        var removed = 0
+        for child in children where child.lastPathComponent != ".cache" && !keep.contains(child.standardizedFileURL.path) {
+            if (try? FileManager.default.removeItem(at: child)) != nil { removed += 1 }
+        }
+        return removed
     }
 
     static func workspace(source: URL, job: SigningJob, zsign: String, injectKey: [String] = [], settings: Settings) throws -> Workspace {
@@ -107,7 +151,7 @@ public actor RunnerCache {
         let mapping = job.nested.map { "\($0.path)=\($0.bundleIdentifier)" }.sorted()
         let context = ["runner-cache-v1", job.source.sha256.lowercased(), job.teamIdentifier, job.certificateSHA1.uppercased(), job.bundleIdentifier, toolHash] + mapping + ["inject:"] + injectKey.sorted()
         let key = "sign-" + RequestSigner.sha256(try JSONEncoder().encode(context))
-        let lock = try CacheLock(settings: settings, key: key)
+        let lock = try CacheLock.acquireBlocking(settings: settings, key: key)
         let entry = settings.directory.appendingPathComponent("entries/" + key, isDirectory: true)
         let ready = entry.appendingPathComponent("ready")
         let tree = entry.appendingPathComponent("unpacked", isDirectory: true)
@@ -140,7 +184,14 @@ public actor RunnerCache {
 
     /// Compare the complete last verified tree, including zsign's cache. A changed
     /// resource or binary is rebuilt from the hash-checked source instead of re-signed.
-    private static func snapshot(_ entry: URL) throws -> [String: String] {
+    private static func snapshot(_ folder: URL) throws -> [String: String] {
+        // Resolve symlinks in the folder's own path first: on macOS the enumerator reports
+        // /var/... as /private/var/..., which would shift every relative path below.
+        // (Foundation's resolvingSymlinksInPath strips /private again, so use realpath.)
+        let entry = realpath(folder.path, nil).map { pointer in
+            defer { free(pointer) }
+            return URL(fileURLWithPath: String(cString: pointer), isDirectory: true)
+        } ?? folder
         guard let files = FileManager.default.enumerator(at: entry, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey]) else {
             throw RunnerError.configuration("Cannot enumerate the signing cache")
         }
@@ -197,17 +248,57 @@ public actor RunnerCache {
     }
 }
 
-private final class CacheLock: @unchecked Sendable {
+final class CacheLock: @unchecked Sendable {
     private let descriptor: Int32
 
-    init(settings: RunnerCache.Settings, key: String, nonblocking: Bool = false) throws {
+    private init(descriptor: Int32) { self.descriptor = descriptor }
+
+    /// One non-blocking attempt; nil while another worker holds the lock.
+    static func tryAcquire(settings: RunnerCache.Settings, key: String) throws -> CacheLock? {
         let root = settings.directory.appendingPathComponent("locks", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-        descriptor = open(root.appendingPathComponent(key).path, O_CREAT | O_RDWR, 0o600)
+        let path = root.appendingPathComponent(key).path
+        let descriptor = open(path, O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { throw RunnerError.configuration("Cannot open runner cache lock") }
-        guard flock(descriptor, LOCK_EX | (nonblocking ? LOCK_NB : 0)) == 0 else {
+        guard flock(descriptor, LOCK_EX | LOCK_NB) == 0 else {
             close(descriptor)
-            throw RunnerError.configuration("Runner cache entry is locked")
+            return nil
+        }
+        // The lock file may have been removed (pruneLocks) between open and flock: a lock on
+        // an unlinked file excludes nobody, so start again with the file now at that path.
+        var held = stat(), current = stat()
+        guard fstat(descriptor, &held) == 0, stat(path, &current) == 0,
+              held.st_ino == current.st_ino, held.st_dev == current.st_dev else {
+            flock(descriptor, LOCK_UN)
+            close(descriptor)
+            return try tryAcquire(settings: settings, key: key)
+        }
+        return CacheLock(descriptor: descriptor)
+    }
+
+    /// Waits for the lock without blocking a cooperative thread: polls with backoff.
+    static func acquire(settings: RunnerCache.Settings, key: String) async throws -> CacheLock {
+        var pause = 20
+        while true {
+            if let lock = try tryAcquire(settings: settings, key: key) { return lock }
+            try await Task.sleep(for: .milliseconds(pause + Int.random(in: 0...pause / 2)))
+            pause = min(pause * 2, 1000)
+        }
+    }
+
+    /// For code already on a dedicated thread (signing): polls with backoff, stops when the job
+    /// is cancelled or after `timeout` (a signing tree is held for at most one zsign run).
+    static func acquireBlocking(settings: RunnerCache.Settings, key: String, timeout: TimeInterval = 2400) throws -> CacheLock {
+        let started = Date()
+        var pause: useconds_t = 20_000
+        while true {
+            if let lock = try tryAcquire(settings: settings, key: key) { return lock }
+            try Cancellation.current?.check()
+            guard Date().timeIntervalSince(started) < timeout else {
+                throw RunnerError.job(code: "TIMEOUT", message: "Signing cache entry stayed locked for \(Int(timeout)) s", retryable: true)
+            }
+            usleep(pause + useconds_t.random(in: 0...pause / 2))
+            pause = min(pause * 2, 1_000_000)
         }
     }
 
