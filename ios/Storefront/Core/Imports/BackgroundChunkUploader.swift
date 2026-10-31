@@ -27,7 +27,8 @@ nonisolated final class BackgroundChunkUploader: NSObject, URLSessionDataDelegat
         /// `transient`: worth sending again (dropped connection, busy server).
         case failed(transient: Bool, status: Int)
 
-        /// The upload token was refused or expired: worth refreshing it and sending again.
+        /// The upload token expired (401 UNAUTHENTICATED, reason UPLOAD_TOKEN_EXPIRED; 403 is
+        /// treated the same): worth refreshing it and sending again. A wrong token is a 404.
         var isUnauthorized: Bool {
             if case .failed(_, let status) = self { return status == 401 || status == 403 }
             return false

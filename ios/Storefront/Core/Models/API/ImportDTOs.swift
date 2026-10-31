@@ -43,7 +43,7 @@ nonisolated struct ImportDTO: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
-/// POST /imports: an open chunked upload.
+/// POST /imports (201) and POST /imports/{upload}/token (200): an open chunked upload.
 nonisolated struct ImportUploadDTO: Codable, Hashable, Sendable {
     let id: String
     let importId: String
@@ -59,12 +59,6 @@ nonisolated struct ImportUploadDTO: Codable, Hashable, Sendable {
 
     /// `uploadTokenExpiresAt` as a date (nil when absent or unreadable).
     var uploadTokenExpiry: Date? { ImportDates.parse(uploadTokenExpiresAt) }
-}
-
-/// POST /imports/{upload}/token: a fresh credential for the background chunk endpoint.
-nonisolated struct ImportUploadTokenDTO: Codable, Hashable, Sendable {
-    let uploadToken: String
-    var uploadTokenExpiresAt: String? = nil
 }
 
 nonisolated enum ImportDates {

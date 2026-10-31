@@ -53,7 +53,7 @@ final class ImportCenter: ObservableObject {
     private var tasks: [UUID: Task<Void, Never>] = [:]
     /// Delayed re-sends of background chunks (and token refreshes), per upload and chunk.
     private var retryTasks: [UUID: [Int: Task<Void, Never>]] = [:]
-    private var tokenRefreshes: [UUID: Task<Bool, Never>] = [:]
+    private var tokenRefreshes: [UUID: Task<TokenRefresh, Never>] = [:]
     private var sources: [UUID: Source] = [:]
     private var poll: Task<Void, Never>?
     /// Uploads stopped by something other than the customer (the app left the screen, the network
@@ -88,6 +88,15 @@ final class ImportCenter: ObservableObject {
         /// The upload token cannot be used (expired, refused, and no refresh endpoint): the
         /// remaining chunks go from the open app with the customer's access token.
         var tokenUnusable = false
+        /// The server closed the upload (409 no longer OPEN, 410 expired): nothing more can be sent.
+        var terminal: APIError?
+    }
+
+    private enum TokenRefresh {
+        case refreshed
+        /// No usable answer (an older server without the endpoint, say): send from the app.
+        case unavailable
+        case terminal(APIError)
     }
 
     init(
@@ -281,6 +290,7 @@ final class ImportCenter: ObservableObject {
                     _ = try await uploadInBackground(id, session: current)
                 }
             }
+            if let terminal = sources[id]?.terminal { throw terminal }
             // Whatever the background session did not deliver (no room to stage it, a refused
             // token, a chunk that kept failing) goes from the open app.
             for number in 0..<session.chunkCount where sources[id]?.sent.contains(number) == false {
@@ -428,8 +438,18 @@ final class ImportCenter: ObservableObject {
             schedulePollIfNeeded()
             return false
         }
-        // POST /imports with the same file returns the open upload and the chunks it already has.
-        let fresh = try await retrying { try await self.repository.startUpload(filename: file.name, sizeBytes: file.size, sha256: file.sha256) }
+        // The token endpoint answers with a fresh token and the chunks the server has; servers
+        // without it: POST /imports with the same file returns the open upload the same way.
+        let fresh: ImportUploadDTO
+        do {
+            fresh = try await retrying { try await self.repository.refreshUploadToken(uploadID: old.id) }
+        } catch let error as APIError where Self.isTerminal(error) {
+            throw error
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            fresh = try await retrying { try await self.repository.startUpload(filename: file.name, sizeBytes: file.size, sha256: file.sha256) }
+        }
         guard var current = sources[id] else { return false }
         current.needsServerState = false
         if fresh.id == old.id {
@@ -461,30 +481,42 @@ final class ImportCenter: ObservableObject {
     /// has already expired, the remaining chunks go from the open app instead.
     private func refreshTokenIfExpiring(_ id: UUID) async {
         guard let expiry = sources[id]?.session?.uploadTokenExpiry, expiry.timeIntervalSinceNow < 120 else { return }
-        if await refreshToken(id) == false, expiry.timeIntervalSinceNow <= 0 {
-            sources[id]?.tokenUnusable = true
+        switch await refreshToken(id) {
+        case .refreshed: break
+        case .terminal: sources[id]?.tokenUnusable = true
+        case .unavailable:
+            if expiry.timeIntervalSinceNow <= 0 { sources[id]?.tokenUnusable = true }
         }
     }
 
-    /// Asks the server for a new upload token (once at a time per upload). False when the server
-    /// has no refresh endpoint or refused it.
-    private func refreshToken(_ id: UUID) async -> Bool {
+    /// 409 (no longer OPEN) and 410 (expired) from the token endpoint end the upload.
+    nonisolated static func isTerminal(_ error: APIError) -> Bool {
+        error.status == 409 || error.status == 410
+    }
+
+    /// Asks the server for a new upload token (once at a time per upload), POST /imports/{upload}/token.
+    private func refreshToken(_ id: UUID) async -> TokenRefresh {
         if let running = tokenRefreshes[id] {
             return await running.value
         }
-        guard let uploadID = sources[id]?.session?.id else { return false }
-        let task = Task { [weak self] () -> Bool in
-            guard let self else { return false }
+        guard let uploadID = sources[id]?.session?.id else { return .unavailable }
+        let task = Task { [weak self] () -> TokenRefresh in
+            guard let self else { return .unavailable }
             do {
                 let fresh = try await self.retrying { try await self.repository.refreshUploadToken(uploadID: uploadID) }
-                guard self.sources[id]?.session?.id == uploadID else { return false }
-                self.sources[id]?.session?.uploadToken = fresh.uploadToken
+                guard self.sources[id]?.session?.id == uploadID, let token = fresh.uploadToken else { return .unavailable }
+                self.sources[id]?.session?.uploadToken = token
                 self.sources[id]?.session?.uploadTokenExpiresAt = fresh.uploadTokenExpiresAt
+                self.sources[id]?.sent.formUnion(fresh.receivedChunks)
                 self.persist(id)
-                return true
+                return .refreshed
+            } catch let error as APIError where Self.isTerminal(error) {
+                self.log.error("import upload closed on the server: status \(error.status)")
+                self.sources[id]?.terminal = error
+                return .terminal(error)
             } catch {
                 self.log.error("import upload token refresh failed: \(String(describing: error), privacy: .public)")
-                return false
+                return .unavailable
             }
         }
         tokenRefreshes[id] = task
@@ -564,7 +596,14 @@ final class ImportCenter: ObservableObject {
             guard let self else { return }
             if unauthorized {
                 // The upload token expired or was refused: get a new one and send the chunk again.
-                guard await self.refreshToken(id) else {
+                switch await self.refreshToken(id) {
+                case .refreshed:
+                    break
+                case .terminal(let error):
+                    self.sources[id]?.tokenUnusable = true
+                    self.waiters.removeValue(forKey: uploadID)?.resume(throwing: error)
+                    return
+                case .unavailable:
                     self.sources[id]?.tokenUnusable = true
                     self.waiters.removeValue(forKey: uploadID)?.resume()
                     return

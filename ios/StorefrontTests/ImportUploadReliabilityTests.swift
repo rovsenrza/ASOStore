@@ -148,7 +148,7 @@ struct ImportUploadReliabilityTests {
             case ("POST", "/api/v1/imports"): return Self.upload("up4", received: [], token: "t1", expires: "2030-01-01T00:00:00Z")
             case ("POST", "/api/v1/imports/up4/token"):
                 refreshes.append(request)
-                return Self.ok(#"{"upload_token":"t2","upload_token_expires_at":"2030-01-02T00:00:00Z"}"#)
+                return (200, Self.upload("up4", received: [], token: "t2", expires: "2030-01-02T00:00:00Z").1)
             case ("PUT", _):
                 foreground.append(request)
                 return Self.chunkStored
@@ -200,6 +200,36 @@ struct ImportUploadReliabilityTests {
         let chunk1At = try #require(paths.firstIndex(of: "/api/v1/imports/up6/chunks/1"))
         #expect(chunk1At < completeAt)
         #expect(paths.contains("/api/v1/imports/up6/token"))
+    }
+
+    /// 410 from the token endpoint: the session expired, so the upload fails without complete.
+    @Test func stopsWhenTheServerSaysTheUploadIsClosed() async throws {
+        let file = try Self.writeFile("Expired App.ipa")
+        let calls = RequestLog()
+        let transport = ScriptedTransport { request in
+            calls.append(request)
+            let path = request.url?.path() ?? ""
+            switch (request.httpMethod, path) {
+            case ("POST", "/api/v1/imports"): return Self.upload("up8", received: [], token: "t1")
+            case ("POST", "/api/v1/imports/up8/token"): return (410, Envelopes.error("UPLOAD_EXPIRED"))
+            default: return (404, Envelopes.error("NOT_FOUND"))
+            }
+        }
+        let uploader = FakeChunkUploader { _, _ in .failed(transient: false, status: 401) }
+        let center = ImportCenter(repository: ImportRepository(api: .stubbed(transport)), installations: nil, uploader: uploader, retryPolicy: Self.fast)
+
+        center.importFile(at: file)
+        for _ in 0..<200 {
+            if case .failed = center.uploads.first?.phase { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+
+        guard case .failed = center.uploads.first?.phase else {
+            Issue.record("upload did not fail: \(String(describing: center.uploads.first?.phase))")
+            return
+        }
+        #expect(!calls.paths.contains("/api/v1/imports/up8/complete"))
+        #expect(!calls.paths.contains { $0.hasPrefix("/api/v1/imports/up8/chunks") })
     }
 
     // MARK: Missing hash
