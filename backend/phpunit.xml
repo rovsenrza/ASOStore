@@ -21,6 +21,11 @@
         </include>
     </source>
     <php>
+        <!-- Not a leak: measured per test, live memory climbs only ~20 MB over the suite. Without
+             opcache every compiled class (app + vendor) sits in the process heap, so the plain
+             `vendor/bin/pest` run peaks just above 128 MB; with `php -d opcache.enable_cli=1` (as CI
+             runs it) it peaks near 47 MB. 512M leaves headroom for the uncached run. -->
+        <ini name="memory_limit" value="512M"/>
         <!-- Small upload chunks keep chunked-upload tests light; production keeps 8 MB. -->
         <env name="STOREFRONT_UPLOAD_CHUNK_BYTES" value="65536"/>
         <env name="APP_ENV" value="testing"/>
