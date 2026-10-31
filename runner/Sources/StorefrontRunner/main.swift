@@ -85,6 +85,11 @@ do {
     // Fail at start-up, not on the first job, when a tool is missing.
     for tool in [config.zsign, "openssl", "unzip"] { _ = try Shell.locate(tool) }
     try FileManager.default.createDirectory(at: config.workDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+    // Folders of jobs that a crash or a container stop left behind, and lock files of
+    // cache entries that are gone (pruned again after jobs, every ten minutes).
+    let swept = RunnerCache.sweepWorkDirectory(config.workDirectory, keeping: config.cacheDirectory.map { [$0] } ?? [])
+    let locks = config.cacheSettings.map { RunnerCache.pruneLocks(settings: $0, minimumAge: 0) } ?? 0
+    Log.info("start-up clean-up: \(swept) stale job folders, \(locks) stale cache locks removed")
     let cache = config.cacheSettings.map { RunnerCache(settings: $0) }
     await withTaskGroup(of: Void.self) { group in
         for _ in 0..<config.concurrency {

@@ -39,7 +39,11 @@ public struct RunnerConfig: Sendable {
         self.cacheTTL = cacheTTL
     }
 
-    public static let currentVersion = "2.3.0"
+    public static let currentVersion = "2.4.0"
+
+    /// Upper bound for STOREFRONT_RUNNER_CONCURRENCY. Signing runs on its own threads
+    /// (Blocking.run), not on the cooperative pool, so the bound is CPU, memory and disk.
+    public static let maxConcurrency = 8
 
     public static func fromEnvironment(_ env: [String: String] = ProcessInfo.processInfo.environment) throws -> RunnerConfig {
         func required(_ key: String) throws -> String {
@@ -67,7 +71,7 @@ public struct RunnerConfig: Sendable {
             identitiesDirectory: URL(fileURLWithPath: try required("STOREFRONT_RUNNER_IDENTITIES_DIR"), isDirectory: true),
             zsign: env["STOREFRONT_RUNNER_ZSIGN"].flatMap { $0.isEmpty ? nil : $0 } ?? "zsign",
             zipLevel: try bounded("STOREFRONT_RUNNER_ZIP_LEVEL", default: 1, range: 0...9),
-            concurrency: try bounded("STOREFRONT_RUNNER_CONCURRENCY", default: 2, range: 1...4),
+            concurrency: try bounded("STOREFRONT_RUNNER_CONCURRENCY", default: 2, range: 1...maxConcurrency),
             pollInterval: .seconds(Int(env["STOREFRONT_RUNNER_POLL_SECONDS"] ?? "") ?? 10),
             cacheDirectory: env["STOREFRONT_RUNNER_CACHE_ENABLED"] == "0" ? nil : env["STOREFRONT_RUNNER_CACHE_DIR"].map { URL(fileURLWithPath: $0, isDirectory: true) } ?? work.appendingPathComponent(".cache", isDirectory: true),
             cacheMaxBytes: Int64(try bounded("STOREFRONT_RUNNER_CACHE_MAX_BYTES", default: 8 * 1024 * 1024 * 1024, range: 1...(64 * 1024 * 1024 * 1024))),
