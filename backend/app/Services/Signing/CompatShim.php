@@ -355,6 +355,28 @@ class CompatShim
         }
     }
 
+    /**
+     * Whether the compat shim must also be injected into the app's extensions (zsign -P). True
+     * only for the plain App-Group/keychain shim — never the MAX/VK relay hooks — and only when
+     * an extension shares an App Group with the app, as a VPN's packet-tunnel extension does: it
+     * reads the tunnel config the container app writes to the shared group, so without the remap
+     * in the extension process the two never share and the VPN cannot connect.
+     */
+    public function injectsIntoExtensions(AppArtifact $artifact): bool
+    {
+        if (array_column($this->dylibsFor($artifact), 'name') !== [self::NAME]) {
+            return false;
+        }
+        foreach ($artifact->inspection['nested_bundles'] ?? [] as $nested) {
+            if (($nested['type'] ?? null) === 'extension'
+                && array_key_exists('com.apple.security.application-groups', (array) ($nested['entitlements'] ?? []))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /** An app sharing through an App Group or a keychain group loses it on re-sign. */
     public function needsShim(AppArtifact $artifact): bool
     {

@@ -61,6 +61,7 @@ public struct Signer: Sendable {
         // below on every run, cold or warm, before zsign signs (and seals Info.plist), and
         // removed when the job has none, so a claim never outlives the build it was made for.
         let cacheKey = injected.map(\.key)
+            + (job.injectIntoExtensions && !injected.isEmpty ? ["inject-extensions"] : [])
             + (job.originalBundleIdentifier.map { ["original:" + $0] } ?? [])
             + (job.originalTeamIdentifier.map { ["team:" + $0] } ?? [])
 
@@ -147,6 +148,10 @@ public struct Signer: Sendable {
         if workspace?.hit != true {
             for dylib in injected {
                 arguments += [dylib.weak ? "-w" : "-l", dylib.file.path]
+            }
+            // A VPN's packet-tunnel extension needs the App-Group shim in its own process too.
+            if job.injectIntoExtensions, !injected.isEmpty {
+                arguments += ["-P"]
             }
         }
 

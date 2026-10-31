@@ -74,6 +74,9 @@ public struct SigningJob: Codable, Sendable {
     public var profile: Profile
     public var nested: [Nested]
     public var injectDylibs: [InjectDylib]
+    /// Also inject the (shim-only) dylibs into the app's extensions (zsign -P), for a VPN whose
+    /// packet-tunnel extension shares its config with the app through an App Group.
+    public var injectIntoExtensions: Bool
     /// A one-time, device-bound login code the backend asks us to write into the main app's
     /// Info.plist (StorefrontBootstrapClaim) before signing, so the storefront app can sign the
     /// enrolled customer in on first launch without a password. Only ever set for that app.
@@ -90,7 +93,7 @@ public struct SigningJob: Codable, Sendable {
     public var uploadPath: String
     public var resultPath: String
 
-    public init(jobID: String, signedBuildID: String, bundleIdentifier: String, teamIdentifier: String, certificateSHA1: String, profile: Profile, nested: [Nested] = [], injectDylibs: [InjectDylib] = [], bootstrapClaim: String? = nil, originalBundleIdentifier: String? = nil, originalTeamIdentifier: String? = nil, source: Source, uploadPath: String, resultPath: String) {
+    public init(jobID: String, signedBuildID: String, bundleIdentifier: String, teamIdentifier: String, certificateSHA1: String, profile: Profile, nested: [Nested] = [], injectDylibs: [InjectDylib] = [], injectIntoExtensions: Bool = false, bootstrapClaim: String? = nil, originalBundleIdentifier: String? = nil, originalTeamIdentifier: String? = nil, source: Source, uploadPath: String, resultPath: String) {
         self.jobID = jobID
         self.signedBuildID = signedBuildID
         self.bundleIdentifier = bundleIdentifier
@@ -99,6 +102,7 @@ public struct SigningJob: Codable, Sendable {
         self.profile = profile
         self.nested = nested
         self.injectDylibs = injectDylibs
+        self.injectIntoExtensions = injectIntoExtensions
         self.bootstrapClaim = bootstrapClaim
         self.originalBundleIdentifier = originalBundleIdentifier
         self.originalTeamIdentifier = originalTeamIdentifier
@@ -118,6 +122,7 @@ public struct SigningJob: Codable, Sendable {
         // Leases from backends that predate extension signing carry no list.
         nested = try container.decodeIfPresent([Nested].self, forKey: .nested) ?? []
         injectDylibs = try container.decodeIfPresent([InjectDylib].self, forKey: .injectDylibs) ?? []
+        injectIntoExtensions = try container.decodeIfPresent(Bool.self, forKey: .injectIntoExtensions) ?? false
         bootstrapClaim = try container.decodeIfPresent(String.self, forKey: .bootstrapClaim)
         originalBundleIdentifier = try container.decodeIfPresent(String.self, forKey: .originalBundleIdentifier)
         originalTeamIdentifier = try container.decodeIfPresent(String.self, forKey: .originalTeamIdentifier)
@@ -130,6 +135,7 @@ public struct SigningJob: Codable, Sendable {
         case jobID = "job_id", signedBuildID = "signed_build_id", bundleIdentifier = "bundle_identifier"
         case teamIdentifier = "team_identifier", certificateSHA1 = "certificate_sha1", profile, nested, source
         case injectDylibs = "inject_dylibs"
+        case injectIntoExtensions = "inject_into_extensions"
         case bootstrapClaim = "bootstrap_claim"
         case originalBundleIdentifier = "original_bundle_identifier"
         case originalTeamIdentifier = "original_team_identifier"

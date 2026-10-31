@@ -647,6 +647,18 @@ struct SigningSetup {
         #expect(original.originalBundleIdentifier == "ru.yandex.mobile.music")
     }
 
+    @Test func decodesInjectIntoExtensionsFromTheLeaseJSON() throws {
+        let json = """
+        {"job_id":"j","signed_build_id":"b","bundle_identifier":"llc.itdev.incy","team_identifier":"TEAM123456",
+         "certificate_sha1":"AAAA","profile":{"uuid":"U","content":""},"inject_into_extensions":true,
+         "source":{"sha256":"0","size_bytes":1,"path":"x"},"upload_path":"u","result_path":"r"}
+        """
+        #expect(try JSONDecoder().decode(SigningJob.self, from: Data(json.utf8)).injectIntoExtensions == true)
+        // A lease from a backend that predates the field decodes to false.
+        let plain = try JSONDecoder().decode(SigningJob.self, from: Data(json.replacingOccurrences(of: "\"inject_into_extensions\":true,", with: "").utf8))
+        #expect(plain.injectIntoExtensions == false)
+    }
+
     @Test func decodesTheOriginalTeamFromTheLeaseJSON() throws {
         let json = """
         {"job_id":"j","signed_build_id":"b","bundle_identifier":"com.ruappstore.tgx","team_identifier":"TEAM123456",

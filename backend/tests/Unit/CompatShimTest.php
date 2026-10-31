@@ -30,6 +30,38 @@ it('injects the shim only for apps that share through an App Group or keychain',
         ->and($shim->needsShim(artifactWith(null)))->toBeFalse();
 });
 
+it('injects the shim into extensions only for a shim-only app whose extension shares an App Group', function () {
+    $shim = app(CompatShim::class);
+    $withTunnel = fn (array $ext) => AppArtifact::factory()->make(['bundle_identifier' => 'llc.itdev.incy', 'inspection' => [
+        'entitlements' => ['com.apple.security.application-groups' => ['group.llc.itdev.incy']],
+        'nested_bundles' => [$ext],
+    ]]);
+
+    // VPN: packet-tunnel extension shares the App Group → inject into extensions.
+    expect($shim->injectsIntoExtensions($withTunnel([
+        'type' => 'extension', 'bundle_identifier' => 'llc.itdev.incy.PacketTunnelProvider',
+        'entitlements' => ['com.apple.security.application-groups' => ['group.llc.itdev.incy']],
+    ])))->toBeTrue();
+
+    // An extension without an App Group does not need the remap.
+    expect($shim->injectsIntoExtensions($withTunnel([
+        'type' => 'extension', 'bundle_identifier' => 'llc.itdev.incy.Widget', 'entitlements' => [],
+    ])))->toBeFalse();
+
+    // No extensions at all.
+    expect($shim->injectsIntoExtensions(artifactWith(['com.apple.security.application-groups' => ['group.x']])))->toBeFalse();
+
+    // A relay-hook app (more than the plain shim injected) must never push hooks into extensions.
+    $relay = tempnam(sys_get_temp_dir(), 'relay').'.dylib';
+    file_put_contents($relay, "\xCF\xFA\xED\xFE relay");
+    config(['storefront.signing.relay_hook.bundle_ids' => ['com.vk.vkclient'], 'storefront.signing.relay_hook.path' => $relay]);
+    expect($shim->injectsIntoExtensions(AppArtifact::factory()->make(['bundle_identifier' => 'com.vk.vkclient', 'inspection' => [
+        'entitlements' => ['com.apple.security.application-groups' => ['group.com.vk.vkclient']],
+        'nested_bundles' => [['type' => 'extension', 'bundle_identifier' => 'com.vk.vkclient.Share', 'entitlements' => ['com.apple.security.application-groups' => ['group.com.vk.vkclient']]]],
+    ]])))->toBeFalse();
+    @unlink($relay);
+});
+
 it('recognises relay-hook apps by the configured bundle-id patterns', function () {
     config(['storefront.signing.relay_hook.bundle_ids' => ['ru.oneme.app', 'com.vk.*']]);
     $shim = app(CompatShim::class);

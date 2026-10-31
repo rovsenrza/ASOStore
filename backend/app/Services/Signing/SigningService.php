@@ -297,6 +297,9 @@ class SigningService
             // device UDID selects the VK dylib variant (full relay for test devices, Face-ID-only
             // otherwise); a shared/team build has no single device, so it gets the Face-ID-only one.
             'inject_dylibs' => app(CompatShim::class)->dylibsFor($artifact, $build->device?->udid_encrypted),
+            // Also inject the (shim-only) dylib into app extensions, e.g. a VPN packet-tunnel that
+            // shares its config with the app through an App Group (CompatShim::injectsIntoExtensions).
+            'inject_into_extensions' => app(CompatShim::class)->injectsIntoExtensions($artifact),
             'source' => $source,
             'upload_path' => "/api/worker/v1/jobs/{$job->public_id}/artifact",
             'result_path' => "/api/worker/v1/jobs/{$job->public_id}/result",
