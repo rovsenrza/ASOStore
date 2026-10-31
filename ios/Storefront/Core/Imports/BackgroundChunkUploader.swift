@@ -1,34 +1,63 @@
 import Foundation
 import OSLog
 
+/// What `ImportCenter` needs from the background chunk session (a fake in tests).
+nonisolated protocol ChunkUploading: AnyObject, Sendable {
+    typealias Handler = @Sendable (_ uploadID: String, _ number: Int, _ outcome: BackgroundChunkUploader.Outcome) -> Void
+    /// Attaches the receiver of finished chunks; events that arrived earlier are delivered now.
+    func activate(handler: @escaping Handler)
+    func enqueue(_ request: URLRequest, uploadID: String, number: Int)
+    func pending(uploadID: String) async -> Set<Int>
+    func activeUploads() async -> Set<String>
+    func cancel(uploadID: String) async
+}
+
 /// Sends import chunks through an iOS background URLSession, so an upload keeps going after the
 /// customer leaves the app (to install another app, say) or iOS suspends or closes it. Chunks are
 /// handed over as files (Application Support/ImportChunks/<upload>/<n>.part; not Caches, which iOS
-/// may purge before they are sent); `nsurlsessiond` sends them and wakes the app when they are done. The server authenticates them with the upload's own token
-/// and completes the upload itself when the last chunk lands.
-nonisolated final class BackgroundChunkUploader: NSObject, URLSessionDataDelegate, @unchecked Sendable {
-    enum Outcome: Sendable {
+/// may purge before they are sent); `nsurlsessiond` sends them and wakes the app when they are done.
+/// The server authenticates them with the upload's own token and completes the upload itself when
+/// the last chunk lands.
+///
+/// The app delegate connects the session at launch, before SwiftUI builds `ImportCenter`; chunk
+/// results that arrive before `ImportCenter` attaches its handler are buffered, not dropped.
+nonisolated final class BackgroundChunkUploader: NSObject, URLSessionDataDelegate, ChunkUploading, @unchecked Sendable {
+    enum Outcome: Sendable, Equatable {
         case stored
         /// `transient`: worth sending again (dropped connection, busy server).
         case failed(transient: Bool, status: Int)
+
+        /// The upload token expired (401 UNAUTHENTICATED, reason UPLOAD_TOKEN_EXPIRED; 403 is
+        /// treated the same): worth refreshing it and sending again. A wrong token is a 404.
+        var isUnauthorized: Bool {
+            if case .failed(_, let status) = self { return status == 401 || status == 403 }
+            return false
+        }
     }
 
     static let shared = BackgroundChunkUploader()
+    static let defaultIdentifier = "storefront.import-chunks"
 
-    private static let identifier = "storefront.import-chunks"
+    let identifier: String
     private let log = Logger(subsystem: "storefront", category: "imports")
     private let lock = NSLock()
-    private var handler: (@Sendable (_ uploadID: String, _ number: Int, _ outcome: Outcome) -> Void)?
+    private var handler: Handler?
+    /// Chunk results that arrived before a handler was attached (a background relaunch).
+    private var buffered: [(uploadID: String, number: Int, outcome: Outcome)] = []
     private var eventsCompletion: (() -> Void)?
-
     private var storedSession: URLSession?
+
+    init(identifier: String = BackgroundChunkUploader.defaultIdentifier) {
+        self.identifier = identifier
+        super.init()
+    }
 
     private var session: URLSession {
         lock.withLock {
             if let storedSession {
                 return storedSession
             }
-            let configuration = URLSessionConfiguration.background(withIdentifier: Self.identifier)
+            let configuration = URLSessionConfiguration.background(withIdentifier: identifier)
             configuration.isDiscretionary = false
             configuration.sessionSendsLaunchEvents = true
             configuration.allowsCellularAccess = true
@@ -40,18 +69,53 @@ nonisolated final class BackgroundChunkUploader: NSObject, URLSessionDataDelegat
         }
     }
 
-    /// Reconnects to transfers from an earlier launch; finished chunks are reported to `handler`.
-    func activate(handler: @escaping @Sendable (_ uploadID: String, _ number: Int, _ outcome: Outcome) -> Void) {
-        lock.withLock { self.handler = handler }
+    /// Reconnects to transfers from an earlier launch (call at app launch). Their results are
+    /// buffered until `activate(handler:)`.
+    func connect() {
         _ = session
     }
 
-    /// iOS woke the app for this session's events; call `completion` once they are all delivered.
-    func handleEvents(for identifier: String, completion: @escaping () -> Void) {
-        guard identifier == Self.identifier else { return }
-        lock.withLock { eventsCompletion = completion }
-        _ = session
+    func activate(handler: @escaping Handler) {
+        attach(handler)
+        connect()
     }
+
+    /// Sets the handler and hands it everything buffered so far, in arrival order.
+    func attach(_ handler: @escaping Handler) {
+        let pending = lock.withLock { () -> [(uploadID: String, number: Int, outcome: Outcome)] in
+            self.handler = handler
+            defer { buffered.removeAll() }
+            return buffered
+        }
+        for event in pending {
+            handler(event.uploadID, event.number, event.outcome)
+        }
+    }
+
+    /// iOS woke the app for this session's events; `completion` runs once they are all delivered
+    /// (to the handler, or into the buffer). Another session's events are not ours: complete at once.
+    func handleEvents(for identifier: String, completion: @escaping () -> Void) {
+        guard identifier == self.identifier else {
+            completion()
+            return
+        }
+        lock.withLock { eventsCompletion = completion }
+        connect()
+    }
+
+    /// Reports one chunk result, or keeps it until a handler is attached.
+    func deliver(uploadID: String, number: Int, outcome: Outcome) {
+        let current = lock.withLock { () -> Handler? in
+            if handler == nil {
+                buffered.append((uploadID, number, outcome))
+            }
+            return handler
+        }
+        current?(uploadID, number, outcome)
+    }
+
+    /// Results waiting for a handler (tests and diagnostics).
+    var bufferedCount: Int { lock.withLock { buffered.count } }
 
     static var rootDirectory: URL {
         URL.applicationSupportDirectory.appending(path: "ImportChunks", directoryHint: .isDirectory)
@@ -124,7 +188,7 @@ nonisolated final class BackgroundChunkUploader: NSObject, URLSessionDataDelegat
             log.error("import chunk \(number) failed: status \(status), \(String(describing: error), privacy: .public)")
             outcome = .failed(transient: error != nil || status == 0 || status == 429 || status >= 500, status: status)
         }
-        lock.withLock { handler }?(uploadID, number, outcome)
+        deliver(uploadID: uploadID, number: number, outcome: outcome)
     }
 
     func urlSessionDidFinishEvents(forBackgroundURLSession session: URLSession) {

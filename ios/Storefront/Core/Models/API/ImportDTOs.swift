@@ -43,7 +43,7 @@ nonisolated struct ImportDTO: Codable, Hashable, Sendable, Identifiable {
     }
 }
 
-/// POST /imports: an open chunked upload.
+/// POST /imports (201) and POST /imports/{upload}/token (200): an open chunked upload.
 nonisolated struct ImportUploadDTO: Codable, Hashable, Sendable {
     let id: String
     let importId: String
@@ -54,6 +54,22 @@ nonisolated struct ImportUploadDTO: Codable, Hashable, Sendable {
     let missingChunks: [Int]
     /// Credential for PUT /import-uploads/{id}/chunks/{n} (background uploads); absent on older servers.
     var uploadToken: String? = nil
+    /// When `uploadToken` stops being accepted (ISO 8601); absent on older servers.
+    var uploadTokenExpiresAt: String? = nil
+
+    /// `uploadTokenExpiresAt` as a date (nil when absent or unreadable).
+    var uploadTokenExpiry: Date? { ImportDates.parse(uploadTokenExpiresAt) }
+}
+
+nonisolated enum ImportDates {
+    static func parse(_ text: String?) -> Date? {
+        guard let text else { return nil }
+        let plain = ISO8601DateFormatter()
+        if let date = plain.date(from: text) { return date }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: text)
+    }
 }
 
 /// PUT /imports/{upload}/chunks/{n}.

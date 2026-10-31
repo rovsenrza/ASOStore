@@ -83,7 +83,7 @@ struct AccountSheet: View {
                 }
             }
             .refreshable { await session.refreshUser() }
-            .task { portalURL = await apiClient.environment.portalURL }
+            .task { portalURL = try? apiClient.environment.portalURL }
         }
     }
 

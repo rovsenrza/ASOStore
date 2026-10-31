@@ -72,8 +72,8 @@ actor APIClient {
 
     /// A chunk PUT for `BackgroundChunkUploader`: the body comes from a file and the credential is
     /// in `headers` (the upload's own token), since iOS may send it long after the access token expired.
-    func backgroundUploadRequest(_ path: String, headers: [String: String]) -> URLRequest {
-        var request = makeRequest(method: "PUT", path: path, query: [], body: nil, timeout: 180)
+    func backgroundUploadRequest(_ path: String, headers: [String: String]) throws -> URLRequest {
+        var request = try makeRequest(method: "PUT", path: path, query: [], body: nil, timeout: 180)
         request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
         for (name, value) in headers {
             request.setValue(value, forHTTPHeaderField: name)
@@ -100,7 +100,7 @@ actor APIClient {
     ) async throws -> APIResponse<Payload> {
         let isRetry = retryToken != nil
         let token: String? = if let retryToken { retryToken } else { await authenticator.accessToken }
-        var request = makeRequest(method: method, path: path, query: query, body: body, contentType: contentType, timeout: timeout)
+        var request = try makeRequest(method: method, path: path, query: query, body: body, contentType: contentType, timeout: timeout)
         for (name, value) in headers {
             request.setValue(value, forHTTPHeaderField: name)
         }
@@ -123,7 +123,7 @@ actor APIClient {
 
     private func refreshTokens(_ refreshToken: String) async throws -> StoredTokens {
         let body = try encoder.encode(RefreshRequest(refreshToken: refreshToken))
-        let response: APIResponse<TokenPairDTO> = try await perform(makeRequest(method: "POST", path: "/auth/refresh", query: [], body: body))
+        let response: APIResponse<TokenPairDTO> = try await perform(try makeRequest(method: "POST", path: "/auth/refresh", query: [], body: body))
         return StoredTokens(response.data)
     }
 
@@ -180,16 +180,21 @@ actor APIClient {
         body: Data?,
         contentType: String = "application/json",
         timeout: TimeInterval = 30
-    ) -> URLRequest {
-        var components = URLComponents(
+    ) throws -> URLRequest {
+        guard var components = URLComponents(
             url: environment.baseURL.appending(path: path.trimmingPrefix("/")),
             resolvingAgainstBaseURL: false
-        )!
+        ) else {
+            throw APIError(code: .invalidResponse)
+        }
         if !query.isEmpty {
             components.queryItems = query
         }
+        guard let url = components.url else {
+            throw APIError(code: .invalidResponse)
+        }
 
-        var request = URLRequest(url: components.url!)
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = timeout
         request.setValue("application/json", forHTTPHeaderField: "Accept")

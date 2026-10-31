@@ -8,6 +8,7 @@ final class CatalogUITests: XCTestCase {
         continueAfterFailure = false
     }
 
+    @MainActor
     private func launch(_ scenario: String? = nil, tab: String? = nil) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = ["-apiMode", "mock", "-resetCache"]
