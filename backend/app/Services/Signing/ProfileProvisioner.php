@@ -331,7 +331,13 @@ class ProfileProvisioner
         try {
             return $this->appGroups->ensure($team, $group, $bundle, $name);
         } catch (AppGroupUnavailable $e) {
-            Log::warning('signing.app_group_unavailable', ['group' => $group, 'bundle' => $bundle, 'reason' => $e->reason, 'message' => $e->getMessage()]);
+            // Fires on every signing for the same team+group until an operator fixes it, so it is
+            // logged (and audited) once per team+group per day instead of thousands of times.
+            $onceKey = 'signing.app_group_unavailable:'.$team->getKey().':'.$group.':'.now()->format('Y-m-d');
+            if (! Cache::add($onceKey, true, now()->addDay())) {
+                return false;
+            }
+            Log::info('signing.app_group_unavailable', ['team' => $team->getKey(), 'group' => $group, 'bundle' => $bundle, 'reason' => $e->reason, 'message' => $e->getMessage()]);
             $this->audit->record('signing.app_group_unavailable', $team, after: ['group' => $group, 'bundle_identifier' => $bundle, 'reason' => $e->reason],
                 reason: $e->reason === 'SESSION_EXPIRED' ? 'Apple ID session expired: run php artisan apple:portal-login' : mb_substr($e->getMessage(), 0, 500),
                 actor: Actor::system('signing'));
