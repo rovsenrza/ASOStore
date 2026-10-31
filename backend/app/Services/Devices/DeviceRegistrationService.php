@@ -56,6 +56,19 @@ class DeviceRegistrationService
      */
     public function request(Device $device): ?DeviceRegistration
     {
+        // Re-enrollment and SyncDeviceRegistrationsJob can ask at the same moment, and the
+        // firstOrCreate key below includes the team, so two callers could each pick a different
+        // team. Locking every device row of this UDID serialises them: the second one finds the
+        // first one's registration in the re-check instead of choosing a team of its own.
+        return DB::transaction(function () use ($device) {
+            Device::query()->where('udid_hash', $device->udid_hash)->orderBy('id')->lockForUpdate()->get();
+
+            return $this->requestLocked($device);
+        }, 3);
+    }
+
+    private function requestLocked(Device $device): ?DeviceRegistration
+    {
         $current = DeviceRegistration::query()
             ->where('udid_hash', $device->udid_hash)
             ->whereHas('team', fn ($query) => $query->whereIn('status', [AppleTeamStatus::Active->value, AppleTeamStatus::Expiring->value]))

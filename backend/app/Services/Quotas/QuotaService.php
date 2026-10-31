@@ -10,6 +10,7 @@ use App\Models\TeamQuota;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use App\StateMachines\StateMachine;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -31,6 +32,9 @@ class QuotaService
     public const ALREADY_HELD = 'ALREADY_HELD';
 
     public const SWITCHED = 'SWITCHED';
+
+    /** Internal: the first pass found the team full and must retry with the switch rows locked. */
+    private const EXHAUSTED = 'EXHAUSTED';
 
     public function __construct(
         private readonly StateMachine $states,
@@ -56,32 +60,49 @@ class QuotaService
     {
         $quotaId = $this->quotaFor($registration)->id;
 
-        return DB::transaction(function () use ($registration, $quotaId) {
-            $quota = TeamQuota::query()->whereKey($quotaId)->lockForUpdate()->firstOrFail();
-            $locked = DeviceRegistration::query()->whereKey($registration->getKey())->lockForUpdate()->firstOrFail();
+        $result = DB::transaction(fn () => $this->reserveLocked($registration, $quotaId, null));
+        if ($result !== self::EXHAUSTED) {
+            return $result;
+        }
 
-            if (in_array($locked->status->value, DeviceRegistration::CONSUMING_STATUSES, true)) {
-                return self::ALREADY_HELD;
-            }
+        // The team is full. Switching locks other teams' quota rows too, so start over and lock
+        // all of them up front in ascending id order: locking one more row while holding another
+        // could deadlock with a caller switching between the same teams the other way round.
+        $quotaIds = collect($this->selector->switchQuotaIds($registration))->push($quotaId)->unique()->sort()->values()->all();
 
-            if ($quota->remaining() <= 0) {
-                return $this->selector->handleExhausted($locked, $quota);
-            }
+        return DB::transaction(fn () => $this->reserveLocked($registration, $quotaId, $quotaIds));
+    }
 
-            QuotaReservation::create([
-                'team_quota_id' => $quota->id,
-                'device_registration_id' => $locked->id,
-                'expires_at' => now()->addMinutes(QuotaReservation::TTL_MINUTES),
-            ]);
-            $this->states->transition($locked, Status::ApplePending, actor: Actor::system('quota'), extra: ['status_reason' => null]);
-            $this->audit->record('quota.reserved', $locked, after: [
-                'team' => $quota->team->apple_team_id,
-                'family' => $quota->device_family->value,
-                'remaining' => $quota->remaining(),
-            ], actor: Actor::system('quota'));
+    /**
+     * @param  list<int>|null  $switchQuotaIds  Null on the first pass: a full team then answers EXHAUSTED.
+     */
+    private function reserveLocked(DeviceRegistration $registration, int $quotaId, ?array $switchQuotaIds): string
+    {
+        $quota = TeamQuota::query()->whereIn('id', $switchQuotaIds ?? [$quotaId])->orderBy('id')->lockForUpdate()->get()->firstWhere('id', $quotaId)
+            ?? throw (new ModelNotFoundException)->setModel(TeamQuota::class, [$quotaId]);
+        $locked = DeviceRegistration::query()->whereKey($registration->getKey())->lockForUpdate()->firstOrFail();
 
-            return self::RESERVED;
-        });
+        if (in_array($locked->status->value, DeviceRegistration::CONSUMING_STATUSES, true)) {
+            return self::ALREADY_HELD;
+        }
+
+        if ($quota->remaining() <= 0) {
+            return $switchQuotaIds === null ? self::EXHAUSTED : $this->selector->handleExhausted($locked, $quota, $switchQuotaIds);
+        }
+
+        QuotaReservation::create([
+            'team_quota_id' => $quota->id,
+            'device_registration_id' => $locked->id,
+            'expires_at' => now()->addMinutes(QuotaReservation::TTL_MINUTES),
+        ]);
+        $this->states->transition($locked, Status::ApplePending, actor: Actor::system('quota'), extra: ['status_reason' => null]);
+        $this->audit->record('quota.reserved', $locked, after: [
+            'team' => $quota->team->apple_team_id,
+            'family' => $quota->device_family->value,
+            'remaining' => $quota->remaining(),
+        ], actor: Actor::system('quota'));
+
+        return self::RESERVED;
     }
 
     /**
