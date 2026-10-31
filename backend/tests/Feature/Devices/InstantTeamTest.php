@@ -16,6 +16,7 @@ use App\Models\TeamQuota;
 use App\Notifications\DeviceReadyNotification;
 use App\Services\Apple\AppleDevice;
 use App\Services\Devices\DeviceRegistrationService;
+use App\Services\Quotas\TeamSelector;
 use Illuminate\Support\Facades\Notification;
 use Tests\Support\ScriptedApple;
 
@@ -91,6 +92,21 @@ it('picks the least-loaded team among all teams', function () {
     $team('TEAM000005', 55);
 
     expect(($this->enrol)('00008030-0000000000000001')->apple_team_id)->toBe($lightest->id);
+});
+
+it('skips a lighter team without free slots and honours the excluded team', function () {
+    $selector = app(TeamSelector::class);
+    $year = fn (AppleTeam $team) => $team->currentMembershipYear()->id;
+    TeamQuota::create(['apple_team_id' => $this->primary->id, 'membership_year_id' => $year($this->primary), 'device_family' => 'IPHONE', 'limit_count' => 100, 'apple_registered_count' => 40]);
+    $second = TeamQuota::create(['apple_team_id' => $this->second->id, 'membership_year_id' => $year($this->second), 'device_family' => 'IPHONE', 'limit_count' => 100, 'apple_registered_count' => 5]);
+
+    expect($selector->instantTeam('IPHONE')?->id)->toBe($this->second->id)
+        ->and($selector->instantTeam('IPHONE', exclude: $this->second->id)?->id)->toBe($this->primary->id);
+
+    // The lighter team is now full: the busier one with room wins; with that excluded too, none.
+    $second->forceFill(['limit_count' => 0])->save(); // how ops pause a team (quota=full)
+    expect($selector->instantTeam('IPHONE')?->id)->toBe($this->primary->id)
+        ->and($selector->instantTeam('IPHONE', exclude: $this->primary->id))->toBeNull();
 });
 
 it('keeps a device Apple is processing on its team, however long it waits', function () {
