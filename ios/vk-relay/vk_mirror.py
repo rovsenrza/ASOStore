@@ -100,6 +100,12 @@ def check_entitlement(udid):
 # try each captured candidate and remember the one that works (user["deviceId"]).
 VKID_AUTH_URL = "https://id.vk.com/oauth2/auth"
 VKID_CLIENT_ID = os.environ.get("VKRELAY_VKID_CLIENT_ID", "3140623")
+# Per-user refresh backoff: VKID answers slow_down under load; three pollers (calls/mirror/notif)
+# each hit an expired token every loop, so without this they flood id.vk.com and the rate limit
+# never clears. After a failed refresh we refuse further id.vk.com calls for this user until then.
+_refresh_next = {}
+_REFRESH_COOLDOWN = 90    # ordinary failed refresh (e.g. invalid_grant)
+_REFRESH_SLOWDOWN = 600   # VKID returned slow_down (rate limited)
 import uuid as _uuid  # noqa: E402
 CF_EPOCH = 978307200  # CFAbsoluteTime (2001-01-01) -> Unix epoch offset; accessTokenExpiry is CF time.
 
@@ -115,6 +121,8 @@ def token_expired(user, skew=120):
 def _device_candidates(user):
     out = []
     for d in [user.get("deviceId")] + list(user.get("deviceIds", []) or []):
+        if isinstance(d, str):
+            d = d.strip().strip('"').strip()
         if d and d not in out:
             out.append(d)
     return out
@@ -124,10 +132,13 @@ def vkid_refresh(user):
     """Exchange the stored refreshToken for a fresh access token. Updates persisted state + the live
     user dict in place; returns the new access token, or None if no candidate device_id works."""
     uid = norm_uid(user.get("userId"))
+    if time.time() < _refresh_next.get(uid, 0):
+        return None
     rt = user.get("refreshToken")
     cands = _device_candidates(user)
     if not (rt and cands):
         return None
+    saw_slowdown = False
     for dev in cands:
         try:
             data = urlencode({"grant_type": "refresh_token", "refresh_token": rt,
@@ -166,9 +177,13 @@ def vkid_refresh(user):
             if res.get("expires_in"):
                 user["accessTokenExpiry"] = (time.time() - CF_EPOCH) + float(res["expires_in"])
             print(f"[refresh] {uid} OK via dev={dev[:8]} rotated={bool(res.get('refresh_token'))}", flush=True)
+            _refresh_next.pop(uid, None)
             return at
+        if res.get("error") == "slow_down" or res.get("error_code") == 429:
+            saw_slowdown = True
         print(f"[refresh] {uid} dev={dev[:8]} -> {res.get('error')}: {res.get('error_description')}",
               flush=True)
+    _refresh_next[uid] = time.time() + (_REFRESH_SLOWDOWN if saw_slowdown else _REFRESH_COOLDOWN)
     return None
 
 
