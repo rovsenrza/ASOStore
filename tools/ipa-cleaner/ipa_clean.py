@@ -411,8 +411,10 @@ def convert_rar(source, destination):
 class Bundle:
     """One app archive: its binaries, what loads what, and what is injected."""
 
-    def __init__(self, archive, rules):
+    def __init__(self, archive, rules, requested=()):
         self.rules = rules
+        # Paths named with --remove: listed when unused even without markers, after review by hand.
+        self.requested = set(requested)
         entries = archive.infolist()
         names = [entry.filename for entry in entries]
         if len(set(names)) != len(names):
@@ -481,7 +483,8 @@ class Bundle:
                     referenced, problem = None, str(error)
                 for ordinal, name in enumerate(macho.libraries, 1):
                     target = self.resolve(binary, name)
-                    if target is not None:
+                    # A library that names itself (seen in tweaks) does not keep itself in use.
+                    if target is not None and target != binary:
                         self.loaded_by[target].append({"binary": binary, "load": name, "ordinal": ordinal,
                                                        "unused": referenced is not None and ordinal > referenced, "problem": problem})
 
@@ -560,7 +563,7 @@ class Bundle:
             hooks = self.markers(data, self.rules.get("hook_markers", []))
             promos = self.markers(data, self.rules.get("promo_markers", []))
             outside_frameworks = "/Frameworks/" not in "/" + path[len(self.root):]
-            if not rule and not encrypted and not (hooks or promos or outside_frameworks):
+            if not rule and not encrypted and not (hooks or promos or outside_frameworks or path in self.requested):
                 continue
             category = (rule["category"] if rule else "encrypted-component" if encrypted else "hook-runtime" if self.hook_runtime(path)
                         else "suspected-hook" if hooks else "suspected-promotion" if promos else "unreferenced-library")
@@ -757,7 +760,7 @@ def clean(source, destination, rules, remove=(), remove_extensions=(), opt_in=()
             current = Path(temporary) / "converted.ipa"
             convert_rar(source, current)
         with zipfile.ZipFile(current) as archive:
-            bundle = Bundle(archive, rules)
+            bundle = Bundle(archive, rules, requested=remove)
             before = bundle.report()
             modules = {module["path"]: module for module in before["modules"]}
             selected = set(remove)
