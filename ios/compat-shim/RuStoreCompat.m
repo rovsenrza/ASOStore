@@ -374,6 +374,61 @@ static void RSSuppressForceUpgrade(void) {
     free(names);
 }
 
+#pragma mark - VPN tunnel provider bundle ID
+
+// A VPN app names its tunnel extension in the NETunnelProviderProtocol it saves. Many build that
+// ID from their original bundle ID (or a sideload patch hands them the original one), so on a
+// re-signed copy iOS looks for "<vendor>.PacketTunnelProvider", finds no such extension ("Found 0
+// registrations") and the VPN never starts. Point any ID that is not one of our own embedded
+// tunnel extensions at the one we do ship: same last name component, else the only one there is.
+static NSDictionary<NSString *, NSString *> *gTunnelExtensions; // bundle ID -> extension point
+static void (*orig_setProviderBundleIdentifier)(id, SEL, NSString *);
+
+static NSString *RSTunnelProviderFor(NSString *requested) {
+    if (![requested isKindOfClass:NSString.class] || gTunnelExtensions[requested] != nil) return requested;
+    NSString *name = requested.pathExtension; // after the last dot: "PacketTunnelProvider"
+    for (NSString *ident in gTunnelExtensions) {
+        if (name.length > 0 && [ident.pathExtension isEqualToString:name]) return ident;
+    }
+    return gTunnelExtensions.count == 1 ? gTunnelExtensions.allKeys.firstObject : requested;
+}
+
+static void rs_setProviderBundleIdentifier(id self, SEL _cmd, NSString *requested) {
+    NSString *mapped = RSTunnelProviderFor(requested);
+    if (mapped != requested) RSLog(@"tunnel provider %@ -> %@", requested, mapped);
+    orig_setProviderBundleIdentifier(self, _cmd, mapped);
+}
+
+// NetworkExtension may load after us: try on every image until the class exists.
+static void RSTunnelAddImage(const struct mach_header *header, intptr_t slide) {
+    if (orig_setProviderBundleIdentifier != NULL) return;
+    Class cls = objc_getClass("NETunnelProviderProtocol");
+    if (cls != Nil) {
+        RSSwizzle(cls, @selector(setProviderBundleIdentifier:), (IMP)rs_setProviderBundleIdentifier, &orig_setProviderBundleIdentifier);
+    }
+}
+
+static void RSInstallTunnelProviderRemap(void) {
+    NSMutableDictionary *found = [NSMutableDictionary dictionary];
+    NSString *plugins = NSBundle.mainBundle.builtInPlugInsPath;
+    for (NSString *entry in [NSFileManager.defaultManager contentsOfDirectoryAtPath:plugins error:NULL]) {
+        if (![entry.pathExtension isEqualToString:@"appex"]) continue;
+        // Straight from disk: a sideload patch may rewrite what NSBundle reports.
+        NSDictionary *info = [NSDictionary dictionaryWithContentsOfFile:
+                              [[plugins stringByAppendingPathComponent:entry] stringByAppendingPathComponent:@"Info.plist"]];
+        id ident = info[@"CFBundleIdentifier"];
+        id point = [info[@"NSExtension"] isKindOfClass:NSDictionary.class] ? info[@"NSExtension"][@"NSExtensionPointIdentifier"] : nil;
+        if ([ident isKindOfClass:NSString.class] && ([point isEqual:@"com.apple.networkextension.packet-tunnel"]
+                                                    || [point isEqual:@"com.apple.networkextension.app-proxy"])) {
+            found[ident] = point;
+        }
+    }
+    if (found.count == 0) return;
+    gTunnelExtensions = [found copy];
+    RSLog(@"tunnel extensions %@", gTunnelExtensions.allKeys);
+    _dyld_register_func_for_add_image(RSTunnelAddImage);
+}
+
 #pragma mark - Keychain hooks
 
 static const char *gAppRoot;
@@ -446,6 +501,8 @@ static void RuStoreCompatInit(void) {
         if (icloudServices == nil || ![icloudContainers isKindOfClass:NSArray.class] || [icloudContainers count] == 0) {
             RSInstallInertCloudKit();
         }
+
+        RSInstallTunnelProviderRemap();
 
         // Also without any group of our own: then missing groups get a private folder.
         RSSwizzle(NSFileManager.class, @selector(containerURLForSecurityApplicationGroupIdentifier:),
