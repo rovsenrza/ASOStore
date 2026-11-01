@@ -26,6 +26,10 @@ final class CatalogListModel: ObservableObject {
 
     var apps: [StoreApp] { state.value ?? [] }
 
+    init(sort: CatalogSort = .featured) {
+        filter.sort = sort
+    }
+
     /// Retries a load that was cancelled mid-flight without ever producing a result. Pushing
     /// another screen onto the nav stack cancels this view's own `.task`, and nothing restarts
     /// it on return since the reload key didn't change — the list is stuck on its loading

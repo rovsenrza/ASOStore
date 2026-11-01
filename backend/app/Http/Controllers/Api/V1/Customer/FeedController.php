@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers\Api\V1\Customer;
 
-use App\Enums\InstallationStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\AppSummaryResource;
 use App\Http\Resources\CategoryResource;
@@ -18,12 +17,14 @@ use Illuminate\Support\Collection;
  * Curated sections for the native Home, Games and Apps tabs (IMPLEMENTATION_PLAN G16).
  *
  * Rankings come from real data only (PRODUCT.md: no fabricated metrics):
- * "most downloaded" counts delivered installations, "trending" counts those
+ * "most downloaded" counts the devices that received an app, "trending" those
  * of the last seven days. A section with no data is left out.
  *
- * Each app appears in one list only, the first it qualifies for, so a small
- * catalog does not repeat the same app in every list. The banner is curated
- * (featured_rank) and may still show an app that is also in a list.
+ * Every list is ranked on its own: with a catalog of hundreds of apps, hiding
+ * an app from one list because another already shows it emptied whole lists
+ * («Новые» with one app). Only "trending" leaves out the leaders of "most
+ * downloaded", so it shows what is rising instead of the same first rows.
+ * «Русские приложения» gets its own list on Home and the Apps tab.
  */
 class FeedController extends Controller
 {
@@ -32,6 +33,9 @@ class FeedController extends Controller
         'games' => ['most_downloaded' => 'Самые скачиваемые игры', 'trending' => 'Трендовые игры'],
         'apps' => ['most_downloaded' => 'Самые загружаемые приложения', 'trending' => 'Популярные приложения'],
     ];
+
+    /** How many of the most downloaded apps "trending" leaves out. */
+    private const TRENDING_SKIPS_LEADERS = 10;
 
     public function __invoke(Request $request): JsonResponse
     {
@@ -45,13 +49,23 @@ class FeedController extends Controller
             ->limit($limit)
             ->get();
 
-        $mostDownloaded = $this->byInstallations($kind, $limit);
-        $trending = $this->byInstallations($kind, $limit, now()->subDays(7));
+        $mostDownloaded = $this->byDownloads($kind, $limit);
+        $leaders = $mostDownloaded->take(self::TRENDING_SKIPS_LEADERS)->pluck('id');
+        $trending = $this->byDownloads($kind, $limit, now()->subDays(7), $leaders->all());
+        $russianCategory = $kind === 'games' ? null : AppCategory::query()->where('slug', config('storefront.catalog.feed_russian_category'))->first();
+        $russian = $russianCategory === null ? collect() : $this->apps($kind)
+            ->where('category_id', $russianCategory->id)
+            ->withDownloads()
+            ->orderByDesc('downloads')
+            ->orderBy('name')
+            ->limit($limit)
+            ->get();
 
         $recentlyUpdated = $this->apps($kind)
             ->withMax('versions', 'released_at')
             ->whereHas('versions')
             ->orderByDesc('versions_max_released_at')
+            ->orderByDesc('created_at')
             ->limit($limit)
             ->get();
 
@@ -66,22 +80,13 @@ class FeedController extends Controller
             ->filter(fn (AppCategory $category) => $category->apps_count > 0)
             ->values();
 
-        $shown = [];
-        $unique = function (Collection $apps) use (&$shown): Collection {
-            $fresh = $apps->reject(fn (CatalogApp $app) => isset($shown[$app->id]))->values();
-            foreach ($fresh as $app) {
-                $shown[$app->id] = true;
-            }
-
-            return $fresh;
-        };
-
         $sections = array_values(array_filter([
             $this->appSection('featured', 'featured', 'Выбор редакции', $featured, $request),
-            $this->appSection('most_downloaded', 'carousel', $titles['most_downloaded'], $unique($mostDownloaded), $request),
-            $this->appSection('trending', 'carousel', $titles['trending'], $unique($trending), $request),
-            $this->appSection('recently_updated', 'carousel', 'Недавно обновлённые', $unique($recentlyUpdated), $request),
-            $this->appSection('new', 'carousel', 'Новые', $unique($newest), $request),
+            $this->appSection('most_downloaded', 'carousel', $titles['most_downloaded'], $mostDownloaded, $request),
+            $this->appSection('trending', 'carousel', $titles['trending'], $trending, $request),
+            $this->appSection('recently_updated', 'carousel', 'Недавно обновлённые', $recentlyUpdated, $request),
+            $this->appSection('new', 'carousel', 'Новые', $newest, $request),
+            $this->appSection('russian', 'carousel', $russianCategory->title ?? '', $russian, $request),
             $categories->isEmpty() ? null : [
                 'id' => 'categories',
                 'kind' => 'categories',
@@ -104,19 +109,18 @@ class FeedController extends Controller
     }
 
     /**
-     * Apps with at least one delivered installation, most first.
+     * Apps that reached at least one device (since a moment), most devices first.
      *
+     * @param  list<int>  $except
      * @return Collection<int, CatalogApp>
      */
-    private function byInstallations(string $kind, int $limit, ?\DateTimeInterface $since = null): Collection
+    private function byDownloads(string $kind, int $limit, ?\DateTimeInterface $since = null, array $except = []): Collection
     {
-        $scope = fn ($installations) => $installations
-            ->where('status', InstallationStatus::Delivered->value)
-            ->when($since !== null, fn ($query) => $query->where('delivered_at', '>=', $since));
-
         return $this->apps($kind)
-            ->withCount(['installations as downloads' => $scope])
-            ->whereHas('installations', $scope)
+            ->whereKeyNot($except)
+            ->withDownloads($since)
+            ->whereHas('installations', fn ($installations) => $installations->whereNotNull('delivered_at')
+                ->when($since !== null, fn ($query) => $query->where('delivered_at', '>=', $since)))
             ->orderByDesc('downloads')
             ->orderBy('name')
             ->limit($limit)

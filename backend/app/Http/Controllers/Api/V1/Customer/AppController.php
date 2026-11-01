@@ -23,7 +23,8 @@ class AppController extends Controller
             'q' => ['nullable', 'string', 'max:100'],
             'category' => ['nullable', 'string', 'max:64'],
             'kind' => ['nullable', 'in:apps,games'],
-            // featured (default), updated (newest release first), new (newest listing first), name (A–Я)
+            // featured (default: editor's picks, then most downloaded), updated (newest release first),
+            // new (newest listing first), name (A–Я)
             'sort' => ['nullable', 'in:featured,updated,new,name'],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:'.config('storefront.catalog.per_page_max')],
@@ -35,9 +36,9 @@ class AppController extends Controller
 
         match ($validated['sort'] ?? 'featured') {
             'name' => $query->orderBy('name')->orderBy('id'),
-            'updated' => $query->withMax('versions', 'released_at')->orderByDesc('versions_max_released_at')->orderBy('name'),
+            'updated' => $query->withMax('versions', 'released_at')->orderByDesc('versions_max_released_at')->orderByDesc('created_at')->orderBy('id'),
             'new' => $query->orderByDesc('created_at')->orderByDesc('id'),
-            default => $query->orderByRaw('featured_rank IS NULL, featured_rank')->orderBy('name'),
+            default => $query->withDownloads()->orderByRaw('featured_rank IS NULL, featured_rank')->orderByDesc('downloads')->orderBy('name'),
         };
 
         if (filled($validated['kind'] ?? null)) {

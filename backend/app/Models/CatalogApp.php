@@ -189,6 +189,27 @@ class CatalogApp extends Model
     }
 
     /**
+     * Adds `downloads`: how many devices received this app, optionally since a moment. Counts
+     * every delivered installation, also those an update or a lapsed plan later expired.
+     *
+     * @param  Builder<CatalogApp>  $query
+     */
+    public function scopeWithDownloads(Builder $query, ?\DateTimeInterface $since = null): void
+    {
+        if ($query->getQuery()->columns === null) {
+            $query->select($query->getModel()->getTable().'.*');
+        }
+        $query->selectSub(
+            Installation::query()
+                ->selectRaw('count(distinct device_id)')
+                ->whereColumn('installations.app_id', $query->getModel()->getTable().'.id')
+                ->whereNotNull('delivered_at')
+                ->when($since !== null, fn ($installations) => $installations->where('delivered_at', '>=', $since)),
+            'downloads',
+        );
+    }
+
+    /**
      * Listings with a public web page: published catalog apps, not the storefront itself and not
      * customers' private imports.
      *

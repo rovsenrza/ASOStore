@@ -50,16 +50,6 @@ nonisolated struct CatalogRepository: Sendable {
         return feed
     }
 
-    /// One sorted page of apps plus the total count (Search: «Обновлено» / «Новое»).
-    func page(sort: CatalogSort, kind: CatalogKind = .all, perPage: Int = 50) async throws -> (apps: [AppSummaryDTO], total: Int) {
-        var query = [URLQueryItem(name: "sort", value: sort.rawValue), URLQueryItem(name: "per_page", value: String(perPage))]
-        if let kind = kind.queryValue {
-            query.append(URLQueryItem(name: "kind", value: kind))
-        }
-        let response = try await api.get("/apps", query: query, as: [AppSummaryDTO].self)
-        return (response.data, response.meta.pagination?.total ?? response.data.count)
-    }
-
     /// The whole catalog, a page at a time, narrowed by kind and category (Каталог, «Все приложения»).
     func list(kind: CatalogKind, category: String?, sort: CatalogSort, page: Int, perPage: Int = 30) async throws -> CatalogPage {
         var query = [

@@ -6,15 +6,11 @@ final class SearchModel: ObservableObject {
         case updated, new
         var id: String { rawValue }
         var title: String { self == .updated ? "Обновлено" : "Новое" }
-        var sort: CatalogSort { self == .updated ? .updated : .new }
     }
 
     @Published var query = ""
     @Published var listing: Listing = .updated
     @Published private(set) var results: LoadState<[StoreApp]> = .empty
-    /// The two browse lists shown while nothing is typed, with their totals.
-    @Published private(set) var lists: [Listing: LoadState<[StoreApp]>] = [:]
-    @Published private(set) var totals: [Listing: Int] = [:]
 
     /// Debounced: typing cancels the previous search (FULL_PLAN §11 "search remains responsive").
     func search(_ catalog: CatalogRepository) async {
@@ -36,36 +32,14 @@ final class SearchModel: ObservableObject {
             results = LoadState(error: error)
         }
     }
-
-    func loadLists(_ catalog: CatalogRepository) async {
-        for listing in Listing.allCases where lists[listing] == nil {
-            lists[listing] = .loading
-        }
-        async let updated = Self.fetch(catalog, .updated)
-        async let newest = Self.fetch(catalog, .new)
-        for (listing, result) in [(Listing.updated, await updated), (Listing.new, await newest)] {
-            switch result {
-            case .success(let page):
-                totals[listing] = page.total
-                lists[listing] = page.apps.isEmpty ? .empty : .loaded(page.apps.map(StoreApp.init))
-            case .failure(let error):
-                if !(error is CancellationError) { lists[listing] = LoadState(error: error) }
-            }
-        }
-    }
-
-    private static func fetch(_ catalog: CatalogRepository, _ listing: Listing) async -> Result<(apps: [AppSummaryDTO], total: Int), Error> {
-        do {
-            return .success(try await catalog.page(sort: listing.sort))
-        } catch {
-            return .failure(error)
-        }
-    }
 }
 
 struct SearchView: View {
     @Environment(\.catalog) private var catalog
     @StateObject private var model = SearchModel()
+    /// «Обновлено» and «Новое»: the whole catalog in that order, a page at a time.
+    @StateObject private var updated = CatalogListModel(sort: .updated)
+    @StateObject private var newest = CatalogListModel(sort: .new)
     @FocusState private var searching: Bool
     @Namespace private var zoom
 
@@ -79,9 +53,10 @@ struct SearchView: View {
                         searchResults
                     } else {
                         listingPicker
-                        StateContainerView(state: model.lists[model.listing] ?? .loading, retry: reloadLists, skeleton: .rows) { apps in
-                            rows(apps)
+                        CatalogAppList(model: list(model.listing), source: "search-\(model.listing.rawValue)") {
+                            reloadLists()
                         }
+                        .padding(.horizontal, AppSpacing.standard)
                         .frame(minHeight: 300, alignment: .top)
                     }
                 }
@@ -92,9 +67,9 @@ struct SearchView: View {
             .background(AppPalette.canvas)
             .navigationBarHiddenCompat()
             .swipeBackEnabled()
-            .refreshable { await model.loadLists(catalog) }
+            .refreshable { await reloadAll() }
             .task(id: model.query) { await model.search(catalog) }
-            .task { await model.loadLists(catalog) }
+            .task { await reloadAll() }
             .environment(\.zoomNamespace, zoom)
             .storeDestinations()
         }
@@ -138,7 +113,7 @@ struct SearchView: View {
                     HStack(spacing: 8) {
                         Text(listing.title)
                             .font(.headline)
-                        if let total = model.totals[listing] {
+                        if let total = list(listing).total {
                             Text("\(total)")
                                 .font(.caption.weight(.bold))
                                 .padding(.horizontal, 7)
@@ -193,8 +168,18 @@ struct SearchView: View {
         Task { await model.search(catalog) }
     }
 
+    private func list(_ listing: SearchModel.Listing) -> CatalogListModel {
+        listing == .updated ? updated : newest
+    }
+
     private func reloadLists() {
-        Task { await model.loadLists(catalog) }
+        Task { await reloadAll() }
+    }
+
+    private func reloadAll() async {
+        async let first: Void = updated.reload(catalog)
+        async let second: Void = newest.reload(catalog)
+        _ = await (first, second)
     }
 }
 

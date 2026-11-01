@@ -135,7 +135,10 @@ return [
         'screenshot_max_count' => 10,
         'per_page_default' => 20,
         'per_page_max' => 50,
-        'feed_section_limit' => 10,
+        // Apps per feed list; «Показать все» on a list opens exactly these.
+        'feed_section_limit' => 30,
+        // The category shown as its own «Русские приложения» list on Home and the Apps tab.
+        'feed_russian_category' => env('STOREFRONT_FEED_RUSSIAN_CATEGORY', 'russkie-prilozheniya'),
     ],
 
     /*
