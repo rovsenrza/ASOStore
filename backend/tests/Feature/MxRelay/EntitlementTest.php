@@ -95,3 +95,14 @@ it('404s when no secret is configured', function () {
     $this->withHeader('X-MX-Relay-Secret', '')
         ->postJson('/api/v1/mx-relay/entitlement', ['udid' => $this->udid])->assertNotFound();
 });
+
+it('lets the relays re-check many users a minute without hitting the telemetry throttle', function () {
+    $device = makeDevice($this->udid);
+    grantSubscription($device->user);
+
+    foreach (range(1, 40) as $_) {
+        $this->withHeader('X-MX-Relay-Secret', 'topsecret')
+            ->postJson('/api/v1/mx-relay/entitlement', ['udid' => $this->udid])
+            ->assertOk();
+    }
+});

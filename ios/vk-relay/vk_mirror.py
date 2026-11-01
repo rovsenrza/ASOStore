@@ -15,6 +15,7 @@
 import os, json, time, threading, subprocess
 from urllib.parse import urlencode, urlparse, parse_qs
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 D = os.path.dirname(os.path.abspath(__file__))
@@ -34,6 +35,12 @@ VOIP_MAX_BYTES = 4800
 ENT_URL = os.environ.get("VKRELAY_ENTITLEMENT_URL", "https://ruappstore.com/api/v1/mx-relay/entitlement")
 ENT_SECRET = os.environ.get("VKRELAY_SECRET", "")
 ENT_TTL = int(os.environ.get("VKRELAY_ENTITLEMENT_TTL", "600"))
+# Same protection as the MAX relay: if the backend throttles us (429), hold the last verdict for a
+# long time, and never issue more than ENT_MAX_PER_MIN entitlement calls per minute across ALL users.
+ENT_429_TTL = int(os.environ.get("VKRELAY_ENTITLEMENT_429_TTL", "1800"))
+ENT_MAX_PER_MIN = int(os.environ.get("VKRELAY_ENTITLEMENT_MAX_PER_MIN", "20"))
+_ent_budget = []
+_ent_budget_lock = threading.Lock()
 CHECK_INTERVAL = int(os.environ.get("VKRELAY_CHECK_INTERVAL", "600"))
 _entitlement_cache = {}  # udid -> (active, checked_at)
 
@@ -72,23 +79,46 @@ def save_state(s):
         os.replace(tmp, STATE)
 
 
+def _ent_budget_ok():
+    now = time.time()
+    with _ent_budget_lock:
+        while _ent_budget and now - _ent_budget[0] > 60:
+            _ent_budget.pop(0)
+        if len(_ent_budget) >= ENT_MAX_PER_MIN:
+            return False
+        _ent_budget.append(now)
+        return True
+
+
 def check_entitlement(udid):
     if not udid:
         return True  # old/shared build without a per-device UDID: leave ungated.
     now = time.time()
     c = _entitlement_cache.get(udid)
-    if c and now - c[1] < ENT_TTL:
+    if c and now - c[1] < c[2]:
         return c[0]
     active = c[0] if c else True  # fail open: a backend blip must not kill notifications.
+    # Over budget: do not call the backend; serve the last verdict and retry soon.
+    if not _ent_budget_ok():
+        _entitlement_cache[udid] = (active, now, 30)
+        return active
+    ttl = ENT_TTL
     try:
         req = Request(ENT_URL, data=json.dumps({"udid": udid}).encode(),
                       headers={"Content-Type": "application/json", "X-MX-Relay-Secret": ENT_SECRET},
                       method="POST")
         with urlopen(req, timeout=10) as r:
-            active = bool(json.loads(r.read()).get("active"))
+            res = json.loads(r.read())
+        active = bool(res.get("active"))
+        if not active:
+            print(f"[entitle] {udid} not entitled ({res.get('reason')})", flush=True)
+    except HTTPError as e:
+        if e.code == 429:
+            ttl = ENT_429_TTL  # backend throttled us: hold the last verdict, stop the stampede
+        print(f"[entitle] {udid} check failed: {e}", flush=True)
     except Exception as e:
         print(f"[entitle] {udid} check failed: {e}", flush=True)
-    _entitlement_cache[udid] = (active, now)
+    _entitlement_cache[udid] = (active, now, ttl)
     return active
 
 

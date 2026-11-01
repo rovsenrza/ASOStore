@@ -78,6 +78,9 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('account-data', fn (Request $request) => Limit::perHour(5)->by('account-data:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
         RateLimiter::for('worker', fn (Request $request) => Limit::perMinute(600)->by('worker:'.$request->header('X-Runner-Key', $request->ip())));
         RateLimiter::for('telemetry', fn (Request $request) => Limit::perMinute(30)->by('telemetry:'.$request->ip()));
+        // MAX/VK relays (secret-authenticated) re-check every user's subscription from one server IP;
+        // sharing telemetry's 30/min made them hit 429 and keep lapsed users notified.
+        RateLimiter::for('relay', fn (Request $request) => Limit::perMinute(600)->by('relay:'.$request->ip()));
         RateLimiter::for('installs', fn (Request $request) => Limit::perMinute(30)->by('installs:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
         RateLimiter::for('imports', fn (Request $request) => Limit::perMinute(20)->by('imports:'.($request->user()?->getAuthIdentifier() ?? $request->ip())));
         RateLimiter::for('install-manifest', fn (Request $request) => Limit::perMinute(30)->by('manifest:'.$request->ip()));
