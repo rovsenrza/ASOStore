@@ -346,6 +346,8 @@ return [
         'downloads_per_user_per_hour' => 30,
         'enrollments_per_ip_per_hour' => 10,
         'runner_offline_minutes' => 5,
+        // Off on prod since 2026-11-01: backups were removed, the hourly alert was noise.
+        'backup_enabled' => (bool) env('STOREFRONT_ALERT_BACKUP', true),
         'backup_max_age_hours' => 26,
         // Where scripts/backup.sh writes its result (storage/app/backup-status.json).
         'backup_status_file' => env('STOREFRONT_BACKUP_STATUS_FILE', storage_path('app/backup-status.json')),

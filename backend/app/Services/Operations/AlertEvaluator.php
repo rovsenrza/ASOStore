@@ -102,9 +102,11 @@ class AlertEvaluator
         }
 
         // Backup freshness and verification (written by scripts/backup.sh).
-        $status = $this->backupStatus($limits['backup_status_file']);
-        if ($status === null || ! ($status['verified'] ?? false) || strtotime((string) ($status['finished_at'] ?? '')) < now()->subHours($limits['backup_max_age_hours'])->getTimestamp()) {
-            $raise('backup', 'The latest backup is missing, too old or failed verification.', ['status' => $status], 'error');
+        if ($limits['backup_enabled'] ?? true) {
+            $status = $this->backupStatus($limits['backup_status_file']);
+            if ($status === null || ! ($status['verified'] ?? false) || strtotime((string) ($status['finished_at'] ?? '')) < now()->subHours($limits['backup_max_age_hours'])->getTimestamp()) {
+                $raise('backup', 'The latest backup is missing, too old or failed verification.', ['status' => $status], 'error');
+            }
         }
 
         return $raised;

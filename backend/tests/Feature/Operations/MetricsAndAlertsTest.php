@@ -54,3 +54,9 @@ it('passes the backup check when the latest verified backup is recent', function
     expect(app(AlertEvaluator::class)->run())->not->toContain('backup');
     unlink($file);
 });
+
+it('skips the backup check when the backup alert is disabled', function () {
+    config(['storefront.alerts.backup_status_file' => '/nonexistent/backup-status.json', 'storefront.alerts.backup_enabled' => false]);
+
+    expect(app(AlertEvaluator::class)->run())->not->toContain('backup');
+});
