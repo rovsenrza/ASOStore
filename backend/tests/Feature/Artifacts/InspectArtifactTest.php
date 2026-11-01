@@ -160,6 +160,18 @@ it('records compatibility issues for the review without failing inspection', fun
         ->toBe(['ARM64_MISSING', 'SIMULATOR_BUILD', 'IPHONE_UNSUPPORTED', 'NESTED_BUNDLE_ID_MISMATCH']);
 });
 
+it('ignores purged builds of the app when checking the bundle ID and version', function () {
+    $old = inspected(uploadIpa($this->manager, $this->catalogApp, IpaBuilder::app()->build()));
+    App\Models\AppArtifact::whereKey($old->id)->update(['status' => ArtifactStatus::Revoked->value, 'purged_at' => now()]);
+
+    $sameVersion = inspected(uploadIpa($this->manager, $this->catalogApp, IpaBuilder::app()->info(['CFBundleName' => 'Rebuilt'])->build()));
+    expect($sameVersion->status)->toBe(ArtifactStatus::ProvenanceReview);
+    App\Models\AppArtifact::whereKey($sameVersion->id)->update(['status' => ArtifactStatus::Revoked->value, 'purged_at' => now()]);
+
+    $otherBundle = inspected(uploadIpa($this->manager, $this->catalogApp, IpaBuilder::app('com.example.other')->version('2.0', '1')->build()));
+    expect($otherBundle->status)->toBe(ArtifactStatus::ProvenanceReview);
+});
+
 it('summarises the embedded profile without storing device identifiers', function () {
     $udid = '00008030-001A2B3C4D5E6F70';
     $ipa = IpaBuilder::app()->withProfile([

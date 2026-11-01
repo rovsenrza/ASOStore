@@ -250,8 +250,10 @@ class ChunkedUploadService
             // A customer's import is private to them, so the same file imported by someone else
             // (or present in the catalog) is not a duplicate; the stored original is shared by path.
             // Likewise a customer's private import never blocks an operator uploading the same file.
+            // A purged artifact no longer holds the file, so uploading it again is not a duplicate.
             $duplicate = $upload->source_type === SourceType::UserImport ? null : AppArtifact::query()->where('sha256', $sha256)
                 ->where('source_type', '!=', SourceType::UserImport->value)
+                ->whereNull('purged_at')
                 ->whereNotIn('status', [ArtifactStatus::Rejected->value, ArtifactStatus::InspectionFailed->value, ArtifactStatus::ProvenanceFailed->value])
                 ->first();
             if ($duplicate !== null) {

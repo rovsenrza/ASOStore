@@ -135,6 +135,32 @@ it('accepts a file again after its earlier upload was rejected', function () {
         ->and(AppArtifact::where('sha256', hash('sha256', $contents))->count())->toBe(2);
 });
 
+it('accepts a file again once its revoked earlier copy was purged', function () {
+    $contents = IpaBuilder::app()->build();
+    $first = startUpload($this->manager, $this->catalogApp, $contents);
+    putChunk($first['id'], 0, $contents)->assertOk();
+    $purged = $this->postJson("/api/v1/admin/uploads/{$first['id']}/complete")->json('data.id');
+    AppArtifact::where('public_id', $purged)->update(['status' => ArtifactStatus::Revoked->value, 'status_reason' => 'UNUSED_CLEANUP', 'purged_at' => now()]);
+
+    $second = startUpload($this->manager, $this->catalogApp, $contents);
+    putChunk($second['id'], 0, $contents)->assertOk();
+    $this->postJson("/api/v1/admin/uploads/{$second['id']}/complete")->assertCreated();
+});
+
+it('still refuses a file whose revoked earlier copy keeps its file', function () {
+    $contents = IpaBuilder::app()->build();
+    $first = startUpload($this->manager, $this->catalogApp, $contents);
+    putChunk($first['id'], 0, $contents)->assertOk();
+    $revoked = $this->postJson("/api/v1/admin/uploads/{$first['id']}/complete")->json('data.id');
+    AppArtifact::where('public_id', $revoked)->update(['status' => ArtifactStatus::Revoked->value, 'status_reason' => 'REVOKED_BY_OPERATOR']);
+
+    $second = startUpload($this->manager, $this->catalogApp, $contents);
+    putChunk($second['id'], 0, $contents)->assertOk();
+    $this->postJson("/api/v1/admin/uploads/{$second['id']}/complete")
+        ->assertStatus(409)
+        ->assertJsonPath('error.code', 'DUPLICATE_ARTIFACT');
+});
+
 it('requires a provenance declaration and limits upload changes to managers', function () {
     asStaff($this->manager)->postJson('/api/v1/admin/uploads', [
         'app_id' => $this->catalogApp->public_id,

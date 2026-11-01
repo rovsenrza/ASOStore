@@ -140,6 +140,8 @@ class ArtifactInspectionService
             ->when($artifact->derived_from_artifact_id, fn ($query, $source) => $query->whereKeyNot($source)
                 ->where('status', '!=', ArtifactStatus::Expired->value))
             ->whereNotIn('status', self::DISCARDED)
+            // A purged build no longer exists (its file is gone); only history, not a constraint.
+            ->whereNull('purged_at')
             ->whereNotNull('bundle_identifier');
 
         $other = (clone $siblings)->where('bundle_identifier', '!=', $bundleId)->first();
