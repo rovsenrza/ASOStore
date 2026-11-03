@@ -148,8 +148,10 @@ final class BuildWarmup
     /** Whether the app goes out as delta builds, so a build of it costs megabytes, not its full size. */
     private function isDelta(CatalogApp $app): bool
     {
+        $artifact = $app->publishedArtifact;
+
         return (bool) config('storefront.signing.delta_builds.enabled')
-            && (int) $app->publishedArtifact?->size_bytes >= (int) config('storefront.signing.delta_builds.min_bytes');
+            && $artifact !== null && SigningService::deltaSized($artifact->setRelation('app', $app));
     }
 
     private function enabled(Device $device, bool $negligible = false): bool

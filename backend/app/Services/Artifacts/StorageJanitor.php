@@ -53,6 +53,11 @@ final class StorageJanitor
     /** Reclaim order above the budget: nobody asked for it, already installed, then waiting for the tap. */
     private const KIND_ORDER = ['warm' => 0, 'delivered' => 1, 'ready' => 2];
 
+    private const SUMMARY_KEYS = [
+        'idle_builds', 'budget_builds', 'builds_purged', 'build_bytes', 'originals_purged', 'original_bytes',
+        'orphan_objects', 'orphan_bytes', 'multipart_aborted', 'temp_files', 'cache_files', 'errors',
+    ];
+
     /** @var array<string, int> */
     private array $summary = [];
 
@@ -75,10 +80,7 @@ final class StorageJanitor
     {
         $this->dryRun = $dryRun;
         $this->reclaimed = [];
-        $this->summary = array_fill_keys([
-            'idle_builds', 'budget_builds', 'builds_purged', 'build_bytes', 'originals_purged', 'original_bytes',
-            'orphan_objects', 'orphan_bytes', 'multipart_aborted', 'temp_files', 'cache_files', 'errors',
-        ], 0);
+        $this->summary = array_fill_keys(self::SUMMARY_KEYS, 0);
 
         $lock = $dryRun ? null : Cache::lock(self::RUNNING, 1800);
         if ($lock !== null && ! $lock->get()) {
@@ -378,6 +380,18 @@ final class StorageJanitor
     /**
      * Expires one idle build, ends the installations waiting for it, and deletes its file.
      */
+    /**
+     * Ends one deliverable build now and deletes its file, as an idle one would be (not while it is in use).
+     * For replacing a team's whole build with a delta build of the same artifact.
+     */
+    public function retire(SignedBuild $build, string $reason): bool
+    {
+        $this->dryRun = false;
+        $this->summary = array_fill_keys(self::SUMMARY_KEYS, 0);
+
+        return $this->reclaim($build, $reason);
+    }
+
     private function reclaim(SignedBuild $build, string $reason): bool
     {
         if (isset($this->reclaimed[$build->id]) || $this->inUse($build)) {

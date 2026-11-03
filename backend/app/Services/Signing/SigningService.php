@@ -48,7 +48,7 @@ class SigningService
     public const LEASE_SECONDS = 600;
 
     /** A base this large (or larger) needs zip64, which delta builds do not handle. */
-    private const DELTA_MAX_BASE_BYTES = 0xF0000000;
+    public const DELTA_MAX_BASE_BYTES = 0xF0000000;
 
     /** Builds that are either usable or on their way to being usable. */
     private const LIVE = [
@@ -343,8 +343,7 @@ class SigningService
         if (! config('storefront.signing.delta_builds.enabled') || ! $build->isShared() || $build->bootstrap_claim_encrypted !== null) {
             return false;
         }
-        $size = (int) $artifact->size_bytes;
-        if ($size < (int) config('storefront.signing.delta_builds.min_bytes') || $size >= self::DELTA_MAX_BASE_BYTES) {
+        if (! self::deltaSized($artifact)) {
             return false;
         }
         // A pack that failed verification once will fail again: that app is signed whole from then on.
@@ -353,6 +352,21 @@ class SigningService
         }
 
         return Storage::disk($artifact->storage_disk)->getAdapter() instanceof LocalFilesystemAdapter;
+    }
+
+    /**
+     * Big enough for the size threshold, or its app was switched over to delta builds; and small
+     * enough for a composed IPA without zip64.
+     */
+    public static function deltaSized(AppArtifact $artifact): bool
+    {
+        $size = (int) $artifact->size_bytes;
+        if ($size <= 0 || $size >= self::DELTA_MAX_BASE_BYTES) {
+            return false;
+        }
+
+        return $size >= (int) config('storefront.signing.delta_builds.min_bytes')
+            || $artifact->app?->delta_builds_at !== null;
     }
 
     public static function deltaOffKey(AppArtifact $artifact): string

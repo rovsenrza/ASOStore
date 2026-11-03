@@ -50,7 +50,7 @@ class CatalogApp extends Model
     protected $fillable = [
         'slug', 'name', 'subtitle', 'description', 'seo_about', 'bundle_identifier', 'app_store_id', 'category_id', 'publisher_id',
         'source_type', 'visibility', 'age_rating', 'icon_path', 'banner_path', 'is_storefront', 'featured_rank',
-        'support_url', 'privacy_url', 'imported_by_user_id',
+        'support_url', 'privacy_url', 'imported_by_user_id', 'delta_builds_at',
     ];
 
     protected function casts(): array
@@ -59,6 +59,7 @@ class CatalogApp extends Model
             'source_type' => SourceType::class,
             'visibility' => AppVisibility::class,
             'is_storefront' => 'boolean',
+            'delta_builds_at' => 'datetime',
             'featured_rank' => 'integer',
         ];
     }

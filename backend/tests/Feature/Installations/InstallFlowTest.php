@@ -1613,3 +1613,42 @@ it('starts delta builds for a team even when the signed-build budget is used up'
     config(['storefront.build_storage.min_free_disk_ratio' => 1.0]);
     expect($warmup->forTeams())->toBe(0);
 });
+
+it('offers delta builds for an app switched over to them, whatever its size', function () {
+    config(['storefront.signing.delta_builds.enabled' => true, 'storefront.signing.delta_builds.min_bytes' => 1 << 40]);
+    $this->catalogApp->forceFill(['delta_builds_at' => now()])->save();
+    runnerHeartbeat()->assertOk();
+    app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+
+    $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+    expect($lease['delta'])->toBe(['enabled' => true]);
+});
+
+it('replaces a team\'s whole build with a delta build, least installed apps first', function () {
+    config(['storefront.signing.delta_builds.enabled' => true, 'storefront.signing.delta_builds.min_bytes' => 1 << 40]);
+    runnerHeartbeat()->assertOk();
+    app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+    $whole = signNextLease();
+    expect($whole->status)->toBe(SignedBuildStatus::Deliverable)->and($whole->isShared())->toBeTrue()->and($whole->format)->toBe('full');
+
+    // Just signed for an install in progress: left alone.
+    $this->artisan('signing:convert-delta', ['--least-popular' => 5])->assertSuccessful();
+    expect($whole->fresh()->status)->toBe(SignedBuildStatus::Deliverable);
+
+    $this->travel(2)->hours();
+    $this->artisan('signing:convert-delta', ['--least-popular' => 5, '--dry-run' => true])->assertSuccessful();
+    expect($whole->fresh()->status)->toBe(SignedBuildStatus::Deliverable);
+
+    $this->artisan('signing:convert-delta', ['--least-popular' => 5])->assertSuccessful();
+    expect($whole->fresh()->status)->toBe(SignedBuildStatus::Expired)
+        ->and($whole->fresh()->purged_at)->not->toBeNull()
+        ->and($this->catalogApp->fresh()->delta_builds_at)->not->toBeNull();
+
+    // The team's replacement goes out as a delta build.
+    $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+    expect($lease['delta'])->toBe(['enabled' => true])
+        ->and(SignedBuild::where('public_id', $lease['signed_build_id'])->sole()->isShared())->toBeTrue();
+
+    // Nothing whole is left to replace.
+    $this->artisan('signing:convert-delta', ['--least-popular' => 5])->expectsOutput('No app to convert.')->assertSuccessful();
+});
