@@ -257,6 +257,77 @@ RS_INTERPOSE(rs_SecItemCopyMatching, SecItemCopyMatching);
 RS_INTERPOSE(rs_SecItemUpdate, SecItemUpdate);
 RS_INTERPOSE(rs_SecItemDelete, SecItemDelete);
 
+#pragma mark - Hide injected images from the app's own anti-tamper
+
+// RASP-hardened apps (VK's Orwell/Analytics) enumerate loaded images with _dyld_image_count /
+// _dyld_get_image_name and flag the session as tampered when they spot a dylib we injected
+// (RuStoreCompat / VKRelay / libsubstrate). A flagged VK session still *reads* (music, text,
+// notifications) but its server blocks *high-risk* actions: sending voice messages, photos and
+// video fail with a red "!". OrwellVK — the mod whose uploads work — fishhooks exactly these
+// functions to drop its injected images from the list. We do the same by dyld interposing, but
+// only when gHideImages is set (VK), so no other re-signed app is touched. VK enumerates purely
+// through these _dyld_* calls (it does not read the all-image list via task_info), so this is
+// sufficient — the same scope the working mod uses.
+static BOOL gHideImages = NO;
+static uint32_t (*o_dyld_count)(void);
+static const char *(*o_dyld_name)(uint32_t);
+static const struct mach_header *(*o_dyld_header)(uint32_t);
+static intptr_t (*o_dyld_slide)(uint32_t);
+
+static void RSEnsureDyld(void) {
+    if (!o_dyld_count)  o_dyld_count  = (void *)dlsym(RTLD_NEXT, "_dyld_image_count");
+    if (!o_dyld_name)   o_dyld_name   = (void *)dlsym(RTLD_NEXT, "_dyld_get_image_name");
+    if (!o_dyld_header) o_dyld_header = (void *)dlsym(RTLD_NEXT, "_dyld_get_image_header");
+    if (!o_dyld_slide)  o_dyld_slide  = (void *)dlsym(RTLD_NEXT, "_dyld_get_image_vmaddr_slide");
+}
+
+static BOOL RSImageHidden(const char *name) {
+    if (name == NULL) return NO;
+    const char *b = strrchr(name, '/'); b = b ? b + 1 : name;
+    return strstr(b, "RuStoreCompat") || strstr(b, "VKRelay")
+        || strstr(b, "substrate")     || strstr(b, "Substrate")
+        || strstr(b, "libhooker")     || strstr(b, "TweakInject")
+        || strstr(name, "/MobileSubstrate");
+}
+
+// Map a caller-visible index (our shortened list) to a real dyld index, skipping hidden images.
+static int RSRealIndex(uint32_t visible) {
+    uint32_t n = o_dyld_count(), seen = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        if (RSImageHidden(o_dyld_name(i))) continue;
+        if (seen == visible) return (int)i;
+        seen++;
+    }
+    return -1;
+}
+
+static uint32_t rs_dyld_count(void) {
+    RSEnsureDyld();
+    if (!gHideImages) return o_dyld_count();
+    uint32_t n = o_dyld_count(), v = 0;
+    for (uint32_t i = 0; i < n; i++) if (!RSImageHidden(o_dyld_name(i))) v++;
+    return v;
+}
+static const char *rs_dyld_name(uint32_t i) {
+    RSEnsureDyld();
+    if (!gHideImages) return o_dyld_name(i);
+    int r = RSRealIndex(i); return r < 0 ? NULL : o_dyld_name((uint32_t)r);
+}
+static const struct mach_header *rs_dyld_header(uint32_t i) {
+    RSEnsureDyld();
+    if (!gHideImages) return o_dyld_header(i);
+    int r = RSRealIndex(i); return r < 0 ? NULL : o_dyld_header((uint32_t)r);
+}
+static intptr_t rs_dyld_slide(uint32_t i) {
+    RSEnsureDyld();
+    if (!gHideImages) return o_dyld_slide(i);
+    int r = RSRealIndex(i); return r < 0 ? 0 : o_dyld_slide((uint32_t)r);
+}
+RS_INTERPOSE(rs_dyld_count, _dyld_image_count);
+RS_INTERPOSE(rs_dyld_name, _dyld_get_image_name);
+RS_INTERPOSE(rs_dyld_header, _dyld_get_image_header);
+RS_INTERPOSE(rs_dyld_slide, _dyld_get_image_vmaddr_slide);
+
 #pragma mark - Original bundle ID
 
 static NSString *(*orig_bundleIdentifier)(id, SEL);
@@ -688,6 +759,10 @@ static void RuStoreCompatInit(void) {
         gIsVK = ([exe isKindOfClass:NSString.class] && [exe isEqualToString:@"VKClient"])
             || (gOriginalBundleID != nil && [gOriginalBundleID hasPrefix:@"com.vk.vkclient"]);
         RSLog(@"groups=%@ primary=%@ team=%@ original=%@ isVK=%d", gRealGroups, gPrimaryGroup, gTeamPrefix, gOriginalBundleID, gIsVK);
+        // VK's anti-tamper scans the loaded-image list and, finding our injected dylibs, blocks
+        // high-risk actions server-side (sending voice/photo/video fail with a red "!") while still
+        // allowing reads. Hide our images from its _dyld_* enumeration — VK only, like the mod.
+        if (gIsVK) { RSEnsureDyld(); gHideImages = YES; }
         // Before the bundle hooks below, so the report names our real bundle ID.
         RSTelemetryStart(gOriginalBundleID);
 #ifdef RUSTORE_COMPAT_DEBUG
