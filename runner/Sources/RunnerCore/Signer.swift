@@ -143,6 +143,9 @@ public struct Signer: Sendable {
         for nested in job.nested {
             try Self.ensureFaceIDUsageDescription(bundle: app.appendingPathComponent(nested.path))
         }
+        for bundle in Self.codeBundles(app: app, nested: job.nested) {
+            try Self.removeStraySignatureFiles(bundle: bundle)
+        }
         // Embed the one-time login code (storefront app only) so first launch signs the customer in.
         if let claim = job.bootstrapClaim {
             try Self.setInfoValue(claim, forKey: "StorefrontBootstrapClaim", bundle: app)
@@ -508,6 +511,31 @@ public struct Signer: Sendable {
         info["NSFaceIDUsageDescription"] = faceIDUsageDescription
         try PropertyListSerialization.data(fromPropertyList: info, format: format, options: 0).write(to: file)
         return true
+    }
+
+    /// Deletes files a vendor left in a code bundle's own `_CodeSignature/` besides CodeResources (Халва ships
+    /// a legacy `_CodeSignature/ResourceRules`). zsign seals them as resources, but iOS never counts that folder
+    /// as resources, so the seal names a file it cannot find and installd refuses the app ("A signed resource has
+    /// been added, modified, or deleted"). zsign writes CodeResources anew. Returns how many files went.
+    @discardableResult
+    static func removeStraySignatureFiles(bundle: URL) throws -> Int {
+        let folder = bundle.appendingPathComponent("_CodeSignature", isDirectory: true)
+        guard let names = try? FileManager.default.contentsOfDirectory(atPath: folder.path) else { return 0 }
+        var removed = 0
+        for name in names where name != "CodeResources" {
+            try FileManager.default.removeItem(at: folder.appendingPathComponent(name))
+            removed += 1
+        }
+        return removed
+    }
+
+    /// The app, its extensions and its frameworks: every code bundle zsign writes a seal for.
+    static func codeBundles(app: URL, nested: [SigningJob.Nested]) -> [URL] {
+        let frameworks = app.appendingPathComponent("Frameworks", isDirectory: true)
+        let found = ((try? FileManager.default.contentsOfDirectory(atPath: frameworks.path)) ?? [])
+            .filter { $0.hasSuffix(".framework") }
+            .map { frameworks.appendingPathComponent($0, isDirectory: true) }
+        return [app] + nested.map { app.appendingPathComponent($0.path, isDirectory: true) } + found
     }
 
     static func isTeamIdentifier(_ value: String) -> Bool {

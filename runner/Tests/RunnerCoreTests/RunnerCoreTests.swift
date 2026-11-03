@@ -723,6 +723,43 @@ struct SigningSetup {
         #expect(try Data(contentsOf: file) == before)
     }
 
+    @Test func removesLegacyFilesFromTheSignatureFolderOfEveryCodeBundle() throws {
+        let app = FileManager.default.temporaryDirectory.appendingPathComponent("stray-\(UUID().uuidString)/Halva.app", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: app.deletingLastPathComponent()) }
+        let framework = app.appendingPathComponent("Frameworks/Card.framework", isDirectory: true)
+        let resources = app.appendingPathComponent("Assets.bundle", isDirectory: true)
+        for folder in [app, framework, resources] {
+            try FileManager.default.createDirectory(at: folder.appendingPathComponent("_CodeSignature"), withIntermediateDirectories: true)
+            try Data("seal".utf8).write(to: folder.appendingPathComponent("_CodeSignature/CodeResources"))
+        }
+        try Data("legacy".utf8).write(to: app.appendingPathComponent("_CodeSignature/ResourceRules"))
+        try Data("old".utf8).write(to: framework.appendingPathComponent("_CodeSignature/CodeDirectory"))
+        try Data("vendor".utf8).write(to: resources.appendingPathComponent("_CodeSignature/CodeDirectory"))
+
+        let bundles = Signer.codeBundles(app: app, nested: [])
+        #expect(bundles.map(\.lastPathComponent) == ["Halva.app", "Card.framework"])
+        #expect(try bundles.reduce(0) { $0 + (try Signer.removeStraySignatureFiles(bundle: $1)) } == 2)
+        #expect(!FileManager.default.fileExists(atPath: app.appendingPathComponent("_CodeSignature/ResourceRules").path))
+        #expect(FileManager.default.fileExists(atPath: app.appendingPathComponent("_CodeSignature/CodeResources").path))
+        // A resource bundle's folder is an ordinary sealed resource of the app: left as the vendor shipped it.
+        #expect(FileManager.default.fileExists(atPath: resources.appendingPathComponent("_CodeSignature/CodeDirectory").path))
+        // A bundle without a signature folder is nothing to do.
+        #expect(try Signer.removeStraySignatureFiles(bundle: app.appendingPathComponent("PlugIns/None.appex")) == 0)
+    }
+
+    @Test func refusesASealThatNamesAFileInTheSignatureFolder() throws {
+        let app = FileManager.default.temporaryDirectory.appendingPathComponent("seal-\(UUID().uuidString)/Halva.app", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: app.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(at: app.appendingPathComponent("_CodeSignature"), withIntermediateDirectories: true)
+        try PropertyListSerialization.data(fromPropertyList: ["CFBundleExecutable": "Halva"], format: .xml, options: 0).write(to: app.appendingPathComponent("Info.plist"))
+        let legacy = Data("legacy".utf8)
+        try legacy.write(to: app.appendingPathComponent("_CodeSignature/ResourceRules"))
+        let seal: [String: Any] = ["files2": ["_CodeSignature/ResourceRules": ["hash2": Digest.hash(legacy, .sha256)]]]
+        try PropertyListSerialization.data(fromPropertyList: seal, format: .xml, options: 0).write(to: app.appendingPathComponent("_CodeSignature/CodeResources"))
+
+        #expect(throws: RunnerError.self) { try ResourceSeal.verify(bundle: app) }
+    }
+
     @Test func leavesInfoPlistAloneWhenTheTeamIsOursOrMalformed() throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("team-prefix-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

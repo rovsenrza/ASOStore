@@ -24,6 +24,11 @@ enum ResourceSeal {
             guard !parts.isEmpty, !parts.contains(where: { $0.isEmpty || $0 == "." || $0 == ".." }), !path.contains("\\"), !path.contains("\0") else {
                 throw failure("unsafe sealed resource path")
             }
+            // iOS does not treat the bundle's own signature folder as resources: a seal naming a file
+            // there can never verify on the device.
+            if parts[0] == "_CodeSignature" {
+                throw failure("sealed resource \(path) is inside the signature folder")
+            }
             let entry: [String: Any]
             if let hash = value as? Data { entry = ["hash": hash] }
             else if let dictionary = value as? [String: Any] { entry = dictionary }
