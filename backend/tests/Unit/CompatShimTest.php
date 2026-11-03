@@ -340,6 +340,10 @@ it('gives an «as is + shim» build only the App-Group shim, and a plain «as is
         ->and($shim->asIs($vk(str_repeat('b', 64))))->toBeTrue()
         ->and($shim->originalTeamFor($vk(str_repeat('b', 64)), 'TEAM'))->toBeNull();
 
+    // Listed on purpose: a stripped binary without entitlements still gets the shim.
+    $bare = AppArtifact::factory()->make(['sha256' => str_repeat('b', 64), 'bundle_identifier' => 'com.vk.vkclient', 'inspection' => []]);
+    expect(array_column($shim->dylibsFor($bare), 'name'))->toBe([CompatShim::NAME]);
+
     @unlink($list);
     @unlink($shimList);
 });

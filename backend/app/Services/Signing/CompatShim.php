@@ -46,10 +46,11 @@ class CompatShim
     public function dylibsFor(AppArtifact $artifact, ?string $deviceUdid = null): array
     {
         // A build published «as is» is only re-signed: nothing of ours goes into it — except the
-        // plain App-Group/keychain shim for the builds listed «as is + shim».
+        // plain App-Group/keychain shim for the builds listed «as is + shim». Listed on purpose, so
+        // they get it even when the IPA carries no entitlements (a stripped, unsigned binary).
         if ($this->asIs($artifact)) {
             $content = $this->asIsWithShim($artifact) && $this->enabled() && ! $this->skipped($artifact)
-                && $this->needsShim($artifact) ? $this->encoded() : null;
+                ? $this->encoded() : null;
 
             return $content !== null ? [['name' => self::NAME, 'content' => $content]] : [];
         }
