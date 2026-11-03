@@ -362,7 +362,7 @@ extension DeltaPack {
     private static func writeV2(source: URL, treeRoot: URL, output: URL, baseSHA256: String, core: CoreSource, started: Date) throws -> ResultV2 {
         guard isHexDigest(baseSHA256) else { throw Unusable("base SHA-256 is not a hex digest") }
         if case .reuse(let sha256, _) = core, !isHexDigest(sha256) { throw Unusable("the lease's core SHA-256 is not a hex digest") }
-        let classified = try classifyTree(source: source, treeRoot: treeRoot, reserved: [manifestName, teamBlobName])
+        let classified = try classifyTree(source: source, treeRoot: treeRoot, reserved: [manifestName, teamBlobName], allowNonASCII: true)
         let files = classified.files
         let packIndexes = classified.fromBase.indices.filter { !classified.fromBase[$0] }
         guard packIndexes.count + 2 < maxEntries else { throw Unusable("pack would need more than 65534 entries") }
@@ -459,7 +459,9 @@ extension DeltaPack {
         func entry(name: Data, method: UInt16, crc: UInt32, compressed: UInt64, size: UInt64, pair: RecordPair) throws {
             var local = Data()
             local.append32(0x0403_4B50)
-            local.append16(20); local.append16(0); local.append16(method)    // version, flags, method
+            // A non-ASCII name (never taken from the base) is marked UTF-8, as ZipNames.markUTF8 marks full builds.
+            let flags: UInt16 = name.contains(where: { $0 >= 0x80 }) ? 0x0800 : 0
+            local.append16(20); local.append16(flags); local.append16(method)    // version, flags, method
             local.append16(0); local.append16(dosDate)
             local.append32(crc)
             local.append32(UInt32(compressed)); local.append32(UInt32(size))
@@ -470,7 +472,7 @@ extension DeltaPack {
             var record = Data()
             record.append32(0x0201_4B50)
             record.append16(pair.madeBy); record.append16(20)
-            record.append16(0); record.append16(method)
+            record.append16(flags); record.append16(method)
             record.append16(0); record.append16(dosDate)
             record.append32(crc)
             record.append32(UInt32(compressed)); record.append32(UInt32(size))

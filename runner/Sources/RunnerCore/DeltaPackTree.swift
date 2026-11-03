@@ -31,9 +31,10 @@ extension DeltaPack {
         }
     }
 
-    /// Regular files under `Payload/`, sorted by name bytes. Symlinks, devices, sockets, names that
-    /// are not pure ASCII and too many files make the tree unusable.
-    static func walkTree(_ root: URL) throws -> [TreeFile] {
+    /// Regular files under `Payload/`, sorted by name bytes. Symlinks, devices, sockets, too many files and
+    /// (unless `allowNonASCII`: delta-v2 writes those names with the UTF-8 flag) names that are not pure ASCII
+    /// make the tree unusable.
+    static func walkTree(_ root: URL, allowNonASCII: Bool = false) throws -> [TreeFile] {
         func type(_ path: String) throws -> (kind: mode_t, size: UInt64) {
             var info = stat()
             guard lstat(path, &info) == 0 else { throw Unusable("cannot stat \(path.split(separator: "/").last ?? "")") }
@@ -47,7 +48,7 @@ extension DeltaPack {
         while let (directory, relative) = pending.popLast() {
             guard let names = try? FileManager.default.contentsOfDirectory(atPath: directory) else { throw Unusable("cannot list \(relative)") }
             for name in names {
-                guard !name.utf8.contains(where: { $0 >= 0x80 }) else { throw Unusable("tree has a name that is not ASCII") }
+                guard allowNonASCII || !name.utf8.contains(where: { $0 >= 0x80 }) else { throw Unusable("tree has a name that is not ASCII") }
                 let path = directory + "/" + name
                 let entry = try type(path)
                 if entry.kind == mode_t(S_IFDIR) {
@@ -108,9 +109,9 @@ extension DeltaPack {
 
     /// The tree's files and, for each, whether it comes from the base (kind 0). `known` holds the
     /// files whose `crc` is already filled in. `reserved` are pack-only names no IPA may hold.
-    static func classifyTree(source: URL, treeRoot: URL, reserved: [String] = [manifestName]) throws -> (files: [TreeFile], fromBase: [Bool], known: Set<Int>) {
+    static func classifyTree(source: URL, treeRoot: URL, reserved: [String] = [manifestName], allowNonASCII: Bool = false) throws -> (files: [TreeFile], fromBase: [Bool], known: Set<Int>) {
         let base = try Archive.read(source, label: "source")
-        var files = try walkTree(treeRoot)
+        var files = try walkTree(treeRoot, allowNonASCII: allowNonASCII)
 
         var baseIndex: [Data: Int] = [:]
         for (index, entry) in base.entries.enumerated() {
