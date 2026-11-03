@@ -176,6 +176,12 @@ class InstallDeliveryController extends Controller
         }
 
         return new StreamedResponse(function () use ($plan, $basePath, $packPath, $start, $end, $copy) {
+            // A client that hangs up would otherwise abort PHP mid-echo and skip `finally`, leaving the
+            // temporary pack copy behind; keep running so the alive check ends the loop and we clean up.
+            ignore_user_abort(true);
+            if ($copy !== null) {
+                register_shutdown_function(fn () => $copy->release());
+            }
             try {
                 $plan->stream($basePath, $packPath, $start, $end, function (string $chunk) {
                     echo $chunk;
