@@ -63,8 +63,10 @@ final class DeltaCoreStore
         self::validate($manifest, (string) $artifact->sha256, null);
 
         // The blob came first (the runner's order): complete the core now.
+        // Redis hands numbers back as strings.
         $size = Cache::get(self::blobKey($sha256));
-        if (is_int($size) && Storage::disk('signed')->exists(DeltaCore::pathFor($sha256))) {
+        $size = is_numeric($size) ? (int) $size : null;
+        if ($size !== null && Storage::disk('signed')->exists(DeltaCore::pathFor($sha256))) {
             self::validate($manifest, (string) $artifact->sha256, $size);
 
             return $this->record($job, $artifact->id, $sha256, $size, $manifest);

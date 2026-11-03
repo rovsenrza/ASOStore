@@ -1930,6 +1930,8 @@ describe('delta v3: shared core + team patch', function () {
         worker('PUT', $lease['delta']['core_path'], $blob, headers: ['HTTP_X_CORE_SHA256' => $sha])
             ->assertStatus(202)->assertJsonPath('data.pending', true);
         expect(DeltaCore::count())->toBe(0)->and(Storage::disk('signed')->get("cores/{$sha}.bin"))->toBe($blob);
+        // Production's Redis store hands the remembered size back as a string.
+        Cache::put("delta-core-blob:{$sha}", '150', 3600);
 
         // A manifest whose ranges do not fit the blob that came: refused.
         workerCorePart($lease['delta']['core_path'], 'part=manifest', json_encode(coreManifest($this->artifact->sha256, 300)), ['HTTP_X_CORE_SHA256' => $sha])
