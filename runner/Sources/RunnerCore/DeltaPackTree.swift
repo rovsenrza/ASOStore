@@ -106,8 +106,9 @@ extension DeltaPack {
         return try results.finish()
     }
 
-    private static func writeFromTree(source: URL, treeRoot: URL, output: URL, baseSHA256: String, started: Date) throws -> Result {
-        guard baseSHA256.count == 64, baseSHA256.allSatisfy({ $0.isHexDigit }) else { throw Unusable("base SHA-256 is not a hex digest") }
+    /// The tree's files and, for each, whether it comes from the base (kind 0). `known` holds the
+    /// files whose `crc` is already filled in. `reserved` are pack-only names no IPA may hold.
+    static func classifyTree(source: URL, treeRoot: URL, reserved: [String] = [manifestName]) throws -> (files: [TreeFile], fromBase: [Bool], known: Set<Int>) {
         let base = try Archive.read(source, label: "source")
         var files = try walkTree(treeRoot)
 
@@ -115,9 +116,11 @@ extension DeltaPack {
         for (index, entry) in base.entries.enumerated() {
             guard baseIndex.updateValue(index, forKey: entry.name) == nil else { throw Unusable("source IPA has duplicate entry names") }
         }
-        let manifestEntry = Data(manifestName.utf8)
-        if baseIndex[manifestEntry] != nil || files.contains(where: { $0.name == manifestEntry }) {
-            throw Unusable("an IPA already has an entry named \(manifestName)")
+        for name in reserved {
+            let entry = Data(name.utf8)
+            if baseIndex[entry] != nil || files.contains(where: { $0.name == entry }) {
+                throw Unusable("an IPA already has an entry named \(name)")
+            }
         }
 
         // Only a file that the source holds under the same name, in the same size, in a form the
@@ -134,6 +137,14 @@ extension DeltaPack {
             known.insert(index)
         }
         let fromBase = files.indices.map { candidates[$0]?.crc == files[$0].crc && known.contains($0) }
+        return (files, fromBase, known)
+    }
+
+    private static func writeFromTree(source: URL, treeRoot: URL, output: URL, baseSHA256: String, started: Date) throws -> Result {
+        guard baseSHA256.count == 64, baseSHA256.allSatisfy({ $0.isHexDigit }) else { throw Unusable("base SHA-256 is not a hex digest") }
+        let classified = try classifyTree(source: source, treeRoot: treeRoot)
+        var files = classified.files
+        let fromBase = classified.fromBase, known = classified.known
 
         let packIndexes = fromBase.indices.filter { !fromBase[$0] }
         guard packIndexes.count + 1 < maxEntries else { throw Unusable("pack would need more than 65534 entries") }

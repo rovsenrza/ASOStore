@@ -27,8 +27,14 @@ public struct Signer: Sendable {
         public var ipa: URL
         public var sha256: String
         public var report: [String: String]
-        /// `DeltaPack.format` when `ipa` is a pack built from the signed tree; nil for a full IPA.
+        /// `DeltaPack.format` / `DeltaPack.formatV2` when `ipa` is a pack built from the signed tree;
+        /// nil for a full IPA.
         public var format: String? = nil
+        /// Delta v2 only: a core built by this run, to upload before the pack.
+        public var core: DeltaPack.CoreUpload? = nil
+        /// Delta v2 only: the signed tree (the folder holding Payload/), kept for the v1 fallback
+        /// when the core or the pack upload fails.
+        public var deltaTree: URL? = nil
     }
 
     /// `sign` on a dedicated thread, for async callers: zsign, unzip and openssl block their
@@ -43,6 +49,13 @@ public struct Signer: Sendable {
     public func signDeltaDetached(job: SigningJob, identity: IdentityFiles, source: URL, workDirectory: URL, cancellation: Cancellation? = nil) async throws -> Output {
         try await Blocking.run(cancellation: cancellation) { [self] in
             try signDelta(job: job, identity: identity, source: source, workDirectory: workDirectory)
+        }
+    }
+
+    /// `fallbackFromDeltaV2` on a dedicated thread, for async callers.
+    public func fallbackFromDeltaV2Detached(_ previous: Output, reason: String, job: SigningJob, identity: IdentityFiles, source: URL, workDirectory: URL, cancellation: Cancellation? = nil) async throws -> Output {
+        try await Blocking.run(cancellation: cancellation) { [self] in
+            try fallbackFromDeltaV2(previous, reason: reason, job: job, identity: identity, source: source, workDirectory: workDirectory)
         }
     }
 
@@ -271,15 +284,78 @@ public struct Signer: Sendable {
 
         let pack = workDirectory.appendingPathComponent("delta.pack")
         let treeRoot = prepared.app.deletingLastPathComponent().deletingLastPathComponent()
+        var report = Self.report(job, prepared, signature: signature, zsignSeconds: signingSeconds, verificationSeconds: verificationSeconds, cleanLog: Self.cleanLog(zsigned.output))
+
+        // Delta v2 first when the lease asks for it; any trouble there ends in the v1 tree pack.
+        if job.delta.version == 2 {
+            let v2Reason: String
+            switch Self.coreSource(job, workDirectory: workDirectory) {
+            case .failure(let why):
+                v2Reason = why.reason
+            case .success(let core):
+                switch DeltaPack.buildV2FromTree(source: source, treeRoot: treeRoot, output: pack, baseSHA256: job.source.sha256, core: core) {
+                case .pack(let built):
+                    report.merge(built.report) { _, new in new }
+                    Log.info("job \(job.jobID) delta-v2 pack: \(built.entriesSegmented) segmented + \(built.pack.entriesPack - built.entriesSegmented) whole of \(built.pack.entriesTotal) entries, \(built.pack.packBytes) of \(built.pack.signedBytes) bytes, core \(report["core"] ?? "")")
+                    return .built(Output(ipa: pack, sha256: built.pack.sha256, report: report, format: DeltaPack.formatV2, core: built.core, deltaTree: treeRoot))
+                case .fallback(let why):
+                    v2Reason = why
+                }
+            }
+            Log.info("job \(job.jobID) delta-v2 unavailable (\(v2Reason)); trying the delta-v1 tree pack")
+            report["delta_v2_fallback"] = Shell.truncated(v2Reason, limit: 200)
+        }
+
         switch DeltaPack.buildFromTree(source: source, treeRoot: treeRoot, output: pack, baseSHA256: job.source.sha256) {
         case .pack(let built):
-            var report = Self.report(job, prepared, signature: signature, zsignSeconds: signingSeconds, verificationSeconds: verificationSeconds, cleanLog: Self.cleanLog(zsigned.output))
             report.merge(built.report) { _, new in new }
             Log.info("job \(job.jobID) delta pack from the signed tree: \(built.entriesPack)/\(built.entriesTotal) entries, \(built.packBytes) of \(built.signedBytes) bytes")
             return .built(Output(ipa: pack, sha256: built.sha256, report: report, format: DeltaPack.format))
         case .fallback(let reason):
             return .fallback(reason)
         }
+    }
+
+    /// Where a delta-v2 pack's core comes from: the lease's core, or a new one built into the job
+    /// folder (only when the lease says where to upload it).
+    static func coreSource(_ job: SigningJob, workDirectory: URL) -> Swift.Result<DeltaPack.CoreSource, DeltaPack.Unusable> {
+        if job.delta.coreUnreadable { return .failure(.init("the lease's core could not be read")) }
+        if let core = job.delta.core { return .success(.reuse(sha256: core.sha256, manifest: core.manifest)) }
+        guard let path = job.delta.corePath, !path.isEmpty else { return .failure(.init("the lease has no core and no core_path")) }
+        return .success(.build(output: workDirectory.appendingPathComponent("delta-core.bin")))
+    }
+
+    /// Report keys only a delta-v2 pack has.
+    static let deltaV2ReportKeys = ["delta_format", "entries_segmented", "team_bytes", "core", "core_bytes"]
+
+    /// After a delta-v2 pack could not be delivered (core or pack upload failed): the delta-v1 pack
+    /// from the same signed tree, else the full IPA. Never fails because of delta.
+    public func fallbackFromDeltaV2(_ previous: Output, reason: String, job: SigningJob, identity: IdentityFiles, source: URL, workDirectory: URL) throws -> Output {
+        var report = previous.report
+        for key in Self.deltaV2ReportKeys { report.removeValue(forKey: key) }
+        report["delta_v2_fallback"] = Shell.truncated(reason, limit: 200)
+        try? FileManager.default.removeItem(at: previous.ipa)
+        if let core = previous.core { try? FileManager.default.removeItem(at: core.blob) }
+
+        var v1Reason = "no signed tree"
+        if let tree = previous.deltaTree {
+            let pack = workDirectory.appendingPathComponent("delta-v1.pack")
+            switch DeltaPack.buildFromTree(source: source, treeRoot: tree, output: pack, baseSHA256: job.source.sha256) {
+            case .pack(let built):
+                report.merge(built.report) { _, new in new }
+                Log.info("job \(job.jobID) delta-v2 not delivered (\(reason)); using the delta-v1 pack: \(built.packBytes) of \(built.signedBytes) bytes")
+                return Output(ipa: pack, sha256: built.sha256, report: report, format: DeltaPack.format)
+            case .fallback(let why):
+                v1Reason = why
+            }
+        }
+        Log.info("job \(job.jobID) delta-v2 not delivered (\(reason)) and no delta-v1 pack (\(v1Reason)); building the full IPA")
+        try? FileManager.default.removeItem(at: workDirectory.appendingPathComponent("unpacked", isDirectory: true))
+        try? FileManager.default.removeItem(at: workDirectory.appendingPathComponent(".zsign_cache", isDirectory: true))
+        var output = try sign(job: job, identity: identity, source: source, workDirectory: workDirectory)
+        output.report["delta_fallback"] = Shell.truncated(v1Reason, limit: 200)
+        output.report["delta_v2_fallback"] = Shell.truncated(reason, limit: 200)
+        return output
     }
 
     static func cleanLog(_ output: String) -> String {

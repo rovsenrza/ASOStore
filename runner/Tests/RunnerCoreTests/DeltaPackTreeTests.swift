@@ -310,6 +310,58 @@ struct DeltaSigningTests {
         #expect(try DeltaPackTests.decisions(text).contains { $0.0.hasSuffix("/resource.bin") && $0.1 == 0 })
     }
 
+    /// Delta v2: the first build makes the core, a second build reuses it; both compose (per the
+    /// spec) into an app that verifies. A failed v2 delivery falls back to the v1 pack.
+    @Test func deltaV2BuildsAndReusesACoreAndComposesIntoAVerifiedApp() throws {
+        let setup = try SigningSetup()
+        defer { setup.remove() }
+        var job = setup.job
+        job.delta = .init(enabled: true, version: 2, core: nil, corePath: "/api/worker/v1/jobs/j/core")
+        let signer = Signer()
+
+        func check(_ output: Signer.Output, core blob: Data, label: String) throws {
+            let composed = try DeltaPackV2Tests.compose(pack: output.ipa, source: setup.source, core: blob)
+            let root = setup.folder.root.appendingPathComponent("composed-\(label)", isDirectory: true)
+            for (name, data) in composed.files {
+                let file = root.appendingPathComponent(name)
+                try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try data.write(to: file)
+            }
+            let payload = root.appendingPathComponent("Payload")
+            let app = try #require(try FileManager.default.contentsOfDirectory(at: payload, includingPropertiesForKeys: nil).first { $0.pathExtension == "app" })
+            _ = try Signer.verify(app: app, job: job, profile: setup.profile, workDirectory: setup.work)
+            #expect(DeltaPackV2Tests.kinds(composed.manifest).values.contains(2), "\(label): a segmented entry")
+        }
+
+        let first = try signer.signDelta(job: job, identity: setup.identity, source: setup.source, workDirectory: setup.work)
+        #expect(first.format == DeltaPack.formatV2, "\(first.report["delta_v2_fallback"] ?? "") / \(first.report["delta_fallback"] ?? "")")
+        let core = try #require(first.core)
+        #expect(first.report["core"] == "built")
+        let blob = try Data(contentsOf: core.blob)
+        try check(first, core: blob, label: "built")
+
+        // The core manifest goes through the lease as the backend would send it.
+        let manifest = try JSONDecoder().decode(DeltaPack.CoreManifest.self, from: core.manifest)
+        let keep = setup.folder.root.appendingPathComponent("core-copy.bin")
+        try blob.write(to: keep)
+        try? FileManager.default.removeItem(at: setup.work)
+        try FileManager.default.createDirectory(at: setup.work, withIntermediateDirectories: true)
+        var reuse = job
+        reuse.delta = .init(enabled: true, version: 2, core: .init(sha256: core.sha256, manifest: manifest), corePath: "/c")
+        let second = try signer.signDelta(job: reuse, identity: setup.identity, source: setup.source, workDirectory: setup.work)
+        #expect(second.format == DeltaPack.formatV2, "\(second.report["delta_v2_fallback"] ?? "")")
+        #expect(second.core == nil)
+        #expect(second.report["core"] == "reused")
+        try check(second, core: try Data(contentsOf: keep), label: "reused")
+
+        // The core or pack upload failed: the v1 pack from the same tree, or the full IPA.
+        let fallback = try signer.fallbackFromDeltaV2(second, reason: "upload: HTTP 422", job: reuse, identity: setup.identity, source: setup.source, workDirectory: setup.work)
+        #expect(fallback.format != DeltaPack.formatV2)
+        #expect(fallback.report["delta_v2_fallback"] == "upload: HTTP 422")
+        #expect(fallback.report["core"] == nil)
+        #expect(fallback.sha256 == (try RequestSigner.sha256(fileAt: fallback.ipa)))
+    }
+
     @Test(arguments: [false, true])
     func fallsBackToTheFullIPAWhenThePackIsNotWorthIt(cached: Bool) throws {
         let setup = try SigningSetup()

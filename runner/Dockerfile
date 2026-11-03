@@ -26,7 +26,7 @@ RUN set -eu; \
     chmod 0755 /usr/local/bin/zsign
 
 FROM ${SWIFT_IMAGE} AS build
-RUN apt-get update && apt-get install -y --no-install-recommends libssl-dev && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends libssl-dev zlib1g-dev && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY Package.swift ./
 COPY Sources Sources
