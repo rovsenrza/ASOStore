@@ -328,8 +328,9 @@ public final class WorkerClient: Sendable {
         }
     }
 
-    /// Encoded manifests up to this length travel in the `X-Core-Manifest` header.
-    public static let coreManifestHeaderLimit = 64 * 1024
+    /// Encoded manifests up to this length travel in the `X-Core-Manifest` header. Kept well under nginx's
+    /// default 8 KiB header buffer; anything bigger goes as the signed `?part=manifest` request.
+    public static let coreManifestHeaderLimit = 4 * 1024
 
     /// Uploads a core built by this runner (delta v2), always **before** the pack that references it.
     /// The wire format the backend's `PUT /api/worker/v1/jobs/{job}/core` endpoint matches:
