@@ -12,6 +12,7 @@ use App\Services\Devices\UdidHasher;
 use App\Services\Inspection\IpaInspector;
 use App\Services\Installations\InstallationService;
 use App\Services\Signing\Delta\DeltaComposer;
+use App\Services\Signing\Delta\DeltaCoreLocator;
 use App\Services\Signing\Delta\DeltaException;
 use App\StateMachines\StateMachine;
 use Illuminate\Support\Facades\DB;
@@ -86,11 +87,24 @@ class SignatureVerifier
         if (! hash_equals((string) $build->sha256, (string) hash_file('sha256', $path))) {
             return 'SIGNED_FILE_HASH_MISMATCH';
         }
-        // A pack is inspected as it is: it holds the Info.plists, profiles and binaries re-signing changed.
-        if ($build->isDelta() && ($failure = $this->checkDelta($build, $path)) !== null) {
-            return $failure;
-        }
+        // A delta-v1 pack is inspected as it is: it holds the Info.plists, profiles and binaries re-signing
+        // changed. A delta-v2 pack holds binaries as segments, so its changed entries are composed first.
+        $inspect = null;
+        try {
+            if ($build->isDelta() && ($failure = $this->checkDelta($build, $path, $inspect)) !== null) {
+                return $failure;
+            }
 
+            return $this->checkContents($build, $inspect ?? $path);
+        } finally {
+            if ($inspect !== null) {
+                @unlink($inspect);
+            }
+        }
+    }
+
+    private function checkContents(SignedBuild $build, string $path): ?string
+    {
         // A pack comes from an artifact that was scanned when it was inspected.
         $result = $this->inspector->inspect($path, scan: ! $build->isDelta());
         if (! $result->passed()) {
@@ -157,25 +171,70 @@ class SignatureVerifier
     /**
      * The pack must compose, with the artifact's original, into an IPA of a known size. The IPA itself
      * is not read: the runner already verified its signatures, and a pack-only inspection follows.
+     * A delta-v2 pack's segmented entries are inflated in full and checked against their size and
+     * CRC-32; $inspect then receives a temporary ZIP of the changed entries alone, for the inspection.
      */
-    private function checkDelta(SignedBuild $build, string $packPath): ?string
+    private function checkDelta(SignedBuild $build, string $packPath, ?string &$inspect = null): ?string
     {
         $artifact = $build->artifact;
         $disk = Storage::disk($artifact->storage_disk);
         if (! $disk->getAdapter() instanceof LocalFilesystemAdapter || ! $disk->exists($artifact->storage_path)) {
             return 'DELTA_BASE_MISSING';
         }
+        $basePath = $disk->path($artifact->storage_path);
         try {
-            $plan = DeltaComposer::plan($disk->path($artifact->storage_path), $packPath, checkHeaders: true);
+            $coreSha256 = DeltaComposer::requiredCore($packPath);
+            $corePath = $coreSha256 === null ? null : app(DeltaCoreLocator::class)->localPath($coreSha256);
+            if ($coreSha256 !== null && ($corePath === null || ! is_file($corePath))) {
+                return 'DELTA_CORE_MISSING';
+            }
+            $plan = DeltaComposer::plan($basePath, $packPath, checkHeaders: true, corePath: $corePath);
+            $plan->checkSegmented($packPath, $corePath);
         } catch (DeltaException) {
             return 'DELTA_INVALID';
         }
         if (! hash_equals(strtolower((string) $artifact->sha256), $plan->baseSha256)) {
             return 'DELTA_BASE_MISMATCH';
         }
+        if ($plan->version === 2) {
+            $inspect = $this->composeChanged($basePath, $packPath, $corePath);
+            if ($inspect === null) {
+                return 'DELTA_INVALID';
+            }
+        }
         $build->forceFill(['delivered_size' => $plan->size])->save();
 
         return null;
+    }
+
+    /** A temporary ZIP of the entries a delta-v2 pack changes (whole or segmented), or null on failure. */
+    private function composeChanged(string $basePath, string $packPath, ?string $corePath): ?string
+    {
+        $temporary = tempnam(sys_get_temp_dir(), 'delta-changed');
+        $out = $temporary === false ? false : fopen($temporary, 'wb');
+        if ($out === false) {
+            return null;
+        }
+        try {
+            $plan = DeltaComposer::plan($basePath, $packPath, corePath: $corePath, changedOnly: true);
+            $plan->stream($basePath, $packPath, 0, $plan->size - 1, function (string $chunk) use ($out) {
+                if (fwrite($out, $chunk) !== strlen($chunk)) {
+                    throw new DeltaException('Cannot write the changed entries.');
+                }
+            }, fn () => true, $corePath);
+            fclose($out);
+            $out = null;
+
+            return $temporary;
+        } catch (DeltaException) {
+            @unlink($temporary);
+
+            return null;
+        } finally {
+            if ($out !== null) {
+                fclose($out);
+            }
+        }
     }
 
     /**

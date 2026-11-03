@@ -30,9 +30,11 @@ use App\Services\Artifacts\ArtifactFileCache;
 use App\Services\Audit\Actor;
 use App\Services\Devices\DeviceRegistrationService;
 use App\Services\Imports\LinkFetcher;
+use App\Services\Inspection\MalwareScanner;
 use App\Services\Installations\InstallationService;
 use App\Services\Pipeline\PipelineJobService;
 use App\Services\Signing\BuildWarmup;
+use App\Services\Signing\Delta\DeltaCoreLocator;
 use App\Services\Signing\Delta\ZipDirectory;
 use App\Services\Signing\SigningService;
 use App\StateMachines\StateMachine;
@@ -1408,7 +1410,6 @@ it('answers 503 with Retry-After when object storage cannot report the IPA size'
     $this->get($url)->assertStatus(503)->assertHeader('Retry-After', '30');
 });
 
-
 /**
  * What a delta-aware runner uploads in place of the whole signed IPA: the entries that differ from the
  * original (and the ones every pack carries) plus the manifest of the final IPA (docs/adr/DELTA_BUILDS.md).
@@ -1582,9 +1583,9 @@ it('keeps apps that go out as delta builds signed for every team, popular or not
 
 it('verifies a delta pack without running the malware scanner', function () {
     config(['storefront.signing.delta_builds.enabled' => true, 'storefront.signing.delta_builds.min_bytes' => 0]);
-    $scanner = Mockery::mock(App\Services\Inspection\MalwareScanner::class);
+    $scanner = Mockery::mock(MalwareScanner::class);
     $scanner->shouldReceive('scan')->never();
-    $this->app->instance(App\Services\Inspection\MalwareScanner::class, $scanner);
+    $this->app->instance(MalwareScanner::class, $scanner);
     runnerHeartbeat()->assertOk();
     app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
     $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
@@ -1595,6 +1596,168 @@ it('verifies a delta pack without running the malware scanner', function () {
 
     expect(SignedBuild::sole()->status)->toBe(SignedBuildStatus::Deliverable);
 });
+
+/**
+ * A delta-v2 pack (docs/adr/DELTA_V3.md) of a signed IPA: like deltaPackFor, but every changed Mach-O is a
+ * segmented entry (team, core, team) and its core chunks are written to $corePath.
+ *
+ * @param  null|callable(array): array  $tamper  changes the manifest before it is written
+ */
+function deltaV2PackFor(string $baseIpa, string $signedIpa, string $baseSha256, string $corePath, ?callable $tamper = null): string
+{
+    $files = [];
+    foreach (['base' => $baseIpa, 'signed' => $signedIpa, 'pack' => ''] as $name => $bytes) {
+        $files[$name] = tempnam(sys_get_temp_dir(), "delta2-{$name}");
+        file_put_contents($files[$name], $bytes);
+    }
+    $chunk = fn (string $data, bool $final) => deflate_add(deflate_init(ZLIB_ENCODING_RAW, ['level' => 6]), $data, $final ? ZLIB_FINISH : ZLIB_FULL_FLUSH);
+    $base = new ZipArchive;
+    $base->open($files['base']);
+    $signed = new ZipArchive;
+    $signed->open($files['signed']);
+    $known = [];
+    for ($i = 0; $i < $base->numFiles; $i++) {
+        $stat = $base->statIndex($i);
+        $known[$stat['name']] = [$stat['crc'], $stat['size']];
+    }
+
+    $pack = new ZipArchive;
+    $pack->open($files['pack'], ZipArchive::OVERWRITE);
+    $entries = [];
+    $team = '';
+    $core = '';
+    for ($i = 0; $i < $signed->numFiles; $i++) {
+        $stat = $signed->statIndex($i);
+        $name = $stat['name'];
+        $data = (string) $signed->getFromIndex($i);
+        $mandatory = preg_match('#/(Info\.plist|embedded\.mobileprovision)$|/_CodeSignature/CodeResources$#', $name) === 1;
+        if (! $mandatory && ($known[$name] ?? null) === [$stat['crc'], $stat['size']]) {
+            $entries[] = [$name, 0];
+        } elseif (str_starts_with($data, "\xCF\xFA\xED\xFE") && strlen($data) >= 3) {
+            $cuts = [0, intdiv(strlen($data), 3), intdiv(2 * strlen($data), 3), strlen($data)];
+            $segments = [];
+            foreach (['t', 'c', 't'] as $index => $kind) {
+                $bytes = $chunk(substr($data, $cuts[$index], $cuts[$index + 1] - $cuts[$index]), $index === 2);
+                $segments[] = [$kind, strlen($kind === 't' ? $team : $core), strlen($bytes)];
+                $kind === 't' ? $team .= $bytes : $core .= $bytes;
+            }
+            $entries[] = [$name, 2, ['crc' => crc32($data), 'size' => strlen($data), 'segments' => $segments]];
+        } else {
+            $entries[] = [$name, 1];
+            str_ends_with($name, '/') ? $pack->addEmptyDir($name) : $pack->addFromString($name, $data);
+        }
+    }
+    $pair = ['made_by' => 0, 'external' => 0];
+    foreach (ZipDirectory::read($files['signed'])['records'] as $record) {
+        if (! str_ends_with($record->name, '/')) {
+            $pair = ['made_by' => unpack('v', substr($record->raw, 4, 2))[1], 'external' => $record->externalAttributes];
+            break;
+        }
+    }
+    file_put_contents($corePath, $core);
+    $pack->addFromString('Payload/.delta-team.bin', $team);
+    $pack->setCompressionName('Payload/.delta-team.bin', ZipArchive::CM_STORE);
+    $manifest = ['version' => 2, 'base_sha256' => $baseSha256, 'core_sha256' => hash('sha256', $core)] + $pair + ['entries' => $entries];
+    $pack->addFromString('Payload/.delta-manifest.json', json_encode($tamper ? $tamper($manifest) : $manifest));
+    $pack->setCompressionName('Payload/.delta-manifest.json', ZipArchive::CM_STORE);
+    $pack->close();
+    $base->close();
+    $signed->close();
+    $bytes = (string) file_get_contents($files['pack']);
+    array_map('unlink', $files);
+
+    return $bytes;
+}
+
+function deltaCoreAt(?string $path): void
+{
+    app()->instance(DeltaCoreLocator::class, new class($path) implements DeltaCoreLocator
+    {
+        public function __construct(private readonly ?string $path) {}
+
+        public function localPath(string $sha256): ?string
+        {
+            return $this->path;
+        }
+    });
+}
+
+it('verifies a delta-v2 pack by inflating its segmented entries and delivers the composed IPA', function () {
+    config(['storefront.signing.delta_builds.enabled' => true, 'storefront.signing.delta_builds.min_bytes' => 0]);
+    runnerHeartbeat()->assertOk();
+    $installation = app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+    $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+
+    $core = tempnam(sys_get_temp_dir(), 'core');
+    $signed = signedIpa(SigningProfile::sole());
+    $pack = deltaV2PackFor(Storage::disk('artifacts')->get($this->artifact->storage_path), $signed, $this->artifact->sha256, $core);
+    expect($pack)->toContain('"segments"');
+    deltaCoreAt($core);
+    // Uploaded under the v1 label: the worker endpoints for delta-v2 come with the core storage.
+    worker('PUT', $lease['upload_path'], $pack, headers: ['HTTP_X_BUILD_FORMAT' => 'delta-v1'])->assertCreated();
+    worker('POST', $lease['result_path'], json_encode(['status' => 'succeeded', 'format' => 'delta-v1', 'sha256' => hash('sha256', $pack), 'report' => []]))->assertOk();
+
+    $build = SignedBuild::sole();
+    expect($build->status)->toBe(SignedBuildStatus::Deliverable, (string) $build->status_reason)->and($build->delivered_size)->toBeGreaterThan(0);
+
+    Sanctum::actingAs($this->customer);
+    $link = $this->postJson("/api/v1/installations/{$installation->public_id}/authorize")->assertOk()->json('data');
+    forgetGuards();
+    $manifest = $this->get($link['manifest_url'])->assertOk();
+    preg_match('#<string>(http[^<]+/downloads/installations/[^<]+)</string>#', $manifest->getContent(), $match);
+    $downloadUrl = html_entity_decode($match[1]);
+
+    $ipa = $this->get($downloadUrl)->assertOk()->assertHeader('Content-Length', (string) $build->delivered_size)->streamedContent();
+    $path = tempnam(sys_get_temp_dir(), 'composed');
+    file_put_contents($path, $ipa);
+    $expected = tempnam(sys_get_temp_dir(), 'signed');
+    file_put_contents($expected, $signed);
+    $composed = new ZipArchive;
+    $reference = new ZipArchive;
+    expect($composed->open($path, ZipArchive::CHECKCONS))->toBeTrue()->and($reference->open($expected))->toBeTrue()
+        ->and($composed->numFiles)->toBe($reference->numFiles);
+    for ($i = 0; $i < $reference->numFiles; $i++) {
+        expect($composed->getNameIndex($i))->toBe($reference->getNameIndex($i))
+            ->and($composed->getFromIndex($i))->toBe($reference->getFromIndex($i));
+    }
+    @unlink($path);
+    @unlink($expected);
+    expect($this->get($downloadUrl, ['Range' => 'bytes=10-99'])->assertStatus(206)->streamedContent())->toBe(substr($ipa, 10, 90));
+
+    // Without its core the build cannot be composed: a temporary failure, as for a missing base.
+    deltaCoreAt(null);
+    $this->get($downloadUrl)->assertStatus(503)->assertHeader('Retry-After', '30');
+    @unlink($core);
+    app()->terminate();
+});
+
+it('fails a delta-v2 pack whose segmented entry does not match its CRC-32, or whose core is missing', function (bool $tamper, ?bool $withCore, string $reason) {
+    config(['storefront.signing.delta_builds.enabled' => true, 'storefront.signing.delta_builds.min_bytes' => 0]);
+    runnerHeartbeat()->assertOk();
+    app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+    $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+
+    $core = tempnam(sys_get_temp_dir(), 'core');
+    $pack = deltaV2PackFor(Storage::disk('artifacts')->get($this->artifact->storage_path), signedIpa(SigningProfile::sole()), $this->artifact->sha256, $core,
+        $tamper ? function (array $manifest) {
+            foreach ($manifest['entries'] as &$entry) {
+                if ($entry[1] === 2) {
+                    $entry[2]['crc'] ^= 1;
+                }
+            }
+
+            return $manifest;
+        } : null);
+    deltaCoreAt($withCore ? $core : null);
+    worker('PUT', $lease['upload_path'], $pack, headers: ['HTTP_X_BUILD_FORMAT' => 'delta-v1'])->assertCreated();
+    worker('POST', $lease['result_path'], json_encode(['status' => 'succeeded', 'format' => 'delta-v1', 'sha256' => hash('sha256', $pack), 'report' => []]))->assertOk();
+    @unlink($core);
+
+    expect(SignedBuild::sole())->status->toBe(SignedBuildStatus::ValidationFailed)->status_reason->toBe($reason);
+})->with([
+    'a wrong CRC-32' => [true, true, 'DELTA_INVALID'],
+    'no core' => [false, false, 'DELTA_CORE_MISSING'],
+]);
 
 it('starts delta builds for a team even when the signed-build budget is used up', function () {
     runnerHeartbeat()->assertOk();

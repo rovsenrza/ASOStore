@@ -19,6 +19,7 @@ use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use App\Services\Installations\InstallationService;
 use App\Services\Signing\Delta\DeltaComposer;
+use App\Services\Signing\Delta\DeltaCoreLocator;
 use App\Services\Signing\KeptBundleIds;
 use App\Services\Signing\SigningService;
 use App\Services\TelegramStore\Bot\Messenger;
@@ -158,10 +159,12 @@ class CatalogDeviceTest extends Command
         try {
             $basePath = Storage::disk($artifact->storage_disk)->path($artifact->storage_path);
             $out = fopen($temporary, 'wb');
-            $plan = DeltaComposer::plan($basePath, $packPath);
+            $core = DeltaComposer::requiredCore($packPath);
+            $corePath = $core === null ? null : app(DeltaCoreLocator::class)->localPath($core);
+            $plan = DeltaComposer::plan($basePath, $packPath, corePath: $corePath);
             $plan->stream($basePath, $packPath, 0, $plan->size - 1, function (string $chunk) use ($out) {
                 fwrite($out, $chunk);
-            }, fn () => true);
+            }, fn () => true, $corePath);
             fclose($out);
 
             $key = 'device-test/'.$build->public_id.'.ipa';
