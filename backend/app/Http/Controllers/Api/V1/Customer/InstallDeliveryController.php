@@ -6,10 +6,14 @@ use App\Enums\ErrorCode;
 use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Models\Installation;
+use App\Models\SignedBuild;
 use App\Services\Artifacts\ArtifactFileCache;
+use App\Services\Artifacts\LocalArtifactFile;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use App\Services\Installations\InstallationService;
+use App\Services\Signing\Delta\DeltaComposer;
+use App\Services\Signing\Delta\DeltaException;
 use Illuminate\Filesystem\AwsS3V3Adapter;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\Request;
@@ -65,7 +69,11 @@ class InstallDeliveryController extends Controller
         $relative = $this->installations->downloadPath($model);
         // The size recorded with the build saves a HEAD request to object storage. Without one, a
         // missing object or a throttled (429) bucket is a temporary failure for iOS to retry, not a 500.
-        $size = (int) $model->signedBuild?->size_bytes;
+        $size = (int) $model->signedBuild?->deliveredBytes();
+        if ($size <= 0 && $model->signedBuild?->isDelta()) {
+            // A pack with no composed size has not been verified: nothing to send yet.
+            return new SymfonyResponse('', 503, ['Retry-After' => '30', 'Cache-Control' => 'private, no-store']);
+        }
         if ($size <= 0) {
             try {
                 $size = (int) $disk->size($relative);
@@ -99,6 +107,9 @@ class InstallDeliveryController extends Controller
         }
 
         $filename = $model->app->slug.'.ipa';
+        if ($model->signedBuild->isDelta()) {
+            return $this->streamDelta($request, $model->signedBuild, $disk, $relative, $size, $start, $end, $filename);
+        }
         $cached = app(ArtifactFileCache::class)->get($disk, $relative, (string) $model->signedBuild->sha256, $size);
         if ($cached === null && ! $disk->getAdapter() instanceof LocalFilesystemAdapter) {
             return $this->streamRemote($request, $disk, $relative, $size, $start, $end, $filename);
@@ -111,6 +122,69 @@ class InstallDeliveryController extends Controller
         $response->setContentDisposition('attachment', $filename);
 
         return $response;
+    }
+
+    /**
+     * A delta build: the IPA is composed while it is sent, from the artifact's original and the pack of
+     * entries re-signing changed (docs/adr/DELTA_BUILDS.md). Same Range behaviour as a stored file.
+     */
+    private function streamDelta(Request $request, SignedBuild $build, FilesystemAdapter $signed, string $relative, int $size, int $start, int $end, string $filename): SymfonyResponse
+    {
+        $artifact = $build->artifact;
+        $base = Storage::disk($artifact->storage_disk);
+        if (! $base->getAdapter() instanceof LocalFilesystemAdapter || ! $base->exists($artifact->storage_path)) {
+            Log::error('install.delta_base_missing', ['build' => $build->public_id]);
+
+            return new SymfonyResponse('', 503, ['Retry-After' => '30', 'Cache-Control' => 'private, no-store']);
+        }
+
+        $packPath = app(ArtifactFileCache::class)->get($signed, $relative, (string) $build->sha256, (int) $build->size_bytes);
+        $copy = null;
+        try {
+            if ($packPath === null) {
+                $copy = LocalArtifactFile::open($signed, $relative);
+                $packPath = $copy->path;
+            }
+            $basePath = $base->path($artifact->storage_path);
+            $plan = DeltaComposer::plan($basePath, $packPath);
+            if ($plan->size !== $size) {
+                throw new DeltaException("Composed {$plan->size} bytes, the build says {$size}.");
+            }
+        } catch (\Throwable $exception) {
+            $copy?->release();
+            Log::error('install.delta_unavailable', ['build' => $build->public_id, 'error' => $exception->getMessage()]);
+
+            return new SymfonyResponse('', 503, ['Retry-After' => '30', 'Cache-Control' => 'private, no-store']);
+        }
+
+        $partial = $start > 0 || $end < $size - 1;
+        $headers = [
+            'Content-Type' => 'application/octet-stream',
+            'Cache-Control' => 'private, no-store',
+            'Accept-Ranges' => 'bytes',
+            'Content-Length' => (string) ($end - $start + 1),
+            'Content-Disposition' => HeaderUtils::makeDisposition('attachment', $filename),
+        ];
+        if ($partial) {
+            $headers['Content-Range'] = "bytes {$start}-{$end}/{$size}";
+        }
+        $status = $partial ? 206 : 200;
+        if ($request->isMethod('HEAD')) {
+            $copy?->release();
+
+            return new SymfonyResponse('', $status, $headers);
+        }
+
+        return new StreamedResponse(function () use ($plan, $basePath, $packPath, $start, $end, $copy) {
+            try {
+                $plan->stream($basePath, $packPath, $start, $end, function (string $chunk) {
+                    echo $chunk;
+                    flush();
+                }, fn () => connection_status() === CONNECTION_NORMAL);
+            } finally {
+                $copy?->release();
+            }
+        }, $status, $headers);
     }
 
     /**

@@ -374,6 +374,212 @@ static void RSSuppressForceUpgrade(void) {
     free(names);
 }
 
+#pragma mark - Anti-tamper diagnostics (debug builds only)
+
+#ifdef RUSTORE_COMPAT_DEBUG
+#include <execinfo.h>
+#include <signal.h>
+#include <pthread.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+// Force any jailbreak-detection method to report "not jailbroken". These selectors come from
+// ChefPathBase (T-Invest): a re-signed copy must still answer NO so the app does not self-kill.
+static BOOL rs_jbFalse(id self, SEL _cmd) { return NO; }
+static BOOL rs_jbFalseArg(id self, SEL _cmd, BOOL skip) { (void)skip; return NO; }
+
+static void (*orig_exit)(int);
+static void rs_logBacktrace(const char *why) {
+    void *frames[64];
+    int n = backtrace(frames, 64);
+    char **syms = backtrace_symbols(frames, n);
+    RSLog(@"=== %s backtrace (%d) ===", why, n);
+    for (int i = 0; i < n && syms; i++) RSLog(@"  %s", syms[i]);
+    if (syms) free(syms);
+}
+
+static void RSBypassJailbreak(void) {
+    static const char *zeroArg[] = {"isJailbroken", "isDeviceJailbroken", "isJailbreak", "jailbroken",
+                                    "checkJBBySandboxIntegrity", "isJailBroken", "jailbreakStatus", NULL};
+    static const char *oneArg[] = {"isJailbrokenWithSkipAdvancedJailbreakValidation:", NULL};
+    unsigned int classCount = 0;
+    Class *classes = objc_copyClassList(&classCount);
+    for (unsigned int c = 0; c < classCount; c++) {
+        Class cls = classes[c];
+        const char *cn = class_getName(cls);
+        if (cn == NULL) continue;
+        for (int i = 0; zeroArg[i]; i++) {
+            SEL sel = sel_registerName(zeroArg[i]);
+            Method m = class_getInstanceMethod(cls, sel);
+            if (m != NULL && class_getInstanceMethod(class_getSuperclass(cls), sel) != m) {
+                const char *enc = method_getTypeEncoding(m);
+                if (enc && (enc[0] == 'B' || enc[0] == 'c' || enc[0] == 'i')) {
+                    method_setImplementation(m, (IMP)rs_jbFalse);
+                    RSLog(@"jb-bypass %s -%s -> NO", cn, zeroArg[i]);
+                }
+            }
+        }
+        for (int i = 0; oneArg[i]; i++) {
+            SEL sel = sel_registerName(oneArg[i]);
+            Method m = class_getInstanceMethod(cls, sel);
+            if (m != NULL && class_getInstanceMethod(class_getSuperclass(cls), sel) != m) {
+                method_setImplementation(m, (IMP)rs_jbFalseArg);
+                RSLog(@"jb-bypass %s -%s -> NO", cn, oneArg[i]);
+            }
+        }
+    }
+    if (classes) free(classes);
+}
+
+static void rs_atexitLog(void) { rs_logBacktrace("atexit"); }
+
+// Main-thread sampler: after a delay, signal the main thread to dump its own stack, so a hang on
+// the launch screen shows where it is stuck.
+static pthread_t gMainThread;
+static int gLogFd = -1;
+
+static void rs_sigusr1(int sig) {
+    (void)sig;
+    const char *hdr = "=== SIGUSR1 main-thread sample ===\n";
+    if (gLogFd >= 0) write(gLogFd, hdr, strlen(hdr));
+    void *frames[64];
+    int n = backtrace(frames, 64);
+    if (gLogFd >= 0) backtrace_symbols_fd(frames, n, gLogFd);
+}
+
+
+// Debug: log the anti-tamper's environment probes (NO behavior change yet) with thread id, so we can
+// see exactly which C primitive it uses to conclude "tampered", then neutralize only that one.
+#include <sys/sysctl.h>
+#include <sys/stat.h>
+#include <sys/mount.h>
+extern int ptrace(int, pid_t, caddr_t, int);
+static void rs_probe(const char *fmt, ...) {
+    if (gLogFd < 0) return;
+    char buf[400]; uint64_t tid = 0; pthread_threadid_np(NULL, &tid);
+    int pre = snprintf(buf, sizeof buf, "PROBE t=%llu ", (unsigned long long)tid);
+    va_list ap; va_start(ap, fmt); vsnprintf(buf+pre, sizeof buf-pre, fmt, ap); va_end(ap);
+    size_t n = strlen(buf); if (n < sizeof buf - 1) { buf[n]='\n'; buf[n+1]=0; }
+    write(gLogFd, buf, strlen(buf));
+}
+static int (*o_sysctl)(int *, u_int, void *, size_t *, void *, size_t);
+static int rs_sysctl(int *name, u_int nlen, void *op, size_t *os, void *np, size_t nl) {
+    if (!o_sysctl) o_sysctl = (void*)dlsym(RTLD_NEXT, "sysctl");
+    int r = o_sysctl(name, nlen, op, os, np, nl);
+    if (nlen >= 4 && name[0]==CTL_KERN && name[1]==KERN_PROC) rs_probe("sysctl KERN_PROC pid=%d -> r=%d", name[3], r);
+    return r;
+}
+static int (*o_sysctlbyname)(const char *, void *, size_t *, void *, size_t);
+static int rs_sysctlbyname(const char *nm, void *op, size_t *os, void *np, size_t nl) {
+    if (!o_sysctlbyname) o_sysctlbyname = (void*)dlsym(RTLD_NEXT, "sysctlbyname");
+    rs_probe("sysctlbyname %s", nm ?: "?"); return o_sysctlbyname(nm, op, os, np, nl);
+}
+static char *(*o_getenv)(const char *);
+static char *rs_getenv(const char *k) { if (!o_getenv) o_getenv=(void*)dlsym(RTLD_NEXT,"getenv"); char *v = o_getenv(k); if (k && (strstr(k,"DYLD")||strstr(k,"INSERT")||strstr(k,"_MSSafeMode"))) rs_probe("getenv %s -> %s", k, v?v:"(null)"); return v; }
+static int (*o_access)(const char *, int);
+static int rs_access(const char *pth, int m) { if (!o_access) o_access=(void*)dlsym(RTLD_NEXT,"access"); int r=o_access(pth,m); if (pth && (strstr(pth,"Cydia")||strstr(pth,"jail")||strstr(pth,"/bin/")||strstr(pth,"substrate")||strstr(pth,"ssh")||strstr(pth,"apt")||strstr(pth,"/private/var/stash")||strstr(pth,"Sileo")||strstr(pth,"Zebra"))) rs_probe("access %s -> %d", pth, r); return r; }
+static int (*o_stat)(const char *, void *);
+static int rs_stat(const char *pth, void *st) { if (!o_stat) o_stat=(void*)dlsym(RTLD_NEXT,"stat"); int r=o_stat(pth,st); if (pth && (strstr(pth,"Cydia")||strstr(pth,"jail")||strstr(pth,"/bin/")||strstr(pth,"substrate")||strstr(pth,"Sileo")||strstr(pth,"apt"))) rs_probe("stat %s -> %d", pth, r); return r; }
+static int (*o_statfs)(const char *, void *);
+static int rs_statfs(const char *pth, void *b) { if (!o_statfs) o_statfs=(void*)dlsym(RTLD_NEXT,"statfs"); int r=o_statfs(pth,b); if (pth && (strcmp(pth,"/")==0 || strstr(pth,"/private"))) rs_probe("statfs %s -> %d", pth, r); return r; }
+static pid_t (*o_fork)(void);
+static pid_t rs_fork(void) { if (!o_fork) o_fork=(void*)dlsym(RTLD_NEXT,"fork"); rs_probe("fork() called"); return o_fork(); }
+static long (*o_ptrace)(int, pid_t, void *, int);
+static long rs_ptrace(int req, pid_t pid, void *a, int d) { if (!o_ptrace) o_ptrace=(void*)dlsym(RTLD_NEXT,"ptrace"); rs_probe("ptrace req=%d", req); return o_ptrace(req,pid,a,d); }
+RS_INTERPOSE(rs_sysctl, sysctl);
+RS_INTERPOSE(rs_sysctlbyname, sysctlbyname);
+RS_INTERPOSE(rs_getenv, getenv);
+RS_INTERPOSE(rs_access, access);
+RS_INTERPOSE(rs_stat, stat);
+RS_INTERPOSE(rs_statfs, statfs);
+RS_INTERPOSE(rs_fork, fork);
+RS_INTERPOSE(rs_ptrace, ptrace);
+
+// Debug: catch any process-termination call, log the caller, and PARK the calling thread instead
+// of dying. If the app then keeps running, the kill was a background anti-tamper exit we can scope.
+static void rs_logFd(const char *why) {
+    if (gLogFd >= 0) { write(gLogFd, why, strlen(why)); write(gLogFd, "\n", 1); }
+    void *frames[64]; int n = backtrace(frames, 64);
+    if (gLogFd >= 0) backtrace_symbols_fd(frames, n, gLogFd);
+}
+static void rs_park(const char *why) { rs_logFd(why); for (;;) pause(); }
+static void rs_exit(int code) { (void)code; rs_park("=== exit() parked ==="); }
+static void rs_uexit(int code) { (void)code; rs_park("=== _exit() parked ==="); }
+static void rs_Exit(int code) { (void)code; rs_park("=== _Exit() parked ==="); }
+static void rs_abort(void) { rs_park("=== abort() parked ==="); }
+RS_INTERPOSE(rs_exit, exit);
+RS_INTERPOSE(rs_uexit, _exit);
+RS_INTERPOSE(rs_Exit, _Exit);
+RS_INTERPOSE(rs_abort, abort);
+
+#include <mach/mach.h>
+#include <dlfcn.h>
+
+static void rs_fdprint(const char *s) { if (gLogFd >= 0) write(gLogFd, s, strlen(s)); }
+
+// Walk a frame-pointer chain from (pc, fp) and log each return address with its symbol.
+static void rs_unwind(uint64_t pc, uint64_t fp) {
+    char line[512];
+    for (int depth = 0; depth < 40; depth++) {
+        Dl_info info; const char *sym = "?"; const char *img = "?";
+        if (pc && dladdr((void *)(uintptr_t)pc, &info)) {
+            sym = info.dli_sname ? info.dli_sname : "?";
+            img = info.dli_fname ? strrchr(info.dli_fname, '/') + 1 : "?";
+        }
+        snprintf(line, sizeof line, "    0x%016llx %s %s\n", (unsigned long long)pc, img, sym);
+        rs_fdprint(line);
+        if (!fp) break;
+        uint64_t next[2] = {0, 0}; // [0]=saved fp, [1]=saved lr
+        vm_size_t got = 0;
+        if (vm_read_overwrite(mach_task_self(), (vm_address_t)fp, sizeof next, (vm_address_t)next, &got) != KERN_SUCCESS || got != sizeof next) break;
+        if (next[1] == 0 || next[0] <= fp) break;
+        pc = next[1]; fp = next[0];
+    }
+}
+
+static void *rs_samplerThread(void *arg) {
+    (void)arg;
+    struct timespec ts = {.tv_sec = 14, .tv_nsec = 0};
+    nanosleep(&ts, NULL);
+    rs_fdprint("=== ALL-THREAD SAMPLE ===\n");
+    thread_act_array_t threads; mach_msg_type_number_t count = 0;
+    if (task_threads(mach_task_self(), &threads, &count) != KERN_SUCCESS) return NULL;
+    thread_t me = mach_thread_self();
+    for (mach_msg_type_number_t i = 0; i < count; i++) {
+        if (threads[i] == me) continue;
+        if (thread_suspend(threads[i]) != KERN_SUCCESS) continue;
+        arm_thread_state64_t st; mach_msg_type_number_t sc = ARM_THREAD_STATE64_COUNT;
+        if (thread_get_state(threads[i], ARM_THREAD_STATE64, (thread_state_t)&st, &sc) == KERN_SUCCESS) {
+            char hdr[64]; snprintf(hdr, sizeof hdr, "-- thread %u --\n", (unsigned)i); rs_fdprint(hdr);
+            rs_unwind((uint64_t)arm_thread_state64_get_pc(st), (uint64_t)arm_thread_state64_get_fp(st));
+        }
+        thread_resume(threads[i]);
+    }
+    mach_port_deallocate(mach_task_self(), me);
+    for (mach_msg_type_number_t i = 0; i < count; i++) mach_port_deallocate(mach_task_self(), threads[i]);
+    rs_fdprint("=== END ALL-THREAD SAMPLE ===\n");
+    return NULL;
+}
+
+static void RSInstallAntiTamperDiag(void) {
+    o_sysctl=(void*)dlsym(RTLD_DEFAULT,"sysctl"); o_sysctlbyname=(void*)dlsym(RTLD_DEFAULT,"sysctlbyname");
+    o_getenv=(void*)dlsym(RTLD_DEFAULT,"getenv"); o_access=(void*)dlsym(RTLD_DEFAULT,"access");
+    o_stat=(void*)dlsym(RTLD_DEFAULT,"stat"); o_statfs=(void*)dlsym(RTLD_DEFAULT,"statfs");
+    o_fork=(void*)dlsym(RTLD_DEFAULT,"fork"); o_ptrace=(void*)dlsym(RTLD_DEFAULT,"ptrace");
+    RSBypassJailbreak();
+    orig_exit = (void (*)(int))dlsym(RTLD_DEFAULT, "exit");
+    atexit(rs_atexitLog);
+    // The dylib constructor runs on the main thread during dyld load.
+    gMainThread = pthread_self();
+    NSString *path = [NSHomeDirectory() stringByAppendingPathComponent:@"Library/Caches/RuStoreCompat.log"];
+    gLogFd = open(path.fileSystemRepresentation, O_WRONLY | O_APPEND | O_CREAT, 0644);
+    struct sigaction sa; memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = rs_sigusr1; sa.sa_flags = SA_RESTART; sigemptyset(&sa.sa_mask);
+    sigaction(SIGUSR1, &sa, NULL);
+    pthread_t t; pthread_create(&t, NULL, rs_samplerThread, NULL); pthread_detach(t);
+}
+#endif
+
 #pragma mark - VPN tunnel provider bundle ID
 
 // A VPN app names its tunnel extension in the NETunnelProviderProtocol it saves. Many build that
@@ -484,6 +690,9 @@ static void RuStoreCompatInit(void) {
         RSLog(@"groups=%@ primary=%@ team=%@ original=%@ isVK=%d", gRealGroups, gPrimaryGroup, gTeamPrefix, gOriginalBundleID, gIsVK);
         // Before the bundle hooks below, so the report names our real bundle ID.
         RSTelemetryStart(gOriginalBundleID);
+#ifdef RUSTORE_COMPAT_DEBUG
+        RSInstallAntiTamperDiag();
+#endif
 
         if (gOriginalBundleID != nil) {
             RSSwizzle(NSBundle.class, @selector(bundleIdentifier), (IMP)rs_bundleIdentifier, &orig_bundleIdentifier);

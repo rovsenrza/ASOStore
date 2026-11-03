@@ -33,6 +33,7 @@ use App\Services\Imports\LinkFetcher;
 use App\Services\Installations\InstallationService;
 use App\Services\Pipeline\PipelineJobService;
 use App\Services\Signing\BuildWarmup;
+use App\Services\Signing\Delta\ZipDirectory;
 use App\Services\Signing\SigningService;
 use App\StateMachines\StateMachine;
 use Aws\CommandInterface;
@@ -87,7 +88,7 @@ beforeEach(function () {
 /**
  * A request from the runner, signed as runner/Sources/Runner/WorkerClient.swift signs it.
  */
-function worker(string $method, string $path, string $body = '', string $secret = RUNNER_SECRET, ?string $nonce = null): TestResponse
+function worker(string $method, string $path, string $body = '', string $secret = RUNNER_SECRET, ?string $nonce = null, array $headers = []): TestResponse
 {
     $timestamp = (string) time();
     $nonce ??= Str::random(24);
@@ -101,7 +102,7 @@ function worker(string $method, string $path, string $body = '', string $secret 
         'HTTP_X_SIGNATURE' => VerifyWorkerSignature::sign($secret, $method, $path, $timestamp, $nonce, $hash),
         'CONTENT_TYPE' => $method === 'PUT' ? 'application/octet-stream' : 'application/json',
         'HTTP_ACCEPT' => 'application/json',
-    ], $body);
+    ] + $headers, $body);
 }
 
 function runnerHeartbeat(): TestResponse
@@ -1405,4 +1406,210 @@ it('answers 503 with Retry-After when object storage cannot report the IPA size'
 
     $url = URL::temporarySignedRoute('api.downloads.installation', now()->addMinutes(5), ['installation' => $installation->public_id]);
     $this->get($url)->assertStatus(503)->assertHeader('Retry-After', '30');
+});
+
+
+/**
+ * What a delta-aware runner uploads in place of the whole signed IPA: the entries that differ from the
+ * original (and the ones every pack carries) plus the manifest of the final IPA (docs/adr/DELTA_BUILDS.md).
+ */
+function deltaPackFor(string $baseIpa, string $signedIpa, string $baseSha256): string
+{
+    $files = [];
+    foreach (['base' => $baseIpa, 'signed' => $signedIpa, 'pack' => ''] as $name => $bytes) {
+        $files[$name] = tempnam(sys_get_temp_dir(), "delta-{$name}");
+        file_put_contents($files[$name], $bytes);
+    }
+    $base = new ZipArchive;
+    $base->open($files['base']);
+    $signed = new ZipArchive;
+    $signed->open($files['signed']);
+    $known = [];
+    for ($i = 0; $i < $base->numFiles; $i++) {
+        $stat = $base->statIndex($i);
+        $known[$stat['name']] = [$stat['crc'], $stat['size']];
+    }
+
+    $pack = new ZipArchive;
+    $pack->open($files['pack'], ZipArchive::OVERWRITE);
+    $entries = [];
+    for ($i = 0; $i < $signed->numFiles; $i++) {
+        $stat = $signed->statIndex($i);
+        $name = $stat['name'];
+        $mandatory = preg_match('#/(Info\.plist|embedded\.mobileprovision)$|/_CodeSignature/CodeResources$#', $name) === 1;
+        $same = ! $mandatory && ($known[$name] ?? null) === [$stat['crc'], $stat['size']];
+        $entries[] = [$name, $same ? 0 : 1];
+        if (! $same) {
+            str_ends_with($name, '/') ? $pack->addEmptyDir($name) : $pack->addFromString($name, (string) $signed->getFromIndex($i));
+        }
+    }
+    // The record pair every base entry is written with: the signed IPA's first non-directory record.
+    $pair = ['made_by' => 0, 'external' => 0];
+    foreach (ZipDirectory::read($files['signed'])['records'] as $record) {
+        if (! str_ends_with($record->name, '/')) {
+            $pair = ['made_by' => unpack('v', substr($record->raw, 4, 2))[1], 'external' => $record->externalAttributes];
+            break;
+        }
+    }
+    $manifest = 'Payload/.delta-manifest.json';
+    $pack->addFromString($manifest, json_encode(['version' => 1, 'base_sha256' => $baseSha256] + $pair + ['entries' => $entries]));
+    $pack->setCompressionName($manifest, ZipArchive::CM_STORE);
+    $pack->close();
+    $base->close();
+    $signed->close();
+    $bytes = (string) file_get_contents($files['pack']);
+    array_map('unlink', $files);
+
+    return $bytes;
+}
+
+it('keeps a delta build as a pack and delivers the composed IPA, with ranges', function () {
+    config(['storefront.signing.delta_builds.enabled' => true, 'storefront.signing.delta_builds.min_bytes' => 0]);
+    runnerHeartbeat()->assertOk();
+    $installation = app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+    $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+    expect($lease['delta'])->toBe(['enabled' => true]);
+
+    $signed = signedIpa(SigningProfile::sole());
+    $pack = deltaPackFor(Storage::disk('artifacts')->get($this->artifact->storage_path), $signed, $this->artifact->sha256);
+    worker('PUT', $lease['upload_path'], $pack, headers: ['HTTP_X_BUILD_FORMAT' => 'delta-v1'])->assertCreated()->assertJsonPath('data.sha256', hash('sha256', $pack));
+    worker('POST', $lease['result_path'], json_encode(['status' => 'succeeded', 'format' => 'delta-v1', 'sha256' => hash('sha256', $pack), 'report' => ['codesign' => 'valid']]))->assertOk();
+
+    $build = SignedBuild::sole();
+    expect($build->status)->toBe(SignedBuildStatus::Deliverable)
+        ->and($build->format)->toBe('delta-v1')
+        ->and($build->storage_path)->toEndWith('.pack')
+        ->and($build->size_bytes)->toBe(strlen($pack))
+        ->and($build->delivered_size)->toBeGreaterThan(0);
+
+    Sanctum::actingAs($this->customer);
+    $link = $this->postJson("/api/v1/installations/{$installation->public_id}/authorize")->assertOk()->json('data');
+    forgetGuards();
+    $manifest = $this->get($link['manifest_url'])->assertOk();
+    preg_match('#<string>(http[^<]+/downloads/installations/[^<]+)</string>#', $manifest->getContent(), $match);
+    $downloadUrl = html_entity_decode($match[1]);
+
+    $whole = $this->get($downloadUrl)->assertOk()->assertHeader('Accept-Ranges', 'bytes')->assertHeader('Content-Length', (string) $build->delivered_size);
+    $ipa = $whole->streamedContent();
+    expect(strlen($ipa))->toBe($build->delivered_size);
+
+    // The composed file is the signed IPA, entry for entry.
+    $path = tempnam(sys_get_temp_dir(), 'composed');
+    file_put_contents($path, $ipa);
+    $expected = tempnam(sys_get_temp_dir(), 'signed');
+    file_put_contents($expected, $signed);
+    $composed = new ZipArchive;
+    $reference = new ZipArchive;
+    expect($composed->open($path, ZipArchive::CHECKCONS))->toBeTrue()->and($reference->open($expected))->toBeTrue()
+        ->and($composed->numFiles)->toBe($reference->numFiles);
+    for ($i = 0; $i < $reference->numFiles; $i++) {
+        expect($composed->getNameIndex($i))->toBe($reference->getNameIndex($i))
+            ->and($composed->getFromIndex($i))->toBe($reference->getFromIndex($i));
+    }
+    exec('unzip -tq '.escapeshellarg($path).' 2>&1', $lines, $status);
+    expect($status)->toBe(0, implode("\n", $lines));
+    @unlink($path);
+    @unlink($expected);
+
+    $size = strlen($ipa);
+    $this->get($downloadUrl, ['Range' => 'bytes=10-99'])->assertStatus(206)->assertHeader('Content-Range', "bytes 10-99/{$size}")->assertHeader('Content-Length', '90');
+    expect($this->get($downloadUrl, ['Range' => 'bytes=10-99'])->streamedContent())->toBe(substr($ipa, 10, 90));
+    expect($this->get($downloadUrl, ['Range' => 'bytes=-40'])->streamedContent())->toBe(substr($ipa, -40));
+    $this->get($downloadUrl, ['Range' => "bytes={$size}-"])->assertStatus(416);
+    app()->terminate();
+});
+
+it('does not offer delta builds below the size threshold or with the switch off', function (bool $enabled, int $minBytes) {
+    config(['storefront.signing.delta_builds.enabled' => $enabled, 'storefront.signing.delta_builds.min_bytes' => $minBytes]);
+    runnerHeartbeat()->assertOk();
+    app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+
+    $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+    expect($lease['delta'])->toBe(['enabled' => false]);
+})->with([
+    'switched off' => [false, 0],
+    'artifact smaller than the threshold' => [true, 1 << 40],
+]);
+
+it('refuses a pack that does not belong to the artifact and signs that app whole from then on', function () {
+    config(['storefront.signing.delta_builds.enabled' => true, 'storefront.signing.delta_builds.min_bytes' => 0]);
+    runnerHeartbeat()->assertOk();
+    app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+    $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+
+    $pack = deltaPackFor(Storage::disk('artifacts')->get($this->artifact->storage_path), signedIpa(SigningProfile::sole()), str_repeat('f', 64));
+    worker('PUT', $lease['upload_path'], $pack, headers: ['HTTP_X_BUILD_FORMAT' => 'delta-v1'])->assertCreated();
+    worker('POST', $lease['result_path'], json_encode(['status' => 'succeeded', 'format' => 'delta-v1', 'sha256' => hash('sha256', $pack), 'report' => []]))->assertOk();
+
+    $build = SignedBuild::sole();
+    expect($build->status)->toBe(SignedBuildStatus::ValidationFailed)
+        ->and($build->status_reason)->toBe('DELTA_BASE_MISMATCH')
+        ->and(app(SigningService::class)->deltaAllowed($build, $this->artifact))->toBeFalse();
+});
+
+it('rejects a result whose format differs from what was uploaded, and an unknown format', function () {
+    config(['storefront.signing.delta_builds.enabled' => true, 'storefront.signing.delta_builds.min_bytes' => 0]);
+    runnerHeartbeat()->assertOk();
+    app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+    $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+
+    worker('PUT', $lease['upload_path'], 'x', headers: ['HTTP_X_BUILD_FORMAT' => 'surprise'])->assertStatus(422);
+
+    $signed = signedIpa(SigningProfile::sole());
+    worker('PUT', $lease['upload_path'], $signed)->assertCreated();
+    // Uploaded whole, reported as a pack.
+    worker('POST', $lease['result_path'], json_encode(['status' => 'succeeded', 'format' => 'delta-v1', 'sha256' => hash('sha256', $signed), 'report' => []]))->assertStatus(409)->assertJsonPath('error.code', 'UPLOAD_CORRUPT');
+});
+
+it('keeps apps that go out as delta builds signed for every team, popular or not', function () {
+    runnerHeartbeat()->assertOk();
+    $warmup = app(BuildWarmup::class);
+    // No popularity-based pre-signing at all: only the delta rule can start a build here.
+    config(['storefront.signing.team_presign_limit' => 0, 'storefront.signing.delta_builds.min_bytes' => 0]);
+
+    config(['storefront.signing.delta_builds.enabled' => false]);
+    expect($warmup->forTeams())->toBe(0);
+
+    config(['storefront.signing.delta_builds.enabled' => true, 'storefront.signing.delta_builds.min_bytes' => 1 << 40]);
+    expect($warmup->forTeams())->toBe(0);
+
+    config(['storefront.signing.delta_builds.min_bytes' => 0]);
+    expect($warmup->forTeams())->toBe(1)
+        ->and($warmup->forTeams())->toBe(0);
+    $build = signNextLease();
+    expect($build->isShared())->toBeTrue()->and($build->installations()->exists())->toBeFalse();
+});
+
+it('verifies a delta pack without running the malware scanner', function () {
+    config(['storefront.signing.delta_builds.enabled' => true, 'storefront.signing.delta_builds.min_bytes' => 0]);
+    $scanner = Mockery::mock(App\Services\Inspection\MalwareScanner::class);
+    $scanner->shouldReceive('scan')->never();
+    $this->app->instance(App\Services\Inspection\MalwareScanner::class, $scanner);
+    runnerHeartbeat()->assertOk();
+    app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+    $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+
+    $pack = deltaPackFor(Storage::disk('artifacts')->get($this->artifact->storage_path), signedIpa(SigningProfile::sole()), $this->artifact->sha256);
+    worker('PUT', $lease['upload_path'], $pack, headers: ['HTTP_X_BUILD_FORMAT' => 'delta-v1'])->assertCreated();
+    worker('POST', $lease['result_path'], json_encode(['status' => 'succeeded', 'format' => 'delta-v1', 'sha256' => hash('sha256', $pack), 'report' => []]))->assertOk();
+
+    expect(SignedBuild::sole()->status)->toBe(SignedBuildStatus::Deliverable);
+});
+
+it('starts delta builds for a team even when the signed-build budget is used up', function () {
+    runnerHeartbeat()->assertOk();
+    $warmup = app(BuildWarmup::class);
+    config(['storefront.signing.team_presign_limit' => 10, 'storefront.build_storage.budget_bytes' => 0]);
+
+    // Whole builds: the budget is full, nothing starts.
+    config(['storefront.signing.delta_builds.enabled' => false]);
+    expect($warmup->forTeams())->toBe(0);
+
+    // The same app as a delta build only needs the disk rule.
+    config(['storefront.signing.delta_builds.enabled' => true, 'storefront.signing.delta_builds.min_bytes' => 0]);
+    expect($warmup->forTeams())->toBe(1);
+
+    // And not when the disk is filling.
+    config(['storefront.build_storage.min_free_disk_ratio' => 1.0]);
+    expect($warmup->forTeams())->toBe(0);
 });

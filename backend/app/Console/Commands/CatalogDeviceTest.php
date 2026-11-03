@@ -11,11 +11,14 @@ use App\Models\CatalogApp;
 use App\Models\Device;
 use App\Models\SignedBuild;
 use App\Models\User;
+use App\Services\Artifacts\ArtifactFileCache;
 use App\Services\Artifacts\ArtifactReviewService;
 use App\Services\Artifacts\CleanedCopyBuilder;
+use App\Services\Artifacts\LocalArtifactFile;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use App\Services\Installations\InstallationService;
+use App\Services\Signing\Delta\DeltaComposer;
 use App\Services\Signing\KeptBundleIds;
 use App\Services\Signing\SigningService;
 use App\Services\TelegramStore\Bot\Messenger;
@@ -130,10 +133,47 @@ class CatalogDeviceTest extends Command
         if ($build->status === SignedBuildStatus::Deliverable && $build->storage_path !== null && $build->purged_at === null) {
             // Downloading counts as use: the storage janitor leaves the file alone meanwhile.
             $build->forceFill(['last_used_at' => now()])->save();
-            $result['url'] = Storage::disk('signed')->temporaryUrl($build->storage_path, now()->addHours(3));
+            $result['url'] = $build->isDelta()
+                ? $this->composedUrl($build)
+                : Storage::disk('signed')->temporaryUrl($build->storage_path, now()->addHours(3));
         }
 
         return $result;
+    }
+
+    /**
+     * A delta build stores a pack, not an IPA: compose the IPA once and put it where the tool can fetch it.
+     */
+    private function composedUrl(SignedBuild $build): string
+    {
+        $signed = Storage::disk('signed');
+        $artifact = $build->artifact;
+        $copy = null;
+        $packPath = app(ArtifactFileCache::class)->get($signed, (string) $build->storage_path, (string) $build->sha256, (int) $build->size_bytes);
+        if ($packPath === null) {
+            $copy = LocalArtifactFile::open($signed, (string) $build->storage_path);
+            $packPath = $copy->path;
+        }
+        $temporary = tempnam(sys_get_temp_dir(), 'composed');
+        try {
+            $basePath = Storage::disk($artifact->storage_disk)->path($artifact->storage_path);
+            $out = fopen($temporary, 'wb');
+            $plan = DeltaComposer::plan($basePath, $packPath);
+            $plan->stream($basePath, $packPath, 0, $plan->size - 1, function (string $chunk) use ($out) {
+                fwrite($out, $chunk);
+            }, fn () => true);
+            fclose($out);
+
+            $key = 'device-test/'.$build->public_id.'.ipa';
+            $in = fopen($temporary, 'rb');
+            $signed->put($key, $in);
+            fclose($in);
+
+            return $signed->temporaryUrl($key, now()->addHours(3));
+        } finally {
+            @unlink($temporary);
+            $copy?->release();
+        }
     }
 
     /** @return array<string, mixed> */

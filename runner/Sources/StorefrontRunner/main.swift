@@ -7,6 +7,11 @@ import RunnerCore
 //   storefront-runner --sign-file IN.ipa --profile P.mobileprovision --bundle-id ID --out OUT.ipa
 //                                       sign one file outside the queue, e.g. to install on a test
 //                                       device after upgrading zsign
+//   storefront-runner --build-pack SOURCE.ipa SIGNED.ipa OUT.pack
+//                                       build a delta-v1 pack (DeltaPack) and print one JSON line:
+//                                       the summary, or {"delta":false,"reason":…} when none is used
+//   storefront-runner --build-pack-tree SOURCE.ipa TREE_ROOT OUT.pack
+//                                       the same, cut from a signed folder that holds Payload/ (delta v2)
 do {
     let arguments = CommandLine.arguments
     func value(_ flag: String) throws -> String {
@@ -24,6 +29,31 @@ do {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         print(String(decoding: try encoder.encode(identities().map(\.identity)), as: UTF8.self))
+        exit(0)
+    }
+
+    // --build-pack SOURCE SIGNED OUT: a pack cut from a signed IPA; --build-pack-tree SOURCE TREE_ROOT OUT: from
+    // the signed folder that holds Payload/. Both print one JSON line and exit 0.
+    for flag in ["--build-pack", "--build-pack-tree"] {
+        guard let index = arguments.firstIndex(of: flag) else { continue }
+        guard index + 3 < arguments.count else { throw RunnerError.configuration("\(flag) needs SOURCE.ipa \(flag == "--build-pack" ? "SIGNED.ipa" : "TREE_ROOT") OUT.pack") }
+        let source = URL(fileURLWithPath: arguments[index + 1])
+        let signed = URL(fileURLWithPath: arguments[index + 2], isDirectory: flag == "--build-pack-tree")
+        let destination = URL(fileURLWithPath: arguments[index + 3])
+        let baseSHA256 = try RequestSigner.sha256(fileAt: source)
+        let outcome = flag == "--build-pack"
+            ? DeltaPack.build(source: source, signed: signed, output: destination, baseSHA256: baseSHA256)
+            : DeltaPack.buildFromTree(source: source, treeRoot: signed, output: destination, baseSHA256: baseSHA256)
+        var line: [String: Any]
+        switch outcome {
+        case .pack(let built):
+            line = ["delta": true, "format": DeltaPack.format, "base_sha256": built.baseSHA256, "pack_sha256": built.sha256,
+                    "pack_bytes": built.packBytes, "signed_bytes": built.signedBytes, "entries_total": built.entriesTotal,
+                    "entries_pack": built.entriesPack, "delta_seconds": (built.seconds * 10).rounded() / 10]
+        case .fallback(let reason):
+            line = ["delta": false, "base_sha256": baseSHA256, "reason": reason]
+        }
+        print(String(decoding: try JSONSerialization.data(withJSONObject: line, options: [.sortedKeys]), as: UTF8.self))
         exit(0)
     }
 

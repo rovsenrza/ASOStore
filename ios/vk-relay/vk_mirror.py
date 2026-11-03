@@ -45,6 +45,7 @@ CHECK_INTERVAL = int(os.environ.get("VKRELAY_CHECK_INTERVAL", "600"))
 _entitlement_cache = {}  # udid -> (active, checked_at)
 
 _lock = threading.Lock()
+_register_lock = threading.Lock()
 _mirrors = {}  # userId -> Mirror
 
 
@@ -243,9 +244,11 @@ def apns_curl(uid, cert, key, topic, ptype, token, body):
     """One APNs HTTP/2 push via curl; prunes a dead token on 410/BadDeviceToken. Shared by the
     message mirror and the notifications poller."""
     try:
+        # A stale VoIP push can arrive after the caller hangs up; do not let APNs store it.
+        expiration = ["-H", "apns-expiration: 0"] if ptype == "voip" else []
         r = subprocess.run(["curl", "-s", "--http2", "--cert", cert, "--key", key,
                             "-H", f"apns-topic: {topic}", "-H", f"apns-push-type: {ptype}",
-                            "-H", "apns-priority: 10", "-d", body, "-w", "\n%{http_code}",
+                            "-H", "apns-priority: 10", *expiration, "-d", body, "-w", "\n%{http_code}",
                             f"https://api.push.apple.com/3/device/{token}"],
                            capture_output=True, text=True, timeout=10)
         out = (r.stdout or "").rsplit("\n", 1)
@@ -435,6 +438,7 @@ class Mirror(threading.Thread):
         self.user = user
         self.stop = threading.Event()
         self._names = {}  # uid -> (name, avatar)
+        self._peers = {}  # peer id -> (type, chat title)
 
     def name_avatar(self, uid):
         if uid not in self._names:
@@ -448,29 +452,36 @@ class Mirror(threading.Thread):
                 self._names[uid] = ("VK", None)
         return self._names[uid]
 
-    def push_alert(self, token, bundle, title, text, avatar, peer_id, msg_id=0, sender_id=0):
+    def peer_info(self, peer_id, extra=None):
+        # VK user IDs can exceed the historical 2-billion chat offset. Ask VK for the
+        # actual peer type instead of classifying every large ID as a group conversation.
+        if peer_id not in self._peers:
+            try:
+                result = vk_get("messages.getConversationsById", self.user["accessToken"],
+                                user=self.user, peer_ids=peer_id)
+                item = (result.get("items") or [])[0]
+                kind = (item.get("peer") or {}).get("type")
+                if kind in ("user", "chat", "group"):
+                    title = (item.get("chat_settings") or {}).get("title")
+                    self._peers[peer_id] = (kind, title)
+            except Exception:
+                pass  # Retry the lookup on the next message rather than caching a guess.
+        if peer_id in self._peers:
+            return self._peers[peer_id]
+        extra = extra or {}
+        return ("chat" if extra.get("from") or extra.get("title") else "user", extra.get("title"))
+
+    def push_alert(self, token, bundle, title, text, avatar, peer_id, msg_id=0, sender_id=0,
+                   peer_type="user"):
         # No mutable-content: VK's own NotificationServiceExtension crashes on the re-signed build
         # (its App Group container is not under our prefix — Nestor/NSFileManager), and it adds
         # nothing we need, so we show the alert directly.
         #
-        # Native tap routing: VK's `-[VKAPNSManager parseCategoryFromPayload:]` reads userInfo["data"]
-        # ["type"] and routes to a VKAPNSHandler; `type="show_message"` opens the native dialog from
-        # the FLAT keys chat_id/sender_id/msg_id (RE: research/vk-native-push-formats-2026-10-23.md).
-        # The base handler's web fallback fires only when there is NO recognised type (it opens
-        # data["url"]/["external_url"] in an in-app m.vk.ru browser) — which is why a data-less push
-        # used to land on m.vk.ru.  We send `data` with the native type and NO url.
+        # The native show_message payload shows a generic alert on this VK build. Its URL
+        # handler opens vk://vk.com/im?sel=<peer> directly in the native conversation instead.
         aps = {"alert": {"title": title, "body": text or "📷"}, "sound": "default",
                "thread-id": f"vk-{peer_id}"}
-        # Tap -> native dialog (VKAPNSHandlerShowMessage). We deliberately DON'T send msg_id: pinning
-        # a specific message makes the handler fetch that message on cold launch, which fails on the
-        # re-signed build and pops an error alert; omitting it just opens the conversation (the user
-        # wants the chat, not a per-message jump), which is robust.
-        data = {"type": "show_message", "to_id": int(str(self.user.get("userId")))}
-        if peer_id >= 2_000_000_000:          # group chat: chat_id = peer - 2e9
-            data["chat_id"] = int(peer_id) - 2_000_000_000
-        else:                                  # direct message: the conversation peer
-            data["sender_id"] = int(peer_id)
-        payload = {"aps": aps, "data": data}
+        payload = {"aps": aps, "data": {"url": f"vk://vk.com/im?sel={int(peer_id)}"}}
         pc, pk = certs_for(bundle)
         self._curl(pc, pk, bundle, "alert", token, json.dumps(payload, ensure_ascii=False))
 
@@ -533,6 +544,8 @@ class Mirror(threading.Thread):
                 extra = upd[6] if len(upd) > 6 and isinstance(upd[6], dict) else {}
                 attach = upd[7] if len(upd) > 7 and isinstance(upd[7], dict) else {}
 
+                peer_type, chat_title = self.peer_info(peer_id, extra)
+
                 # Incoming call. VK writes a call-log message when the call ENDS (LongPoll index 7:
                 # attach1_type=call, attach1_call_state, attach1_call_duration). A live CallKit ring
                 # is not deliverable on a re-signed build (VK's ring is a VoIP push we can't receive),
@@ -540,11 +553,12 @@ class Mirror(threading.Thread):
                 if any(v == "call" for k, v in attach.items() if k.endswith("_type")):
                     if int(attach.get("attach1_call_duration", "0") or 0) > 0:
                         continue
-                    caller = (self.name_avatar(peer_id)[0] if peer_id < 2_000_000_000
-                              else (extra.get("title") or "Беседа"))
+                    caller = (self.name_avatar(peer_id)[0] if peer_type != "chat"
+                              else (chat_title or extra.get("title") or "Беседа"))
                     print(f"[call] {u.get('userId')} missed call from {peer_id} -> push", flush=True)
                     self.push_alert(apns, bundle, caller, "📞 Пропущенный звонок", None, peer_id,
-                                    msg_id=upd[1], sender_id=int(extra.get("from", 0) or 0))
+                                    msg_id=upd[1], sender_id=int(extra.get("from", 0) or 0),
+                                    peer_type=peer_type)
                     continue
 
                 # No text -> show VK's own attachment label ("📷 Фотография", "Стикер", …).
@@ -552,8 +566,8 @@ class Mirror(threading.Thread):
                     text = _attachment_label(attach, extra)
 
                 sender = 0
-                if peer_id >= 2_000_000_000:  # group chat: title + real sender from `extra`
-                    title = extra.get("title") or "Беседа"
+                if peer_type == "chat":  # group chat: title + real sender from `extra`
+                    title = chat_title or extra.get("title") or "Беседа"
                     sender = int(extra.get("from", 0) or 0)
                     if sender:
                         nm, _ = self.name_avatar(sender)
@@ -563,7 +577,7 @@ class Mirror(threading.Thread):
                     title, avatar = self.name_avatar(peer_id)
                 print(f"[msg] {u.get('userId')} peer={peer_id} {str(text)[:48]!r} -> push", flush=True)
                 self.push_alert(apns, bundle, title, text, avatar, peer_id,
-                                msg_id=upd[1], sender_id=sender)
+                                msg_id=upd[1], sender_id=sender, peer_type=peer_type)
 
 
 def _decode_conv_params(conv):
@@ -738,12 +752,31 @@ def start_or_update(user):
         print(f"[relay] user {uid} not entitled; mirror off", flush=True)
         return
     with _lock:
-        _stop(_mirrors.get(uid))
+        current = _mirrors.get(uid)
+        # APNs and PushKit callbacks commonly submit the same registration several times.
+        # Restarting healthy workers for each one discards their poll cursors and overlaps
+        # in-flight requests. Only replace them when the actual registration has changed.
+        comparable = lambda data: {k: v for k, v in data.items() if k != "updatedAt"}
+        if (current and all(th.is_alive() and not th.stop.is_set() for th in current)
+                and comparable(current[0].user) == comparable(user)):
+            return
+        _stop(current)
         # messages (real-time LongPoll) + уведомления feed + incoming-call ring (calls queue)
         threads = [Mirror(user), NotificationsPoller(user), CallsPoller(user)]
         _mirrors[uid] = threads
         for th in threads:
             th.start()
+
+
+def merge_registration(previous, incoming):
+    """Keep push tokens during partial registrations from the same installation."""
+    merged = dict(incoming)
+    if (previous.get("udid") and previous.get("udid") == incoming.get("udid")
+            and previous.get("bundleId") and previous.get("bundleId") == incoming.get("bundleId")):
+        for field in ("apnsToken", "voipToken"):
+            if not merged.get(field) and previous.get(field):
+                merged[field] = previous[field]
+    return merged
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -762,8 +795,14 @@ class Handler(BaseHTTPRequestHandler):
         if not uid:
             self.send_response(422); self.end_headers(); return
         user["userId"] = uid
-        state = load_state(); state[uid] = {**user, "updatedAt": time.time()}; save_state(state)
-        start_or_update(state[uid])
+        # Concurrent APNs and PushKit callbacks can arrive in either order. Serialize the
+        # read/update/restart so a partial registration cannot erase the other push token.
+        with _register_lock:
+            state = load_state()
+            user = merge_registration(state.get(uid, {}), user)
+            state[uid] = {**user, "updatedAt": time.time()}
+            save_state(state)
+            start_or_update(state[uid])
         print(f"[relay] registered user {uid} bundle={user.get('bundleId')} "
               f"apns={bool(user.get('apnsToken'))} voip={bool(user.get('voipToken'))}", flush=True)
         self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers()

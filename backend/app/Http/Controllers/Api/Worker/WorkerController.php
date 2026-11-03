@@ -10,6 +10,7 @@ use App\Models\AppleTeam;
 use App\Models\Certificate;
 use App\Models\PipelineJob;
 use App\Models\Runner;
+use App\Models\SignedBuild;
 use App\Services\Signing\SigningService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -108,7 +109,12 @@ class WorkerController extends Controller
         set_time_limit(0);
         $model = $this->job($job);
         $body = $request->getContent(true);
-        $stored = $this->signing->storeSignedFile($model, $this->runner($request), $body);
+        // No header: the whole signed IPA. `delta-v1`: a pack of the changed entries (docs/adr/DELTA_BUILDS.md).
+        $format = (string) $request->header('X-Build-Format', SignedBuild::FORMAT_FULL);
+        if (! in_array($format, [SignedBuild::FORMAT_FULL, SignedBuild::FORMAT_DELTA], true)) {
+            throw new ApiException(ErrorCode::ValidationFailed, details: ['format' => 'Unknown build format.']);
+        }
+        $stored = $this->signing->storeSignedFile($model, $this->runner($request), $body, $format);
 
         // The signature covered the declared hash; the streamed bytes must match it.
         if (! hash_equals(strtolower((string) $request->header('X-Content-SHA256')), $stored['sha256'])) {
@@ -122,6 +128,7 @@ class WorkerController extends Controller
     {
         $data = $request->validate([
             'status' => ['required', 'in:succeeded,failed'],
+            'format' => ['nullable', 'in:full,delta-v1'],
             'sha256' => ['required_if:status,succeeded', 'nullable', 'string', 'regex:/^[a-fA-F0-9]{64}$/'],
             'error_code' => ['nullable', 'string', 'max:64'],
             'error_message' => ['nullable', 'string', 'max:2000'],

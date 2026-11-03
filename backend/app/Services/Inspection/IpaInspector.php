@@ -36,12 +36,16 @@ class IpaInspector
         private readonly MalwareScanner $scanner,
     ) {}
 
-    public function inspect(string $path): InspectionResult
+    /**
+     * With $scan false the malware scanner is skipped: for a file that is itself derived from an
+     * artifact already scanned (the pack of a delta build), a scan only costs the scanner's start-up.
+     */
+    public function inspect(string $path, bool $scan = true): InspectionResult
     {
         $report = ['inspector_version' => self::VERSION, 'compatibility_issues' => []];
 
         try {
-            $this->run($path, $report);
+            $this->run($path, $report, $scan);
         } catch (InspectionFailure $failure) {
             $report['failure'] = [
                 'code' => $failure->reason,
@@ -63,7 +67,7 @@ class IpaInspector
     /**
      * @param  array<string, mixed>  $report
      */
-    private function run(string $path, array &$report): void
+    private function run(string $path, array &$report, bool $scan = true): void
     {
         $zip = new ZipArchive;
         if ($zip->open($path, ZipArchive::RDONLY) !== true) {
@@ -142,11 +146,14 @@ class IpaInspector
             $zip->close();
         }
 
-        $scan = $this->scanner->scan($path);
-        $report['malware_scan'] = $scan;
-        if ($scan['status'] === MalwareScanner::INFECTED) {
+        if (! $scan) {
+            return;
+        }
+        $scanned = $this->scanner->scan($path);
+        $report['malware_scan'] = $scanned;
+        if ($scanned['status'] === MalwareScanner::INFECTED) {
             throw new InspectionFailure(ArtifactStatus::Quarantined, 'MALWARE_DETECTED', 'The malware scanner flagged this file.', [
-                'signature' => $scan['signature'] ?? 'unknown',
+                'signature' => $scanned['signature'] ?? 'unknown',
             ]);
         }
     }

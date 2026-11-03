@@ -38,9 +38,13 @@ class SignedBuild extends Model
      */
     protected $attributes = ['status' => 'SIGNING_PENDING'];
 
+    public const FORMAT_FULL = 'full';
+
+    public const FORMAT_DELTA = 'delta-v1';
+
     protected $fillable = [
         'artifact_id', 'device_id', 'apple_team_id', 'signing_profile_id', 'certificate_id', 'status', 'status_reason',
-        'sha256', 'size_bytes', 'storage_path', 'signing_report', 'signed_at', 'verified_at', 'expires_at', 'last_used_at',
+        'format', 'delivered_size', 'sha256', 'size_bytes', 'storage_path', 'signing_report', 'signed_at', 'verified_at', 'expires_at', 'last_used_at',
         'bootstrap_claim_encrypted',
     ];
 
@@ -49,6 +53,7 @@ class SignedBuild extends Model
         return [
             'status' => SignedBuildStatus::class,
             'size_bytes' => 'integer',
+            'delivered_size' => 'integer',
             'signing_report' => 'array',
             'signed_at' => 'datetime',
             'verified_at' => 'datetime',
@@ -93,6 +98,18 @@ class SignedBuild extends Model
         return $certificate === null
             ? $this->certificate_id === null
             : $certificate->status === 'ACTIVE' && ($certificate->expires_at === null || $certificate->expires_at->isFuture());
+    }
+
+    /** Whether storage_path holds a pack to compose the IPA from, not the IPA itself. */
+    public function isDelta(): bool
+    {
+        return $this->format === self::FORMAT_DELTA;
+    }
+
+    /** The byte size a client downloads: the composed IPA for a delta build, the stored file otherwise. */
+    public function deliveredBytes(): int
+    {
+        return (int) ($this->isDelta() ? $this->delivered_size : $this->size_bytes);
     }
 
     public function isShared(): bool

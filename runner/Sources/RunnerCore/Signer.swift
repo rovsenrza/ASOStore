@@ -23,9 +23,12 @@ public struct Signer: Sendable {
     }
 
     public struct Output: Sendable {
+        /// The file to upload: the signed IPA, or a delta pack when `format` is set.
         public var ipa: URL
         public var sha256: String
         public var report: [String: String]
+        /// `DeltaPack.format` when `ipa` is a pack built from the signed tree; nil for a full IPA.
+        public var format: String? = nil
     }
 
     /// `sign` on a dedicated thread, for async callers: zsign, unzip and openssl block their
@@ -36,11 +39,39 @@ public struct Signer: Sendable {
         }
     }
 
+    /// `signDelta` on a dedicated thread, for async callers.
+    public func signDeltaDetached(job: SigningJob, identity: IdentityFiles, source: URL, workDirectory: URL, cancellation: Cancellation? = nil) async throws -> Output {
+        try await Blocking.run(cancellation: cancellation) { [self] in
+            try signDelta(job: job, identity: identity, source: source, workDirectory: workDirectory)
+        }
+    }
+
     static func size(of file: URL) -> Int64 {
         (try? FileManager.default.attributesOfItem(atPath: file.path)[.size] as? NSNumber)?.int64Value ?? 0
     }
 
     public func sign(job: SigningJob, identity: IdentityFiles, source: URL, workDirectory: URL) throws -> Output {
+        try zipBuild(try prepare(job: job, identity: identity, source: source, workDirectory: workDirectory),
+                     job: job, source: source, workDirectory: workDirectory)
+    }
+
+    /// Everything before zsign runs, shared by the IPA path and the delta path.
+    struct Prepared {
+        var started: Date
+        var workspace: RunnerCache.Workspace?
+        var app: URL
+        var profileData: Data
+        /// zsign's arguments after `-f` (and `-z LEVEL` for the IPA path), before the injection ones.
+        var common: [String]
+        /// `-l`/`-w`/`-P`: only for a fresh tree (a warm one already carries the dylibs).
+        var injection: [String]
+        var injected: [InjectedDylib]
+        var teamPrefixRewrites: Int
+        /// Where zsign runs (it keeps its hash cache there).
+        var directory: URL
+    }
+
+    func prepare(job: SigningJob, identity: IdentityFiles, source: URL, workDirectory: URL) throws -> Prepared {
         guard (0...9).contains(zipLevel) else { throw RunnerError.configuration("ZIP level must be between 0 and 9") }
         let started = Date()
 
@@ -66,7 +97,10 @@ public struct Signer: Sendable {
             + (job.originalTeamIdentifier.map { ["team:" + $0] } ?? [])
 
         let workspace: RunnerCache.Workspace?
-        if let cache {
+        // A delta build's tree is not kept: it belongs to one team and bundle ID, so a multi-gigabyte app
+        // would leave one copy per team in the cache and push out the cached sources, and unpacking it
+        // again is far cheaper than downloading the source again.
+        if let cache, !job.delta.enabled {
             do {
                 workspace = try RunnerCache.workspace(source: source, job: job, zsign: zsign, injectKey: cacheKey, settings: cache)
             } catch {
@@ -122,7 +156,7 @@ public struct Signer: Sendable {
 
         // zsign 1.1.2's warm hash cache seals the already signed main executable
         // as a resource. Reuse downloads and unpacked trees, but rebuild seals.
-        var arguments = ["-f", "-z", String(zipLevel), "-k", identity.privateKey.path, "-c", identity.certificate.path, "-m", profileFile.path]
+        var arguments = ["-k", identity.privateKey.path, "-c", identity.certificate.path, "-m", profileFile.path]
         if job.nested.isEmpty {
             let entitlements = try Self.entitlements(fromProfile: profileData, bundleIdentifier: job.bundleIdentifier, teamIdentifier: job.teamIdentifier)
             let entitlementsFile = workDirectory.appendingPathComponent("entitlements.plist")
@@ -145,19 +179,27 @@ public struct Signer: Sendable {
         // Inject only when the tree is fresh: zsign modifies the unpacked app in place, so a
         // warm tree already carries the dylib and its load command from the cold run that
         // built this (inject-keyed) entry; re-injecting would add a second load command.
+        var injection: [String] = []
         if workspace?.hit != true {
             for dylib in injected {
-                arguments += [dylib.weak ? "-w" : "-l", dylib.file.path]
+                injection += [dylib.weak ? "-w" : "-l", dylib.file.path]
             }
             // A VPN's packet-tunnel extension needs the App-Group shim in its own process too.
             if job.injectIntoExtensions, !injected.isEmpty {
-                arguments += ["-P"]
+                injection += ["-P"]
             }
         }
+        return Prepared(started: started, workspace: workspace, app: app, profileData: profileData, common: arguments, injection: injection,
+                        injected: injected, teamPrefixRewrites: teamPrefixRewrites, directory: workspace?.directory ?? workDirectory)
+    }
 
+    /// zsign with `-o`: signs the tree and zips it; then the zip is unpacked and verified.
+    func zipBuild(_ prepared: Prepared, job: SigningJob, source: URL, workDirectory: URL) throws -> Output {
+        let (workspace, app, profileData) = (prepared.workspace, prepared.app, prepared.profileData)
+        let arguments = ["-f", "-z", String(zipLevel)] + prepared.common + prepared.injection
         let output = workDirectory.appendingPathComponent("signed.ipa")
         let signingStarted = Date()
-        let zsigned = try Shell.run(zsign, arguments + ["-o", output.path, app.path], in: workspace?.directory ?? workDirectory,
+        let zsigned = try Shell.run(zsign, arguments + ["-o", output.path, app.path], in: prepared.directory,
                                     timeout: Shell.timeout(forBytes: max(Int64(job.source.sizeBytes), Self.size(of: source))))
         let signingSeconds = Date().timeIntervalSince(signingStarted)
         guard zsigned.status == 0, FileManager.default.fileExists(atPath: output.path) else {
@@ -175,24 +217,89 @@ public struct Signer: Sendable {
         let verificationSeconds = Date().timeIntervalSince(verificationStarted)
         let sha256 = try RequestSigner.sha256(fileAt: output)
         try workspace?.commit()
-        let cleanLog = zsigned.output.replacingOccurrences(of: #"\x1B\[[0-9;]*[A-Za-z]"#, with: "", options: .regularExpression)
+        var report = Self.report(job, prepared, signature: signature, zsignSeconds: signingSeconds, verificationSeconds: verificationSeconds, cleanLog: Self.cleanLog(zsigned.output))
+        report["zip_level"] = String(zipLevel)
+        return Output(ipa: output, sha256: sha256, report: report)
+    }
 
-        return Output(ipa: output, sha256: sha256, report: [
+    /// The delta path (DeltaPack.buildFromTree): zsign signs the unpacked app in place (no `-o`, no
+    /// `-z`: nothing is zipped), the tree itself is verified, and the pack is cut from it. When the
+    /// pack cannot be used, the IPA path runs from the start (the cached tree, now signed, is a
+    /// warm hit; without a cache the job folder is unpacked again) and its IPA is the result, so a
+    /// delta that does not work never fails a job. A zsign or verification failure is a signing
+    /// failure, as on the IPA path.
+    public func signDelta(job: SigningJob, identity: IdentityFiles, source: URL, workDirectory: URL) throws -> Output {
+        let reason: String
+        switch try deltaAttempt(job: job, identity: identity, source: source, workDirectory: workDirectory) {
+        case .built(let output): return output
+        case .fallback(let why): reason = why
+        }
+        Log.info("job \(job.jobID) delta from the signed tree unavailable (\(reason)); building the full IPA")
+        // The attempt's workspace lock is released (it went out of scope). Without a cache the
+        // job folder holds the tree the attempt signed and zsign's cache: start those afresh.
+        try? FileManager.default.removeItem(at: workDirectory.appendingPathComponent("unpacked", isDirectory: true))
+        try? FileManager.default.removeItem(at: workDirectory.appendingPathComponent(".zsign_cache", isDirectory: true))
+        var output = try sign(job: job, identity: identity, source: source, workDirectory: workDirectory)
+        output.report["delta_fallback"] = Shell.truncated(reason, limit: 200)
+        return output
+    }
+
+    private enum DeltaAttempt {
+        case built(Output)
+        case fallback(String)
+    }
+
+    private func deltaAttempt(job: SigningJob, identity: IdentityFiles, source: URL, workDirectory: URL) throws -> DeltaAttempt {
+        let prepared = try prepare(job: job, identity: identity, source: source, workDirectory: workDirectory)
+
+        let signingStarted = Date()
+        let zsigned = try Shell.run(zsign, ["-f"] + prepared.common + prepared.injection + [prepared.app.path], in: prepared.directory,
+                                    timeout: Shell.timeout(forBytes: max(Int64(job.source.sizeBytes), Self.size(of: source))))
+        let signingSeconds = Date().timeIntervalSince(signingStarted)
+        guard zsigned.status == 0 else {
+            throw RunnerError.job(code: "CODESIGN_FAILED", message: Shell.truncated(Self.zsignError(zsigned.output + zsigned.error)), retryable: zsigned.killedBySignal)
+        }
+
+        // The signed folder is what the pack is cut from: check it, not an IPA.
+        let verificationStarted = Date()
+        let signature = try Self.verify(app: prepared.app, job: job, profile: prepared.profileData, workDirectory: workDirectory)
+        let verificationSeconds = Date().timeIntervalSince(verificationStarted)
+        try prepared.workspace?.commit()
+
+        let pack = workDirectory.appendingPathComponent("delta.pack")
+        let treeRoot = prepared.app.deletingLastPathComponent().deletingLastPathComponent()
+        switch DeltaPack.buildFromTree(source: source, treeRoot: treeRoot, output: pack, baseSHA256: job.source.sha256) {
+        case .pack(let built):
+            var report = Self.report(job, prepared, signature: signature, zsignSeconds: signingSeconds, verificationSeconds: verificationSeconds, cleanLog: Self.cleanLog(zsigned.output))
+            report.merge(built.report) { _, new in new }
+            Log.info("job \(job.jobID) delta pack from the signed tree: \(built.entriesPack)/\(built.entriesTotal) entries, \(built.packBytes) of \(built.signedBytes) bytes")
+            return .built(Output(ipa: pack, sha256: built.sha256, report: report, format: DeltaPack.format))
+        case .fallback(let reason):
+            return .fallback(reason)
+        }
+    }
+
+    static func cleanLog(_ output: String) -> String {
+        output.replacingOccurrences(of: #"\x1B\[[0-9;]*[A-Za-z]"#, with: "", options: .regularExpression)
+    }
+
+    /// The report keys both paths share.
+    static func report(_ job: SigningJob, _ prepared: Prepared, signature: String, zsignSeconds: Double, verificationSeconds: Double, cleanLog: String) -> [String: String] {
+        [
             "signer": "zsign",
-            "zip_level": String(zipLevel),
             "codesign": signature,
-            "duration_seconds": String(format: "%.1f", Date().timeIntervalSince(started)),
+            "duration_seconds": String(format: "%.1f", Date().timeIntervalSince(prepared.started)),
             "profile_uuid": job.profile.uuid,
-            "workspace_cache": workspace?.hit == true ? "hit" : "miss",
+            "workspace_cache": prepared.workspace?.hit == true ? "hit" : "miss",
             "zsign_cache": cleanLog.range(of: #"ReadCache:\s*YES"#, options: .regularExpression) != nil ? "hit" : "miss",
             "resource_seal": "verified",
             "signature_policy": "fresh-resource-seal-v1",
-            "zsign_seconds": String(format: "%.1f", signingSeconds),
+            "zsign_seconds": String(format: "%.1f", zsignSeconds),
             "verification_seconds": String(format: "%.1f", verificationSeconds),
-            "injected_dylibs": injected.map(\.name).sorted().joined(separator: ","),
+            "injected_dylibs": prepared.injected.map(\.name).sorted().joined(separator: ","),
             "bootstrap_embedded": job.bootstrapClaim == nil ? "no" : "yes",
-            "team_prefix_rewrites": String(teamPrefixRewrites),
-        ])
+            "team_prefix_rewrites": String(prepared.teamPrefixRewrites),
+        ]
     }
 
     struct InjectedDylib { let name: String; let file: URL; let weak: Bool; let key: String }

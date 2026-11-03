@@ -11,9 +11,12 @@ use App\Services\Audit\Actor;
 use App\Services\Devices\UdidHasher;
 use App\Services\Inspection\IpaInspector;
 use App\Services\Installations\InstallationService;
+use App\Services\Signing\Delta\DeltaComposer;
+use App\Services\Signing\Delta\DeltaException;
 use App\StateMachines\StateMachine;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use League\Flysystem\Local\LocalFilesystemAdapter;
 use ZipArchive;
 
 /**
@@ -83,8 +86,13 @@ class SignatureVerifier
         if (! hash_equals((string) $build->sha256, (string) hash_file('sha256', $path))) {
             return 'SIGNED_FILE_HASH_MISMATCH';
         }
+        // A pack is inspected as it is: it holds the Info.plists, profiles and binaries re-signing changed.
+        if ($build->isDelta() && ($failure = $this->checkDelta($build, $path)) !== null) {
+            return $failure;
+        }
 
-        $result = $this->inspector->inspect($path);
+        // A pack comes from an artifact that was scanned when it was inspected.
+        $result = $this->inspector->inspect($path, scan: ! $build->isDelta());
         if (! $result->passed()) {
             return 'SIGNED_FILE_'.($result->failureCode ?? 'INVALID');
         }
@@ -142,6 +150,30 @@ class SignatureVerifier
         if ($applicationId !== null && $applicationId !== $expected->team->apple_team_id.'.'.$bundleIdentifier) {
             return 'ENTITLEMENTS_MISMATCH';
         }
+
+        return null;
+    }
+
+    /**
+     * The pack must compose, with the artifact's original, into an IPA of a known size. The IPA itself
+     * is not read: the runner already verified its signatures, and a pack-only inspection follows.
+     */
+    private function checkDelta(SignedBuild $build, string $packPath): ?string
+    {
+        $artifact = $build->artifact;
+        $disk = Storage::disk($artifact->storage_disk);
+        if (! $disk->getAdapter() instanceof LocalFilesystemAdapter || ! $disk->exists($artifact->storage_path)) {
+            return 'DELTA_BASE_MISSING';
+        }
+        try {
+            $plan = DeltaComposer::plan($disk->path($artifact->storage_path), $packPath, checkHeaders: true);
+        } catch (DeltaException) {
+            return 'DELTA_INVALID';
+        }
+        if (! hash_equals(strtolower((string) $artifact->sha256), $plan->baseSha256)) {
+            return 'DELTA_BASE_MISMATCH';
+        }
+        $build->forceFill(['delivered_size' => $plan->size])->save();
 
         return null;
     }

@@ -124,12 +124,17 @@ static BOOL hook_boolForKey(id self, SEL _cmd, NSString *key) {
 }
 
 #pragma mark - NSURLSession
+// Only the mask-gate hosts are interesting. appmetrica/dynatrace/etc. fire hundreds of requests
+// that would flush the gate lines out of the 60-line POST window before they are sent.
+static BOOL interestingHost(NSString *host) {
+    return [host containsString:@"deceptium"] || [host containsString:@"altaiapp"] || [host containsString:@"altai"];
+}
 static void dumpBody(NSURL *url, NSData *data, NSURLResponse *resp) {
     NSString *host = url.host ?: @"";
+    if (!interestingHost(host)) return;
     long code = [resp isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse *)resp).statusCode : -1;
-    if ([host containsString:@"ruappstore.com"] && [(url.path?:@"") containsString:@"telemetry"]) return;
     logLine([NSString stringWithFormat:@"NET %ld %@%@", code, host, url.path ?: @""]);
-    if (([host containsString:@"deceptium"] || [host containsString:@"altaiapp"]) && data.length) {
+    if (data.length) {
         NSString *s = [[NSString alloc] initWithData:[data subdataWithRange:NSMakeRange(0, MIN(600u, (unsigned)data.length))] encoding:NSUTF8StringEncoding];
         logLine([NSString stringWithFormat:@">>> %@ BODY: %@", host, s ?: @"<binary>"]);
     }
@@ -149,7 +154,9 @@ static void dumpRequest(NSURLRequest *req) {
 // Clone the app's own deceptium gate request, swap only the BundleId header to the original
 // (com.matila.EventPulse), fire it once, and log the status + body. If the 403 flips to 200/JSON,
 // the gate rejects us purely on our re-signed BundleId and a header rewrite is the fix.
-static void selfTestBundleId(NSURLRequest *req) {
+// Fire on the app's OWN session (se) so its custom TLS trust (deceptium cert pin / private CA) is
+// inherited — a fresh ephemeral session is rejected with a cert error and tells us nothing.
+static void selfTestBundleId(NSURLSession *se, NSURLRequest *req) {
     static BOOL done = NO;
     if (done) return;
     NSString *host = req.URL.host ?: @"";
@@ -160,11 +167,11 @@ static void selfTestBundleId(NSURLRequest *req) {
         NSString *bid = [NSString stringWithUTF8String:ids[i]];
         NSMutableURLRequest *m = [req mutableCopy];
         [m setValue:bid forHTTPHeaderField:@"BundleId"];
-        NSURLSession *se = [NSURLSession sessionWithConfiguration:NSURLSessionConfiguration.ephemeralSessionConfiguration];
         [[se dataTaskWithRequest:m completionHandler:^(NSData *d, NSURLResponse *rp, NSError *e){
             long code = [rp isKindOfClass:NSHTTPURLResponse.class] ? ((NSHTTPURLResponse *)rp).statusCode : -1;
-            NSString *b = d.length ? [[NSString alloc] initWithData:[d subdataWithRange:NSMakeRange(0, MIN(200u,(unsigned)d.length))] encoding:NSUTF8StringEncoding] : @"";
+            NSString *b = d.length ? [[NSString alloc] initWithData:[d subdataWithRange:NSMakeRange(0, MIN(220u,(unsigned)d.length))] encoding:NSUTF8StringEncoding] : @"";
             logLine([NSString stringWithFormat:@"SELFTEST[%@] HTTP %ld err=%@ body=%@", bid, code, e.localizedDescription ?: @"-", b ?: @"<bin>"]);
+            postLines(); // push straight away; the coalesced timer can lose it under request noise
         }] resume];
     }
 }
@@ -172,7 +179,7 @@ typedef void (^DataCB)(NSData *, NSURLResponse *, NSError *);
 static id (*orig_dataReq)(id, SEL, NSURLRequest *, DataCB);
 static id hook_dataReq(id self, SEL _cmd, NSURLRequest *req, DataCB cb) {
     dumpRequest(req);
-    selfTestBundleId(req);
+    selfTestBundleId(self, req);
     DataCB wrap = ^(NSData *d, NSURLResponse *r, NSError *e){ dumpBody(req.URL, d, r); if (cb) cb(d, r, e); };
     return orig_dataReq(self, _cmd, req, wrap);
 }

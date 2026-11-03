@@ -51,6 +51,8 @@ public actor Runner {
 
     private struct Signed: Sendable {
         var sha256: String
+        /// "delta-v1" when the upload was a pack; nil for a full IPA.
+        var format: String?
         var report: [String: String]
     }
 
@@ -128,15 +130,19 @@ public actor Runner {
         }
         let downloadSeconds = Date().timeIntervalSince(downloadStarted)
         try Task.checkCancellation()
-        let output = try await signer.signDetached(job: job, identity: identity, source: source, workDirectory: folder, cancellation: cancellation)
+        // Delta builds: the pack is cut from the signed folder (no IPA is written); any trouble there
+        // ends in the full IPA, built the usual way.
+        let output = job.delta.enabled
+            ? try await signer.signDeltaDetached(job: job, identity: identity, source: source, workDirectory: folder, cancellation: cancellation)
+            : try await signer.signDetached(job: job, identity: identity, source: source, workDirectory: folder, cancellation: cancellation)
         try Task.checkCancellation()
-        let uploadStarted = Date()
-        try await client.upload(job, file: output.ipa, sha256: output.sha256)
         var report = output.report
+        let uploadStarted = Date()
+        try await client.upload(job, file: output.ipa, sha256: output.sha256, format: output.format)
         report["download_seconds"] = String(format: "%.1f", downloadSeconds)
         report["source_cache"] = sourceCache
         report["upload_seconds"] = String(format: "%.1f", Date().timeIntervalSince(uploadStarted))
-        return Signed(sha256: output.sha256, report: report)
+        return Signed(sha256: output.sha256, format: output.format, report: report)
     }
 
     /// The build is uploaded: never fall back to a failure report (that would sign it again).
@@ -145,7 +151,7 @@ public actor Runner {
         do {
             try await RetryPolicy(attempts: 5).run("success report for job \(job.jobID)") {
                 do {
-                    try await self.client.reportSuccess(job, sha256: signed.sha256, report: signed.report)
+                    try await self.client.reportSuccess(job, sha256: signed.sha256, report: signed.report, format: signed.format)
                 } catch RunnerError.http(409, _) {
                     Log.info("job \(job.jobID) result was already recorded")
                 }

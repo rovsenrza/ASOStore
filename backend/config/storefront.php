@@ -202,6 +202,15 @@ return [
         // devices, serves each of them: a later install of the same app starts at once. Every such IPA
         // lists the team's device UDIDs. Off: each device gets its own build (the storefront app always does).
         'shared_builds' => (bool) env('STOREFRONT_SIGNING_SHARED_BUILDS', true),
+        // Delta builds (docs/adr/DELTA_BUILDS.md): a shared build of an app at least `min_bytes` big stores only
+        // the entries re-signing changed; the IPA is composed from them and the original when it is delivered.
+        'delta_builds' => [
+            'enabled' => (bool) env('STOREFRONT_SIGNING_DELTA_BUILDS', false),
+            'min_bytes' => (int) env('STOREFRONT_SIGNING_DELTA_MIN_BYTES', 64 * 1024 * 1024),
+        ],
+        // How many jobs a runner may have running when it takes a speculative (pre-signing) one; a customer's
+        // install is never held back by this. 1 keeps pre-signing strictly to an idle runner.
+        'speculative_concurrency' => (int) env('STOREFRONT_SIGNING_SPECULATIVE_CONCURRENCY', 1),
         'warmup_enabled' => (bool) env('STOREFRONT_SIGNING_WARMUP_ENABLED', true),
         // Popularity is measured from actual install requests over the last 30 days.
         'warmup_popular_limit' => (int) env('STOREFRONT_SIGNING_WARMUP_POPULAR_LIMIT', 3),

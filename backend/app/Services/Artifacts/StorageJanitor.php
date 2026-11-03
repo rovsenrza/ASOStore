@@ -118,15 +118,21 @@ final class StorageJanitor
     /**
      * Whether another speculative build may start: there is room in the budget, the
      * device does not already hold many unused ones, and the local disk is not filling.
+     * $negligible is for delta builds, which only the disk rule applies to.
      */
-    public function allowsWarmup(Device $device): bool
+    public function allowsWarmup(Device $device, bool $negligible = false): bool
     {
         $settings = config('storefront.build_storage');
-        if ($this->signedBytes() >= $settings['budget_bytes'] * $settings['warmup_budget_ratio']) {
+        // A delta build (a few MB of changed entries) never needs the room that whole builds do: the
+        // budget and the per-team count are for builds of full size.
+        if (! $negligible && $this->signedBytes() >= $settings['budget_bytes'] * $settings['warmup_budget_ratio']) {
             return false;
         }
         if (! ArtifactFileCache::diskHasRoom(storage_path('app'), 0)) {
             return false;
+        }
+        if ($negligible) {
+            return true;
         }
         // Shared builds count against the device's team, per-device ones against the device.
         $teamId = config('storefront.signing.shared_builds', true) ? $device->latestRegistration?->apple_team_id : null;

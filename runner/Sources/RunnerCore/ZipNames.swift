@@ -86,22 +86,22 @@ enum ZipNames {
 }
 
 extension Data {
-    fileprivate func le16(_ offset: Int) -> UInt16 {
+    func le16(_ offset: Int) -> UInt16 {
         let base = startIndex + offset
         return UInt16(self[base]) | UInt16(self[base + 1]) << 8
     }
 
-    fileprivate func le32(_ offset: Int) -> UInt32 {
+    func le32(_ offset: Int) -> UInt32 {
         let base = startIndex + offset
         return UInt32(self[base]) | UInt32(self[base + 1]) << 8 | UInt32(self[base + 2]) << 16 | UInt32(self[base + 3]) << 24
     }
 
-    fileprivate mutating func setLE32(_ value: UInt32, at offset: Int) {
+    mutating func setLE32(_ value: UInt32, at offset: Int) {
         setLE16(UInt16(value & 0xFFFF), at: offset)
         setLE16(UInt16(value >> 16), at: offset + 2)
     }
 
-    fileprivate mutating func setLE16(_ value: UInt16, at offset: Int) {
+    mutating func setLE16(_ value: UInt16, at offset: Int) {
         let base = startIndex + offset
         self[base] = UInt8(value & 0xFF)
         self[base + 1] = UInt8(value >> 8)

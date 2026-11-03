@@ -25,8 +25,10 @@ use App\Services\Pipeline\PipelineJobService;
 use App\Services\Storefront\ClaimService;
 use App\StateMachines\StateMachine;
 use Illuminate\Filesystem\AwsS3V3Adapter;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use League\Flysystem\Local\LocalFilesystemAdapter;
 use RuntimeException;
 
 /**
@@ -44,6 +46,9 @@ class SigningService
     public const RUNNER_JOB_TYPE = 'SignArtifactJob';
 
     public const LEASE_SECONDS = 600;
+
+    /** A base this large (or larger) needs zip64, which delta builds do not handle. */
+    private const DELTA_MAX_BASE_BYTES = 0xF0000000;
 
     /** Builds that are either usable or on their way to being usable. */
     private const LIVE = [
@@ -246,9 +251,16 @@ class SigningService
                     continue; // Another runner holds this certificate.
                 }
 
+                // Nor while the disk is filling: a runner unpacks multi-gigabyte apps next to the originals.
+                if (($job->payload['priority'] ?? 0) > 0 && ! ArtifactFileCache::diskHasRoom(storage_path('app'), 0)) {
+                    continue;
+                }
+                // Speculative work starts only while the runner has a free slot beyond the few it may use
+                // (speculative_concurrency running jobs in all), so a customer's install always finds one.
                 if (($job->payload['priority'] ?? 0) > 0 && PipelineJob::query()
                     ->where('type', self::RUNNER_JOB_TYPE)->where('lease_owner', $runner->key_id)
-                    ->where('status', PipelineJobStatus::Running->value)->where('lease_expires_at', '>', now())->exists()) {
+                    ->where('status', PipelineJobStatus::Running->value)->where('lease_expires_at', '>', now())
+                    ->count() >= max(1, (int) config('storefront.signing.speculative_concurrency', 1))) {
                     continue;
                 }
 
@@ -301,6 +313,8 @@ class SigningService
             // shares its config with the app through an App Group (CompatShim::injectsIntoExtensions).
             'inject_into_extensions' => app(CompatShim::class)->injectsIntoExtensions($artifact),
             'source' => $source,
+            // The runner may upload a pack of the changed entries instead of the whole IPA (docs/adr/DELTA_BUILDS.md).
+            'delta' => ['enabled' => $this->deltaAllowed($build, $artifact)],
             'upload_path' => "/api/worker/v1/jobs/{$job->public_id}/artifact",
             'result_path' => "/api/worker/v1/jobs/{$job->public_id}/result",
         ];
@@ -320,6 +334,32 @@ class SigningService
         return $lease;
     }
 
+    /**
+     * Whether this build may be delivered as a pack: shared team builds of artifacts that are big
+     * enough to matter, whose original sits on a local disk the composer can seek in.
+     */
+    public function deltaAllowed(SignedBuild $build, AppArtifact $artifact): bool
+    {
+        if (! config('storefront.signing.delta_builds.enabled') || ! $build->isShared() || $build->bootstrap_claim_encrypted !== null) {
+            return false;
+        }
+        $size = (int) $artifact->size_bytes;
+        if ($size < (int) config('storefront.signing.delta_builds.min_bytes') || $size >= self::DELTA_MAX_BASE_BYTES) {
+            return false;
+        }
+        // A pack that failed verification once will fail again: that app is signed whole from then on.
+        if (Cache::has(self::deltaOffKey($artifact))) {
+            return false;
+        }
+
+        return Storage::disk($artifact->storage_disk)->getAdapter() instanceof LocalFilesystemAdapter;
+    }
+
+    public static function deltaOffKey(AppArtifact $artifact): string
+    {
+        return 'delta-off:'.$artifact->id;
+    }
+
     public function assertOwner(PipelineJob $job, Runner $runner): SignedBuild
     {
         $build = $job->subject;
@@ -337,10 +377,11 @@ class SigningService
      * @param  resource  $body
      * @return array{sha256: string, size_bytes: int}
      */
-    public function storeSignedFile(PipelineJob $job, Runner $runner, $body): array
+    public function storeSignedFile(PipelineJob $job, Runner $runner, $body, string $format = SignedBuild::FORMAT_FULL): array
     {
         $build = $this->assertOwner($job, $runner);
-        $path = "signed/{$build->public_id}.ipa";
+        $delta = $format === SignedBuild::FORMAT_DELTA;
+        $path = 'signed/'.$build->public_id.($delta ? '.pack' : '.ipa');
 
         $context = hash_init('sha256');
         $size = 0;
@@ -382,14 +423,17 @@ class SigningService
             @unlink($temporaryPath);
         }
         // A retried build may have had an earlier file reclaimed; this one is live again.
-        $build->forceFill(['storage_path' => $path, 'sha256' => $sha256, 'size_bytes' => $size, 'purged_at' => null, 'last_used_at' => now()])->save();
+        $build->forceFill([
+            'storage_path' => $path, 'format' => $format, 'delivered_size' => null, 'sha256' => $sha256, 'size_bytes' => $size,
+            'purged_at' => null, 'last_used_at' => now(),
+        ])->save();
         $this->jobs->extendLease($job, self::LEASE_SECONDS);
 
         return ['sha256' => $sha256, 'size_bytes' => $size];
     }
 
     /**
-     * @param  array{status: string, sha256?: string|null, error_code?: string|null, error_message?: string|null, retryable?: bool|null, report?: array<string, mixed>|null}  $result
+     * @param  array{status: string, format?: string|null, sha256?: string|null, error_code?: string|null, error_message?: string|null, retryable?: bool|null, report?: array<string, mixed>|null}  $result
      */
     public function complete(PipelineJob $job, Runner $runner, array $result): SignedBuild
     {
@@ -398,7 +442,8 @@ class SigningService
         $actor = Actor::worker($runner->key_id);
 
         if ($result['status'] === 'succeeded') {
-            if ($build->storage_path === null || $build->sha256 === null || ! hash_equals($build->sha256, strtolower((string) ($result['sha256'] ?? '')))) {
+            if ($build->storage_path === null || $build->sha256 === null || ! hash_equals($build->sha256, strtolower((string) ($result['sha256'] ?? '')))
+                || $build->format !== ($result['format'] ?? SignedBuild::FORMAT_FULL)) {
                 throw new ApiException(ErrorCode::UploadCorrupt, 'The uploaded build does not match the reported hash.');
             }
 
@@ -458,6 +503,9 @@ class SigningService
 
     public function failBuild(SignedBuild $build, string $reason, string $message): void
     {
+        if (str_starts_with($reason, 'DELTA_')) {
+            Cache::forever(self::deltaOffKey($build->artifact), true);
+        }
         $to = in_array($build->status, [SignedBuildStatus::Signed], true) ? SignedBuildStatus::ValidationFailed : SignedBuildStatus::SigningFailed;
         $this->states->transition($build, $to, $message, Actor::system('signing'), extra: ['status_reason' => $reason]);
         app(InstallationService::class)->buildFailed($build, $reason);

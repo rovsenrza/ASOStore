@@ -49,6 +49,21 @@ public struct SigningJob: Codable, Sendable {
         }
     }
 
+    public struct Delta: Codable, Sendable {
+        public var enabled: Bool
+
+        public init(enabled: Bool = false) {
+            self.enabled = enabled
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+        }
+
+        enum CodingKeys: String, CodingKey { case enabled }
+    }
+
     /// An app extension signed with its own profile (one per bundle ID).
     public struct Nested: Codable, Sendable {
         /// Path inside the .app, e.g. "PlugIns/Tunnel.appex".
@@ -74,6 +89,9 @@ public struct SigningJob: Codable, Sendable {
     public var profile: Profile
     public var nested: [Nested]
     public var injectDylibs: [InjectDylib]
+    /// Delta builds (DeltaPack): when enabled, the runner uploads a pack of the changed entries
+    /// instead of the whole IPA, if it can.
+    public var delta: Delta
     /// Also inject the (shim-only) dylibs into the app's extensions (zsign -P), for a VPN whose
     /// packet-tunnel extension shares its config with the app through an App Group.
     public var injectIntoExtensions: Bool
@@ -93,7 +111,7 @@ public struct SigningJob: Codable, Sendable {
     public var uploadPath: String
     public var resultPath: String
 
-    public init(jobID: String, signedBuildID: String, bundleIdentifier: String, teamIdentifier: String, certificateSHA1: String, profile: Profile, nested: [Nested] = [], injectDylibs: [InjectDylib] = [], injectIntoExtensions: Bool = false, bootstrapClaim: String? = nil, originalBundleIdentifier: String? = nil, originalTeamIdentifier: String? = nil, source: Source, uploadPath: String, resultPath: String) {
+    public init(jobID: String, signedBuildID: String, bundleIdentifier: String, teamIdentifier: String, certificateSHA1: String, profile: Profile, nested: [Nested] = [], injectDylibs: [InjectDylib] = [], delta: Delta = Delta(), injectIntoExtensions: Bool = false, bootstrapClaim: String? = nil, originalBundleIdentifier: String? = nil, originalTeamIdentifier: String? = nil, source: Source, uploadPath: String, resultPath: String) {
         self.jobID = jobID
         self.signedBuildID = signedBuildID
         self.bundleIdentifier = bundleIdentifier
@@ -102,6 +120,7 @@ public struct SigningJob: Codable, Sendable {
         self.profile = profile
         self.nested = nested
         self.injectDylibs = injectDylibs
+        self.delta = delta
         self.injectIntoExtensions = injectIntoExtensions
         self.bootstrapClaim = bootstrapClaim
         self.originalBundleIdentifier = originalBundleIdentifier
@@ -122,6 +141,7 @@ public struct SigningJob: Codable, Sendable {
         // Leases from backends that predate extension signing carry no list.
         nested = try container.decodeIfPresent([Nested].self, forKey: .nested) ?? []
         injectDylibs = try container.decodeIfPresent([InjectDylib].self, forKey: .injectDylibs) ?? []
+        delta = try container.decodeIfPresent(Delta.self, forKey: .delta) ?? Delta()
         injectIntoExtensions = try container.decodeIfPresent(Bool.self, forKey: .injectIntoExtensions) ?? false
         bootstrapClaim = try container.decodeIfPresent(String.self, forKey: .bootstrapClaim)
         originalBundleIdentifier = try container.decodeIfPresent(String.self, forKey: .originalBundleIdentifier)
@@ -134,7 +154,7 @@ public struct SigningJob: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case jobID = "job_id", signedBuildID = "signed_build_id", bundleIdentifier = "bundle_identifier"
         case teamIdentifier = "team_identifier", certificateSHA1 = "certificate_sha1", profile, nested, source
-        case injectDylibs = "inject_dylibs"
+        case injectDylibs = "inject_dylibs", delta
         case injectIntoExtensions = "inject_into_extensions"
         case bootstrapClaim = "bootstrap_claim"
         case originalBundleIdentifier = "original_bundle_identifier"
@@ -238,18 +258,20 @@ public final class WorkerClient: Sendable {
         if existing > 0 { Log.info("resumed a download at byte \(existing) (\(writer.resumed ? "range" : "full restart"))") }
     }
 
-    public func upload(_ job: SigningJob, file: URL, sha256: String) async throws {
+    /// `format` is set for a delta pack (`X-Build-Format`); `sha256` is always the uploaded file's.
+    public func upload(_ job: SigningJob, file: URL, sha256: String, format: String? = nil) async throws {
         try await retry.run("upload") {
             var request = self.request("PUT", job.uploadPath, bodyHash: sha256)
             request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            if let format { request.setValue(format, forHTTPHeaderField: "X-Build-Format") }
             let (data, response) = try await self.session.upload(for: request, fromFile: file)
             try self.check(response, body: data)
         }
     }
 
-    public func reportSuccess(_ job: SigningJob, sha256: String, report: [String: String]) async throws {
-        struct Body: Encodable { var status = "succeeded"; var sha256: String; var report: [String: String] }
-        _ = try await send("POST", job.resultPath, json: Body(sha256: sha256, report: report))
+    public func reportSuccess(_ job: SigningJob, sha256: String, report: [String: String], format: String? = nil) async throws {
+        struct Body: Encodable { var status = "succeeded"; var sha256: String; var format: String?; var report: [String: String] }
+        _ = try await send("POST", job.resultPath, json: Body(sha256: sha256, format: format, report: report))
     }
 
     public func reportFailure(_ job: SigningJob, code: String, message: String, retryable: Bool) async throws {
