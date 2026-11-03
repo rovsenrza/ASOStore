@@ -9,6 +9,7 @@ use App\Models\CatalogApp;
 use App\Models\Certificate;
 use App\Models\Device;
 use App\Models\DeviceRegistration;
+use App\Models\SignedBuild;
 use App\Services\Artifacts\StorageJanitor;
 use App\Services\Installations\InstallationService;
 use Illuminate\Database\Eloquent\Builder;
@@ -55,6 +56,10 @@ final class BuildWarmup
             ->get()
             ->unique('apple_team_id');
         $apps = $this->popularApps($limit);
+        // Delta v3: every app is kept signed for every team (a build costs a team patch), a bounded number per run.
+        $v2 = SigningService::deltaV2();
+        $budget = $v2 ? max(0, (int) config('storefront.signing.delta_builds.v2_presign_per_run', 200)) : PHP_INT_MAX;
+        $covered = $v2 ? $this->coveredPairs($apps) : [];
 
         // One app at a time across all teams, not all apps for one team: the runner keeps the app it
         // has just signed unpacked and cached, so the next team's build of it skips the download and the
@@ -66,7 +71,15 @@ final class BuildWarmup
             foreach ($newest as $registration) {
                 $device = $registration->device;
                 $team = (int) $registration->apple_team_id;
+                if ($started >= $budget) {
+                    return $started;
+                }
                 if ($device === null || (! $delta && ! ($wholeBuildsAllowed[$team] ?? true))) {
+                    continue;
+                }
+                // Already has a team build that serves its newest device: no need to ask (and lock) for it.
+                $existing = $covered[$app->publishedArtifact?->id.':'.$team] ?? [];
+                if ($existing !== [] && collect($existing)->contains(fn (SignedBuild $build) => $build->serves($device))) {
                     continue;
                 }
                 // The first refusal ends the whole builds for a team (they share the budget); a delta
@@ -122,6 +135,14 @@ final class BuildWarmup
         if (! config('storefront.signing.delta_builds.enabled')) {
             return new Collection;
         }
+        // Delta v3: every app, whatever its size (bounded per run in forTeams).
+        if (SigningService::deltaV2()) {
+            return CatalogApp::query()->visibleToCustomers()
+                ->where('is_storefront', false)->whereNotIn('id', $except)
+                ->whereHas('publishedArtifact', fn (Builder $query) => $query->where('size_bytes', '>', 0)->where('size_bytes', '<', SigningService::DELTA_MAX_BASE_BYTES))
+                ->with('publishedArtifact')
+                ->orderBy('id')->get();
+        }
         $minimum = (int) config('storefront.signing.delta_builds.min_bytes');
 
         return CatalogApp::query()->visibleToCustomers()
@@ -149,9 +170,38 @@ final class BuildWarmup
     private function isDelta(CatalogApp $app): bool
     {
         $artifact = $app->publishedArtifact;
+        if (! config('storefront.signing.delta_builds.enabled') || $artifact === null) {
+            return false;
+        }
 
-        return (bool) config('storefront.signing.delta_builds.enabled')
-            && $artifact !== null && SigningService::deltaSized($artifact->setRelation('app', $app));
+        // Delta v3 (`delta-v2` packs): every app small enough for a composed IPA without zip64.
+        return SigningService::deltaV2() ? SigningService::deltaFits($artifact) : SigningService::deltaSized($artifact->setRelation('app', $app));
+    }
+
+    /**
+     * Live team builds of these apps' published artifacts, by "artifact:team", to skip the pairs already covered.
+     *
+     * @param  Collection<int, CatalogApp>  $apps
+     * @return array<string, list<SignedBuild>>
+     */
+    private function coveredPairs(Collection $apps): array
+    {
+        $artifactIds = $apps->map(fn (CatalogApp $app) => $app->publishedArtifact?->id)->filter()->values()->all();
+        if ($artifactIds === []) {
+            return [];
+        }
+        $pairs = [];
+        SignedBuild::query()->whereIn('artifact_id', $artifactIds)->whereNull('device_id')->whereNotNull('apple_team_id')
+            ->whereIn('status', ['SIGNING_PENDING', 'SIGNING', 'SIGNED', 'SIGNATURE_VERIFIED', 'DELIVERABLE'])
+            ->with(['profile', 'certificate'])
+            ->get()
+            ->each(function (SignedBuild $build) use (&$pairs) {
+                if ($build->status->value !== 'DELIVERABLE' || $build->isDeliverable()) {
+                    $pairs[$build->artifact_id.':'.$build->apple_team_id][] = $build;
+                }
+            });
+
+        return $pairs;
     }
 
     private function enabled(Device $device, bool $negligible = false): bool

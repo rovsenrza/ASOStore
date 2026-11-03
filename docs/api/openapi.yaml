@@ -3664,6 +3664,7 @@ components:
         - APPLE_UNAVAILABLE
         - SERVICE_UNAVAILABLE
         - INTERNAL
+        - DELTA_CORE_MISSING
 
     Error:
       type: object

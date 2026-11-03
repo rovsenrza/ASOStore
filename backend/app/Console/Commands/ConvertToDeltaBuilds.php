@@ -6,6 +6,7 @@ use App\Enums\DeviceRegistrationStatus;
 use App\Enums\SignedBuildStatus;
 use App\Exceptions\ApiException;
 use App\Models\CatalogApp;
+use App\Models\Device;
 use App\Models\DeviceRegistration;
 use App\Models\SignedBuild;
 use App\Services\Artifacts\StorageJanitor;
@@ -45,7 +46,7 @@ class ConvertToDeltaBuilds extends Command
             return self::SUCCESS;
         }
 
-        $devices = $this->teamDevices();
+        $devices = self::teamDevices();
         $rows = [];
         $totals = ['retired' => 0, 'started' => 0, 'bytes' => 0];
         foreach ($apps as $app) {
@@ -136,9 +137,9 @@ class ConvertToDeltaBuilds extends Command
     /**
      * Each team's newest eligible device: the one a new team build is made for.
      *
-     * @return array<int, \App\Models\Device>
+     * @return array<int, Device>
      */
-    private function teamDevices(): array
+    public static function teamDevices(): array
     {
         return DeviceRegistration::query()
             ->where('status', DeviceRegistrationStatus::Eligible->value)

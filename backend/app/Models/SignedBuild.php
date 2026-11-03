@@ -42,6 +42,9 @@ class SignedBuild extends Model
 
     public const FORMAT_DELTA = 'delta-v1';
 
+    /** A pack whose re-signed Mach-Os are segmented over a shared core (docs/adr/DELTA_V3.md). */
+    public const FORMAT_DELTA_V2 = 'delta-v2';
+
     protected $fillable = [
         'artifact_id', 'device_id', 'apple_team_id', 'signing_profile_id', 'certificate_id', 'status', 'status_reason',
         'format', 'delivered_size', 'sha256', 'size_bytes', 'storage_path', 'signing_report', 'signed_at', 'verified_at', 'expires_at', 'last_used_at',
@@ -188,5 +191,15 @@ class SignedBuild extends Model
     public function certificate(): BelongsTo
     {
         return $this->belongsTo(Certificate::class);
+    }
+
+    /**
+     * The shared core a `delta-v2` pack's "c" segments point into (docs/adr/DELTA_V3.md).
+     *
+     * @return BelongsTo<DeltaCore, $this>
+     */
+    public function deltaCore(): BelongsTo
+    {
+        return $this->belongsTo(DeltaCore::class, 'delta_core_id');
     }
 }

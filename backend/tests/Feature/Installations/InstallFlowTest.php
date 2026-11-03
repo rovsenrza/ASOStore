@@ -16,6 +16,7 @@ use App\Models\AppleTeam;
 use App\Models\AuditLog;
 use App\Models\CatalogApp;
 use App\Models\Certificate;
+use App\Models\DeltaCore;
 use App\Models\Device;
 use App\Models\Installation;
 use App\Models\PipelineJob;
@@ -27,12 +28,14 @@ use App\Models\StorefrontClaim;
 use App\Services\Apple\AppGroupProvisioner;
 use App\Services\Apple\AppGroupUnavailable;
 use App\Services\Artifacts\ArtifactFileCache;
+use App\Services\Artifacts\StorageJanitor;
 use App\Services\Audit\Actor;
 use App\Services\Devices\DeviceRegistrationService;
 use App\Services\Imports\LinkFetcher;
 use App\Services\Installations\InstallationService;
 use App\Services\Pipeline\PipelineJobService;
 use App\Services\Signing\BuildWarmup;
+use App\Services\Signing\Delta\DeltaCoreLocator;
 use App\Services\Signing\Delta\ZipDirectory;
 use App\Services\Signing\SigningService;
 use App\StateMachines\StateMachine;
@@ -1408,7 +1411,6 @@ it('answers 503 with Retry-After when object storage cannot report the IPA size'
     $this->get($url)->assertStatus(503)->assertHeader('Retry-After', '30');
 });
 
-
 /**
  * What a delta-aware runner uploads in place of the whole signed IPA: the entries that differ from the
  * original (and the ones every pack carries) plus the manifest of the final IPA (docs/adr/DELTA_BUILDS.md).
@@ -1651,4 +1653,324 @@ it('replaces a team\'s whole build with a delta build, least installed apps firs
 
     // Nothing whole is left to replace.
     $this->artisan('signing:convert-delta', ['--least-popular' => 5])->expectsOutput('No app to convert.')->assertSuccessful();
+});
+
+describe('delta v3: shared core + team patch', function () {
+    beforeEach(function () {
+        config(['storefront.signing.delta_builds.enabled' => true, 'storefront.signing.delta_builds.v2' => true,
+            // Below the size threshold: with v3 on it no longer applies.
+            'storefront.signing.delta_builds.min_bytes' => 1 << 40]);
+    });
+
+    /** A core manifest (docs/adr/DELTA_V3.md) for a blob of $blobSize bytes. */
+    function coreManifest(string $artifactSha256, int $blobSize): array
+    {
+        return ['version' => 1, 'artifact_sha256' => $artifactSha256, 'entries' => [
+            'Payload/Demo.app/Demo' => [[4096, 8192, str_repeat('ab', 32), 0, $blobSize - 10, false], [9000, 9100, str_repeat('cd', 32), $blobSize - 10, 10, true]],
+        ]];
+    }
+
+    function base64url(string $bytes): string
+    {
+        return rtrim(strtr(base64_encode($bytes), '+/', '-_'), '=');
+    }
+
+    /** PUT core with a query string: the runner signs the path without it (as the middleware checks). */
+    function workerCorePart(string $path, string $query, string $body, array $headers = []): TestResponse
+    {
+        $timestamp = (string) time();
+        $nonce = Str::random(24);
+        $hash = hash('sha256', $body);
+
+        return test()->call('PUT', $path.'?'.$query, [], [], [], [
+            'HTTP_X_RUNNER_KEY' => 'rk_test', 'HTTP_X_TIMESTAMP' => $timestamp, 'HTTP_X_NONCE' => $nonce, 'HTTP_X_CONTENT_SHA256' => $hash,
+            'HTTP_X_SIGNATURE' => VerifyWorkerSignature::sign(RUNNER_SECRET, 'PUT', $path, $timestamp, $nonce, $hash),
+            'CONTENT_TYPE' => 'application/json', 'HTTP_ACCEPT' => 'application/json',
+        ] + $headers, $body);
+    }
+
+    /** A `delta-v2` pack naming $coreSha256 (only what the backend reads of it here). */
+    function deltaV2Pack(string $baseSha256, ?string $coreSha256): string
+    {
+        $path = tempnam(sys_get_temp_dir(), 'pack-v2');
+        $zip = new ZipArchive;
+        $zip->open($path, ZipArchive::OVERWRITE);
+        $zip->addFromString('Payload/.delta-team.bin', random_bytes(32));
+        $zip->setCompressionName('Payload/.delta-team.bin', ZipArchive::CM_STORE);
+        $zip->addFromString('Payload/.delta-manifest.json', json_encode(['version' => 2, 'base_sha256' => $baseSha256, 'core_sha256' => $coreSha256,
+            'made_by' => 0, 'external' => 0, 'entries' => []]));
+        $zip->setCompressionName('Payload/.delta-manifest.json', ZipArchive::CM_STORE);
+        $zip->close();
+        $bytes = (string) file_get_contents($path);
+        unlink($path);
+
+        return $bytes;
+    }
+
+    function v2Lease(object $test): array
+    {
+        runnerHeartbeat()->assertOk();
+        app(InstallationService::class)->prepare($test->customer, $test->device, $test->catalogApp);
+
+        return worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+    }
+
+    it('offers delta v2 for any size, without a core until one is uploaded', function () {
+        $lease = v2Lease($this);
+
+        expect($lease['delta'])->toBe(['enabled' => true, 'version' => 2, 'core' => null, 'core_path' => "/api/worker/v1/jobs/{$lease['job_id']}/core"]);
+    });
+
+    it('offers the artifact\'s newest core in the lease', function () {
+        $manifest = coreManifest($this->artifact->sha256, 100);
+        DeltaCore::create(['artifact_id' => $this->artifact->id, 'sha256' => str_repeat('1', 64), 'size_bytes' => 100, 'manifest' => $manifest, 'storage_path' => 'cores/old.bin']);
+        DeltaCore::create(['artifact_id' => $this->artifact->id, 'sha256' => str_repeat('2', 64), 'size_bytes' => 100, 'manifest' => $manifest, 'storage_path' => 'cores/new.bin']);
+
+        $lease = v2Lease($this);
+        // (MySQL keeps JSON object keys in its own order.)
+        expect($lease['delta']['core'])->toEqual(['sha256' => str_repeat('2', 64), 'manifest' => $manifest]);
+    });
+
+    it('keeps the delta v1 lease when v3 is off', function () {
+        config(['storefront.signing.delta_builds.v2' => false, 'storefront.signing.delta_builds.min_bytes' => 0]);
+
+        expect(v2Lease($this)['delta'])->toBe(['enabled' => true]);
+    });
+
+    it('stores an uploaded core once, by its hash', function () {
+        $lease = v2Lease($this);
+        $blob = random_bytes(200);
+        $sha = hash('sha256', $blob);
+        $headers = ['HTTP_X_CORE_SHA256' => $sha, 'HTTP_X_CORE_MANIFEST' => base64url(json_encode(coreManifest($this->artifact->sha256, 200)))];
+
+        worker('PUT', $lease['delta']['core_path'], $blob, headers: $headers)->assertCreated()
+            ->assertJsonPath('data', ['sha256' => $sha, 'size_bytes' => 200, 'created' => true]);
+        $core = DeltaCore::sole();
+        expect($core->artifact_id)->toBe($this->artifact->id)
+            ->and($core->storage_path)->toBe("cores/{$sha}.bin")
+            ->and(Storage::disk('signed')->get("cores/{$sha}.bin"))->toBe($blob)
+            ->and($core->manifest['entries'])->toHaveKey('Payload/Demo.app/Demo');
+
+        // The same core again (another team's first build): nothing rewritten.
+        Storage::disk('signed')->put("cores/{$sha}.bin", 'kept');
+        worker('PUT', $lease['delta']['core_path'], $blob, headers: $headers)->assertOk()->assertJsonPath('data.created', false);
+        expect(DeltaCore::count())->toBe(1)->and(Storage::disk('signed')->get("cores/{$sha}.bin"))->toBe('kept');
+    });
+
+    it('takes the manifest in a request of its own after the blob, as the runner sends it', function () {
+        $lease = v2Lease($this);
+        $blob = random_bytes(150);
+        $sha = hash('sha256', $blob);
+        $manifest = json_encode(coreManifest($this->artifact->sha256, 150));
+
+        // The blob alone: kept, but no core yet.
+        worker('PUT', $lease['delta']['core_path'], $blob, headers: ['HTTP_X_CORE_SHA256' => $sha])
+            ->assertStatus(202)->assertJsonPath('data.pending', true);
+        expect(DeltaCore::count())->toBe(0)->and(Storage::disk('signed')->get("cores/{$sha}.bin"))->toBe($blob);
+
+        // A manifest whose ranges do not fit the blob that came: refused.
+        workerCorePart($lease['delta']['core_path'], 'part=manifest', json_encode(coreManifest($this->artifact->sha256, 300)), ['HTTP_X_CORE_SHA256' => $sha])
+            ->assertStatus(422);
+        workerCorePart($lease['delta']['core_path'], 'part=manifest', $manifest, ['HTTP_X_CORE_SHA256' => $sha])
+            ->assertCreated()->assertJsonPath('data', ['sha256' => $sha, 'size_bytes' => 150, 'created' => true]);
+        expect(DeltaCore::sole()->size_bytes)->toBe(150);
+
+        // Already stored: either part says so.
+        workerCorePart($lease['delta']['core_path'], 'part=manifest', $manifest, ['HTTP_X_CORE_SHA256' => $sha])
+            ->assertOk()->assertJsonPath('data.created', false);
+        worker('PUT', $lease['delta']['core_path'], $blob, headers: ['HTTP_X_CORE_SHA256' => $sha])->assertOk()->assertJsonPath('data.created', false);
+    });
+
+    it('also takes the manifest before the blob, and sweeps a blob whose manifest never came', function () {
+        $lease = v2Lease($this);
+        $blob = random_bytes(150);
+        $sha = hash('sha256', $blob);
+
+        workerCorePart($lease['delta']['core_path'], 'part=manifest', json_encode(coreManifest($this->artifact->sha256, 150)), ['HTTP_X_CORE_SHA256' => $sha])
+            ->assertStatus(202)->assertJsonPath('data.pending', true);
+        expect(DeltaCore::count())->toBe(0);
+        worker('PUT', $lease['delta']['core_path'], $blob, headers: ['HTTP_X_CORE_SHA256' => $sha])->assertCreated();
+        expect(DeltaCore::sole()->size_bytes)->toBe(150);
+
+        $lone = random_bytes(80);
+        worker('PUT', $lease['delta']['core_path'], $lone, headers: ['HTTP_X_CORE_SHA256' => hash('sha256', $lone)])->assertStatus(202);
+        $this->travel(2)->days();
+        app(StorageJanitor::class)->run(sweepObjects: true);
+        expect(Storage::disk('signed')->exists('cores/'.hash('sha256', $lone).'.bin'))->toBeFalse()
+            ->and(Storage::disk('signed')->exists("cores/{$sha}.bin"))->toBeTrue();
+    });
+
+    it('refuses a core whose hash, size or manifest is wrong', function (Closure $case) {
+        $lease = v2Lease($this);
+        $blob = random_bytes(200);
+        [$body, $sha, $manifest] = $case($blob, hash('sha256', $blob), coreManifest($this->artifact->sha256, 200), $this->artifact);
+
+        worker('PUT', $lease['delta']['core_path'], $body, headers: ['HTTP_X_CORE_SHA256' => $sha, 'HTTP_X_CORE_MANIFEST' => base64url(json_encode($manifest))])
+            ->assertStatus(422)->assertJsonPath('error.code', 'VALIDATION_FAILED');
+        expect(DeltaCore::count())->toBe(0)
+            ->and(Storage::disk('signed')->allFiles('cores'))->toBe([]);
+    })->with([
+        'hash of another body' => [fn ($blob, $sha, $manifest) => [$blob, hash('sha256', 'other'), $manifest]],
+        'not a hash' => [fn ($blob, $sha, $manifest) => [$blob, 'nope', $manifest]],
+        'larger than the source IPA' => [fn ($blob, $sha, $manifest, $artifact) => [$big = random_bytes($artifact->size_bytes + 1), hash('sha256', $big), $manifest]],
+        'manifest of another artifact' => [fn ($blob, $sha, $manifest) => [$blob, $sha, ['artifact_sha256' => str_repeat('f', 64)] + $manifest]],
+        'manifest version' => [fn ($blob, $sha, $manifest) => [$blob, $sha, ['version' => 2] + $manifest]],
+        'range outside the blob' => [fn ($blob, $sha, $manifest) => [$blob, $sha, coreManifest($manifest['artifact_sha256'], 300)]],
+        'items out of order' => [fn ($blob, $sha, $manifest) => [$blob, $sha, ['entries' => ['Payload/Demo.app/Demo' => array_reverse($manifest['entries']['Payload/Demo.app/Demo'])]] + $manifest]],
+        'entry outside Payload' => [fn ($blob, $sha, $manifest) => [$blob, $sha, ['entries' => ['etc/passwd' => $manifest['entries']['Payload/Demo.app/Demo']]] + $manifest]],
+    ]);
+
+    it('only lets the lease holder upload a core', function () {
+        $lease = v2Lease($this);
+        $blob = random_bytes(100);
+        worker('POST', $lease['result_path'], json_encode(['status' => 'failed', 'error_code' => 'X', 'retryable' => false]))->assertOk();
+
+        worker('PUT', $lease['delta']['core_path'], $blob, headers: ['HTTP_X_CORE_SHA256' => hash('sha256', $blob),
+            'HTTP_X_CORE_MANIFEST' => base64url(json_encode(coreManifest($this->artifact->sha256, 100)))])->assertStatus(409);
+        expect(DeltaCore::count())->toBe(0);
+    });
+
+    it('links a delta-v2 build to the core its pack names, and refuses an unknown core', function () {
+        $lease = v2Lease($this);
+        $blob = random_bytes(120);
+        $sha = hash('sha256', $blob);
+        worker('PUT', $lease['delta']['core_path'], $blob, headers: ['HTTP_X_CORE_SHA256' => $sha,
+            'HTTP_X_CORE_MANIFEST' => base64url(json_encode(coreManifest($this->artifact->sha256, 120)))])->assertCreated();
+
+        // A pack pointing at a core that was never uploaded.
+        $orphan = deltaV2Pack($this->artifact->sha256, str_repeat('e', 64));
+        worker('PUT', $lease['upload_path'], $orphan, headers: ['HTTP_X_BUILD_FORMAT' => 'delta-v2'])->assertCreated();
+        worker('POST', $lease['result_path'], json_encode(['status' => 'succeeded', 'format' => 'delta-v2', 'sha256' => hash('sha256', $orphan), 'report' => []]))
+            ->assertStatus(422)->assertJsonPath('error.code', 'DELTA_CORE_MISSING');
+        expect(SignedBuild::sole()->status)->toBe(SignedBuildStatus::Signing);
+
+        $pack = deltaV2Pack($this->artifact->sha256, $sha);
+        worker('PUT', $lease['upload_path'], $pack, headers: ['HTTP_X_BUILD_FORMAT' => 'delta-v2'])->assertCreated();
+        worker('POST', $lease['result_path'], json_encode(['status' => 'succeeded', 'format' => 'delta-v2', 'sha256' => hash('sha256', $pack), 'report' => []]))->assertOk();
+
+        $build = SignedBuild::sole();
+        expect($build->format)->toBe('delta-v2')
+            ->and($build->storage_path)->toEndWith('.pack')
+            ->and($build->delta_core_id)->toBe(DeltaCore::sole()->id);
+    });
+
+    it('finds a core\'s local file for the composer', function () {
+        $blob = random_bytes(64);
+        $sha = hash('sha256', $blob);
+        Storage::disk('signed')->put("cores/{$sha}.bin", $blob);
+        DeltaCore::create(['artifact_id' => $this->artifact->id, 'sha256' => $sha, 'size_bytes' => 64, 'manifest' => coreManifest($this->artifact->sha256, 64), 'storage_path' => "cores/{$sha}.bin"]);
+        $locator = app(DeltaCoreLocator::class);
+
+        expect($locator)->toBeInstanceOf(App\Services\Signing\Delta\StoredDeltaCoreLocator::class)
+            ->and(file_get_contents($locator->localPath($sha)))->toBe($blob)
+            ->and($locator->localPath(str_repeat('0', 64)))->toBeNull();
+    });
+
+    it('ends a team\'s older whole build once a delta-v2 build serving the same devices is deliverable', function () {
+        config(['storefront.signing.delta_builds.enabled' => false]);
+        runnerHeartbeat()->assertOk();
+        app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+        $whole = signNextLease();
+        expect($whole->status)->toBe(SignedBuildStatus::Deliverable)->and($whole->format)->toBe('full');
+
+        // A v2 build whose profile lists fewer devices than the whole one: the whole one still serves someone.
+        $narrow = $whole->profile->replicate();
+        $narrow->forceFill(['device_ids' => [], 'uuid' => (string) Str::uuid(), 'apple_profile_id' => 'narrow-profile', 'cohort' => 'narrow'])->save();
+        $v2 = fn (int $profileId) => SignedBuild::forceCreate([
+            'artifact_id' => $whole->artifact_id, 'apple_team_id' => $whole->apple_team_id, 'device_id' => null,
+            'signing_profile_id' => $profileId, 'certificate_id' => $whole->certificate_id, 'status' => 'DELIVERABLE', 'format' => 'delta-v2',
+            'storage_path' => 'signed/'.Str::random(8).'.pack', 'sha256' => hash('sha256', Str::random()), 'size_bytes' => 10, 'last_used_at' => now(),
+        ]);
+        $v2($narrow->id);
+        $this->travel(2)->hours();
+        app(StorageJanitor::class)->run();
+        expect($whole->fresh()->status)->toBe(SignedBuildStatus::Deliverable);
+
+        // Covering the same devices, but the whole build was just used: left alone.
+        $replacement = $v2($whole->signing_profile_id);
+        $whole->forceFill(['last_used_at' => now()])->save();
+        app(StorageJanitor::class)->run();
+        expect($whole->fresh()->status)->toBe(SignedBuildStatus::Deliverable);
+
+        $this->travel(2)->hours();
+        $replacement->forceFill(['last_used_at' => now()])->save();
+        $summary = app(StorageJanitor::class)->run();
+        expect($whole->fresh()->status)->toBe(SignedBuildStatus::Expired)
+            ->and($whole->fresh()->status_reason)->toBe('DELTA_V2_SUPERSEDED')
+            ->and($whole->fresh()->purged_at)->not->toBeNull()
+            ->and($summary['superseded_builds'])->toBe(1)
+            ->and($replacement->fresh()->status)->toBe(SignedBuildStatus::Deliverable);
+    });
+
+    it('deletes a core no build uses once its artifact is no longer published', function () {
+        $make = function (string $blob) {
+            $sha = hash('sha256', $blob);
+            Storage::disk('signed')->put("cores/{$sha}.bin", $blob);
+
+            return DeltaCore::create(['artifact_id' => $this->artifact->id, 'sha256' => $sha, 'size_bytes' => strlen($blob),
+                'manifest' => coreManifest($this->artifact->sha256, strlen($blob)), 'storage_path' => "cores/{$sha}.bin"]);
+        };
+        $unused = $make('unused core');
+        $used = $make('used core');
+        $build = SignedBuild::forceCreate(['artifact_id' => $this->artifact->id, 'apple_team_id' => $this->team->id, 'status' => 'DELIVERABLE',
+            'format' => 'delta-v2', 'storage_path' => 'signed/x.pack', 'sha256' => str_repeat('9', 64), 'size_bytes' => 1, 'delta_core_id' => $used->id]);
+        $this->travel(2)->hours();
+
+        // Still published: both stay.
+        app(StorageJanitor::class)->run();
+        expect(DeltaCore::count())->toBe(2);
+
+        $this->artifact->forceFill(['status' => ArtifactStatus::Expired])->save();
+        $build->forceFill(['last_used_at' => now()])->save();
+        $summary = app(StorageJanitor::class)->run();
+        expect(DeltaCore::pluck('id')->all())->toBe([$used->id])
+            ->and(Storage::disk('signed')->exists($unused->storage_path))->toBeFalse()
+            ->and(Storage::disk('signed')->exists($used->storage_path))->toBeTrue()
+            ->and($summary['cores_purged'])->toBe(1);
+    });
+
+    it('pre-signs every app for every team with v3 on, a bounded number per run', function () {
+        runnerHeartbeat()->assertOk();
+        $warmup = app(BuildWarmup::class);
+        config(['storefront.signing.team_presign_limit' => 0, 'storefront.build_storage.budget_bytes' => 0]);
+
+        config(['storefront.signing.delta_builds.v2_presign_per_run' => 0]);
+        expect($warmup->forTeams())->toBe(0);
+
+        config(['storefront.signing.delta_builds.v2_presign_per_run' => 200]);
+        expect($warmup->forTeams())->toBe(1)
+            ->and($warmup->forTeams())->toBe(0);
+        expect(SignedBuild::sole()->isShared())->toBeTrue();
+    });
+
+    it('queues delta-v2 team builds of the catalog, least installed first, once', function () {
+        config(['storefront.signing.delta_builds.enabled' => false]);
+        runnerHeartbeat()->assertOk();
+        app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+        $whole = signNextLease();
+
+        // Refused while v3 is off.
+        $this->artisan('signing:migrate-delta-v2')->assertFailed();
+
+        config(['storefront.signing.delta_builds.enabled' => true]);
+        $this->artisan('signing:migrate-delta-v2', ['--dry-run' => true])->expectsOutputToContain('Dry run')->assertSuccessful();
+        expect(SignedBuild::count())->toBe(1);
+
+        $this->artisan('signing:migrate-delta-v2', ['--limit' => 0])->assertSuccessful();
+        expect(SignedBuild::count())->toBe(1);
+
+        // The team's whole build does not count: a new team build is queued in the background.
+        $this->artisan('signing:migrate-delta-v2', ['--apps' => 'all'])->expectsOutputToContain('1 builds queued')->assertSuccessful();
+        $queued = SignedBuild::latest('id')->first();
+        expect(SignedBuild::count())->toBe(2)
+            ->and($queued->id)->not->toBe($whole->id)
+            ->and($queued->isShared())->toBeTrue()
+            ->and($whole->fresh()->status)->toBe(SignedBuildStatus::Deliverable);
+        $lease = worker('POST', '/api/worker/v1/leases', '{}')->assertOk()->json('data');
+        expect($lease['signed_build_id'])->toBe($queued->public_id)->and($lease['delta']['version'])->toBe(2);
+
+        // Already on its way: not queued twice.
+        $this->artisan('signing:migrate-delta-v2')->expectsOutputToContain('0 builds queued')->assertSuccessful();
+        expect(SignedBuild::count())->toBe(2);
+    });
 });

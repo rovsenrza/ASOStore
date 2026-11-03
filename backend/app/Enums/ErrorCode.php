@@ -49,6 +49,7 @@ enum ErrorCode: string
     case AppleUnavailable = 'APPLE_UNAVAILABLE';
     case ServiceUnavailable = 'SERVICE_UNAVAILABLE';
     case Internal = 'INTERNAL';
+    case DeltaCoreMissing = 'DELTA_CORE_MISSING';
 
     public function httpStatus(): int
     {
@@ -65,7 +66,7 @@ enum ErrorCode: string
             self::VersionExists, self::EncryptedBinary, self::IdempotencyConflict, self::UploadCorrupt,
             self::SourceTypeNotPublishable,
             self::DeviceLimitReached, self::DeviceOwnedElsewhere => 409,
-            self::UploadIncomplete => 422,
+            self::UploadIncomplete, self::DeltaCoreMissing => 422,
             self::RateLimited => 429,
             self::AppleUnavailable, self::AppleNotConnected, self::ServiceUnavailable => 503,
             self::Internal => 500,
@@ -114,6 +115,7 @@ enum ErrorCode: string
             self::AppleUnavailable => 'Сервис Apple временно недоступен.',
             self::ServiceUnavailable => 'Сервис временно недоступен.',
             self::Internal => 'Внутренняя ошибка. Попробуйте позже.',
+            self::DeltaCoreMissing => 'Общая часть сборки не загружена.',
         };
     }
 }
