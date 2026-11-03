@@ -11,6 +11,7 @@ use App\Models\Certificate;
 use App\Models\PipelineJob;
 use App\Models\Runner;
 use App\Models\SignedBuild;
+use App\Services\Signing\Delta\DeltaCoreStore;
 use App\Services\Signing\SigningService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -110,8 +111,9 @@ class WorkerController extends Controller
         $model = $this->job($job);
         $body = $request->getContent(true);
         // No header: the whole signed IPA. `delta-v1`: a pack of the changed entries (docs/adr/DELTA_BUILDS.md).
+        // `delta-v2`: a team patch against the artifact's shared core (docs/adr/DELTA_V3.md).
         $format = (string) $request->header('X-Build-Format', SignedBuild::FORMAT_FULL);
-        if (! in_array($format, [SignedBuild::FORMAT_FULL, SignedBuild::FORMAT_DELTA], true)) {
+        if (! in_array($format, [SignedBuild::FORMAT_FULL, ...SigningService::deltaFormats()], true)) {
             throw new ApiException(ErrorCode::ValidationFailed, details: ['format' => 'Unknown build format.']);
         }
         $stored = $this->signing->storeSignedFile($model, $this->runner($request), $body, $format);
@@ -124,11 +126,39 @@ class WorkerController extends Controller
         return ApiResponse::ok($stored, 201);
     }
 
+    /**
+     * The shared core of the artifact's delta v3 builds; wire contract in DeltaCoreStore.
+     */
+    public function core(Request $request, string $job): JsonResponse
+    {
+        set_time_limit(0);
+        $model = $this->job($job);
+        $runner = $this->runner($request);
+        $store = app(DeltaCoreStore::class);
+        $sha256 = (string) $request->header('X-Core-Sha256');
+
+        if ($request->query('part') === 'manifest') {
+            $json = $request->getContent();
+            // Streamed uploads skip the middleware's body check; this one is small enough to check here.
+            if (! hash_equals(strtolower((string) $request->header('X-Content-SHA256')), hash('sha256', $json))) {
+                throw new ApiException(ErrorCode::Unauthenticated, 'Body does not match the signed hash.');
+            }
+            $stored = $store->receiveManifest($model, $runner, $sha256, $json);
+
+            return ApiResponse::ok($stored, isset($stored['pending']) ? 202 : ($stored['created'] ? 201 : 200));
+        }
+
+        $stored = $store->receiveBlob($model, $runner, $sha256, $request->getContent(true),
+            $request->header('X-Core-Manifest'), (string) $request->header('X-Content-SHA256'));
+
+        return ApiResponse::ok($stored, isset($stored['pending']) ? 202 : ($stored['created'] ? 201 : 200));
+    }
+
     public function result(Request $request, string $job): JsonResponse
     {
         $data = $request->validate([
             'status' => ['required', 'in:succeeded,failed'],
-            'format' => ['nullable', 'in:full,delta-v1'],
+            'format' => ['nullable', 'in:full,delta-v1,delta-v2'],
             'sha256' => ['required_if:status,succeeded', 'nullable', 'string', 'regex:/^[a-fA-F0-9]{64}$/'],
             'error_code' => ['nullable', 'string', 'max:64'],
             'error_message' => ['nullable', 'string', 'max:2000'],

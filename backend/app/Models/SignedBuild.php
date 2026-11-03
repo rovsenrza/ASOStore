@@ -192,4 +192,14 @@ class SignedBuild extends Model
     {
         return $this->belongsTo(Certificate::class);
     }
+
+    /**
+     * The shared core a `delta-v2` pack's "c" segments point into (docs/adr/DELTA_V3.md).
+     *
+     * @return BelongsTo<DeltaCore, $this>
+     */
+    public function deltaCore(): BelongsTo
+    {
+        return $this->belongsTo(DeltaCore::class, 'delta_core_id');
+    }
 }

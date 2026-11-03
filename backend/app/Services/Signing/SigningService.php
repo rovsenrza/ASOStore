@@ -12,6 +12,7 @@ use App\Jobs\VerifySignatureJob;
 use App\Models\AppArtifact;
 use App\Models\AppleTeam;
 use App\Models\Certificate;
+use App\Models\DeltaCore;
 use App\Models\Device;
 use App\Models\PipelineJob;
 use App\Models\Runner;
@@ -50,6 +51,12 @@ class SigningService
     /** A base this large (or larger) needs zip64, which delta builds do not handle. */
     public const DELTA_MAX_BASE_BYTES = 0xF0000000;
 
+    /** Pack format of delta v3: shared core + team patch (docs/adr/DELTA_V3.md). */
+    public const FORMAT_DELTA_V2 = SignedBuild::FORMAT_DELTA_V2;
+
+    /** Where a delta pack keeps its manifest (docs/adr/DELTA_BUILDS.md, DELTA_V3.md). */
+    private const PACK_MANIFEST = 'Payload/.delta-manifest.json';
+
     /** Builds that are either usable or on their way to being usable. */
     private const LIVE = [
         SignedBuildStatus::SigningPending, SignedBuildStatus::Signing, SignedBuildStatus::Signed,
@@ -66,11 +73,12 @@ class SigningService
      * Reuses a live build that serves the device (its own, or one its team shares), preferring
      * one that is ready; otherwise starts a new one, shared by the device's team. With
      * $sharedOnly the device's own builds do not count (team pre-signing: a build for one
-     * device does not serve the rest of the team).
+     * device does not serve the rest of the team). With $deltaV2Only only a `delta-v2` build (or one not yet
+     * uploaded) counts: the delta v3 migration replaces a team's older whole and `delta-v1` builds.
      */
-    public function requestBuild(AppArtifact $artifact, Device $device, int $priority = 0, ?User $bootstrapUser = null, bool $sharedOnly = false): SignedBuild
+    public function requestBuild(AppArtifact $artifact, Device $device, int $priority = 0, ?User $bootstrapUser = null, bool $sharedOnly = false, bool $deltaV2Only = false): SignedBuild
     {
-        return DB::transaction(function () use ($artifact, $device, $priority, $bootstrapUser, $sharedOnly) {
+        return DB::transaction(function () use ($artifact, $device, $priority, $bootstrapUser, $sharedOnly, $deltaV2Only) {
             // The storefront app embeds a one-time login code per build, so it is always signed
             // fresh (never a reused build with a code already redeemed on an earlier install).
             $bootstrap = $bootstrapUser !== null && $artifact->app->is_storefront;
@@ -93,7 +101,9 @@ class SigningService
                     ->latest('id')
                     ->lockForUpdate()
                     ->get()
-                    ->filter(fn (SignedBuild $build) => ($build->status !== SignedBuildStatus::Deliverable || $build->isDeliverable()) && $build->serves($device));
+                    ->filter(fn (SignedBuild $build) => ($build->status !== SignedBuildStatus::Deliverable || $build->isDeliverable()) && $build->serves($device)
+                        && (! $deltaV2Only || $build->format === self::FORMAT_DELTA_V2
+                            || in_array($build->status, [SignedBuildStatus::SigningPending, SignedBuildStatus::Signing], true)));
                 $existing = $candidates->first(fn (SignedBuild $build) => $build->status === SignedBuildStatus::Deliverable) ?? $candidates->first();
                 if ($existing !== null) {
                     if ($priority === 0) {
@@ -313,8 +323,9 @@ class SigningService
             // shares its config with the app through an App Group (CompatShim::injectsIntoExtensions).
             'inject_into_extensions' => app(CompatShim::class)->injectsIntoExtensions($artifact),
             'source' => $source,
-            // The runner may upload a pack of the changed entries instead of the whole IPA (docs/adr/DELTA_BUILDS.md).
-            'delta' => ['enabled' => $this->deltaAllowed($build, $artifact)],
+            // The runner may upload a pack of the changed entries instead of the whole IPA (docs/adr/DELTA_BUILDS.md,
+            // and with delta v3 a team patch against the artifact's shared core, docs/adr/DELTA_V3.md).
+            'delta' => $this->deltaLease($job, $build, $artifact),
             'upload_path' => "/api/worker/v1/jobs/{$job->public_id}/artifact",
             'result_path' => "/api/worker/v1/jobs/{$job->public_id}/result",
         ];
@@ -335,15 +346,49 @@ class SigningService
     }
 
     /**
+     * The lease's `delta`: `{enabled}` as for delta v1; with the v3 switch on and delta allowed,
+     * `{enabled: true, version: 2, core: null|{sha256, manifest}, core_path}` offering the artifact's newest core.
+     *
+     * @return array<string, mixed>
+     */
+    private function deltaLease(PipelineJob $job, SignedBuild $build, AppArtifact $artifact): array
+    {
+        $enabled = $this->deltaAllowed($build, $artifact);
+        if (! $enabled || ! self::deltaV2()) {
+            return ['enabled' => $enabled];
+        }
+        $core = DeltaCore::query()->where('artifact_id', $artifact->id)->latest('id')->first();
+
+        return [
+            'enabled' => true,
+            'version' => 2,
+            'core' => $core === null ? null : ['sha256' => $core->sha256, 'manifest' => $core->manifest],
+            'core_path' => "/api/worker/v1/jobs/{$job->public_id}/core",
+        ];
+    }
+
+    /** Delta v3 is switched on (it rides on delta builds being on). */
+    public static function deltaV2(): bool
+    {
+        return (bool) config('storefront.signing.delta_builds.enabled') && (bool) config('storefront.signing.delta_builds.v2');
+    }
+
+    /** @return list<string> */
+    public static function deltaFormats(): array
+    {
+        return [SignedBuild::FORMAT_DELTA, self::FORMAT_DELTA_V2];
+    }
+
+    /**
      * Whether this build may be delivered as a pack: shared team builds of artifacts that are big
-     * enough to matter, whose original sits on a local disk the composer can seek in.
+     * enough to matter (with delta v3 on: any size), whose original sits on a local disk the composer can seek in.
      */
     public function deltaAllowed(SignedBuild $build, AppArtifact $artifact): bool
     {
         if (! config('storefront.signing.delta_builds.enabled') || ! $build->isShared() || $build->bootstrap_claim_encrypted !== null) {
             return false;
         }
-        if (! self::deltaSized($artifact)) {
+        if (! (self::deltaV2() ? self::deltaFits($artifact) : self::deltaSized($artifact))) {
             return false;
         }
         // A pack that failed verification once will fail again: that app is signed whole from then on.
@@ -367,6 +412,14 @@ class SigningService
 
         return $size >= (int) config('storefront.signing.delta_builds.min_bytes')
             || $artifact->app?->delta_builds_at !== null;
+    }
+
+    /** Small enough for a composed IPA without zip64 (the only size rule of delta v3). */
+    public static function deltaFits(AppArtifact $artifact): bool
+    {
+        $size = (int) $artifact->size_bytes;
+
+        return $size > 0 && $size < self::DELTA_MAX_BASE_BYTES;
     }
 
     public static function deltaOffKey(AppArtifact $artifact): string
@@ -394,7 +447,7 @@ class SigningService
     public function storeSignedFile(PipelineJob $job, Runner $runner, $body, string $format = SignedBuild::FORMAT_FULL): array
     {
         $build = $this->assertOwner($job, $runner);
-        $delta = $format === SignedBuild::FORMAT_DELTA;
+        $delta = in_array($format, self::deltaFormats(), true);
         $path = 'signed/'.$build->public_id.($delta ? '.pack' : '.ipa');
 
         $context = hash_init('sha256');
@@ -439,7 +492,7 @@ class SigningService
         // A retried build may have had an earlier file reclaimed; this one is live again.
         $build->forceFill([
             'storage_path' => $path, 'format' => $format, 'delivered_size' => null, 'sha256' => $sha256, 'size_bytes' => $size,
-            'purged_at' => null, 'last_used_at' => now(),
+            'delta_core_id' => null, 'purged_at' => null, 'last_used_at' => now(),
         ])->save();
         $this->jobs->extendLease($job, self::LEASE_SECONDS);
 
@@ -460,8 +513,11 @@ class SigningService
                 || $build->format !== ($result['format'] ?? SignedBuild::FORMAT_FULL)) {
                 throw new ApiException(ErrorCode::UploadCorrupt, 'The uploaded build does not match the reported hash.');
             }
+            // A delta v3 pack names the core its "c" segments point into; it must have been uploaded first.
+            $coreId = $build->format === self::FORMAT_DELTA_V2 ? $this->packCoreId($build) : null;
 
-            DB::transaction(function () use ($job, $attempt, $build, $result, $actor) {
+            DB::transaction(function () use ($job, $attempt, $build, $result, $actor, $coreId) {
+                $build->forceFill(['delta_core_id' => $coreId])->save();
                 $this->states->transition($build, SignedBuildStatus::Signed, actor: $actor, extra: [
                     'signed_at' => now(),
                     'signing_report' => $result['report'] ?? null,
@@ -497,6 +553,43 @@ class SigningService
         });
 
         return $build;
+    }
+
+    /**
+     * The delta_cores row a `delta-v2` pack's manifest names in `core_sha256` (null when it names none).
+     */
+    private function packCoreId(SignedBuild $build): ?int
+    {
+        $disk = Storage::disk('signed');
+        $path = app(ArtifactFileCache::class)->get($disk, (string) $build->storage_path, (string) $build->sha256, (int) $build->size_bytes);
+        $copy = null;
+        $manifest = null;
+        try {
+            if ($path === null) {
+                $copy = LocalArtifactFile::open($disk, (string) $build->storage_path);
+                $path = $copy->path;
+            }
+            $zip = new \ZipArchive;
+            if ($zip->open($path, \ZipArchive::RDONLY) === true) {
+                $json = $zip->getFromName(self::PACK_MANIFEST);
+                $zip->close();
+                $manifest = is_string($json) ? json_decode($json, true) : null;
+            }
+        } catch (\Throwable) {
+            $manifest = null;
+        } finally {
+            $copy?->release();
+        }
+        if (! is_array($manifest) || ! array_key_exists('core_sha256', $manifest)) {
+            throw new ApiException(ErrorCode::UploadCorrupt, 'The delta pack has no readable manifest.');
+        }
+        $sha256 = $manifest['core_sha256'];
+        if ($sha256 === null) {
+            return null;
+        }
+        $id = is_string($sha256) ? DeltaCore::query()->where('sha256', strtolower($sha256))->value('id') : null;
+
+        return $id !== null ? (int) $id : throw new ApiException(ErrorCode::DeltaCoreMissing, details: ['core_sha256' => $sha256]);
     }
 
     /**

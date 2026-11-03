@@ -209,6 +209,11 @@ return [
         'delta_builds' => [
             'enabled' => (bool) env('STOREFRONT_SIGNING_DELTA_BUILDS', false),
             'min_bytes' => (int) env('STOREFRONT_SIGNING_DELTA_MIN_BYTES', 64 * 1024 * 1024),
+            // Delta v3 (docs/adr/DELTA_V3.md, pack `delta-v2`: shared core + team patch). Needs `enabled` too.
+            // With it on every shared build of a catalog app is offered delta, whatever its size.
+            'v2' => (bool) env('STOREFRONT_SIGNING_DELTA_V2', false),
+            // BuildWarmup::forTeams with v2 on: at most this many new team builds per run (all apps × all teams).
+            'v2_presign_per_run' => (int) env('STOREFRONT_SIGNING_DELTA_V2_PRESIGN_PER_RUN', 200),
         ],
         // How many jobs a runner may have running when it takes a speculative (pre-signing) one; a customer's
         // install is never held back by this. 1 keeps pre-signing strictly to an idle runner.

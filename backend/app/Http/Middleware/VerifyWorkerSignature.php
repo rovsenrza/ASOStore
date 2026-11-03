@@ -65,6 +65,7 @@ class VerifyWorkerSignature
 
     private static function isStreamedUpload(Request $request): bool
     {
-        return $request->isMethod('PUT') && str_ends_with($request->getPathInfo(), '/artifact');
+        // The signed IPA and a delta core blob: the controller hashes them while streaming.
+        return $request->isMethod('PUT') && (str_ends_with($request->getPathInfo(), '/artifact') || str_ends_with($request->getPathInfo(), '/core'));
     }
 }

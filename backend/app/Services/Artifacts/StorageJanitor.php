@@ -6,12 +6,15 @@ use App\Enums\ArtifactStatus;
 use App\Enums\InstallationStatus;
 use App\Enums\SignedBuildStatus;
 use App\Models\AppArtifact;
+use App\Models\DeltaCore;
 use App\Models\Device;
 use App\Models\SignedBuild;
 use App\Models\UploadSession;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use App\Services\Installations\InstallationService;
+use App\Services\Signing\Delta\StoredDeltaCoreLocator;
+use App\Services\Signing\SigningService;
 use App\StateMachines\StateMachine;
 use Carbon\CarbonInterface;
 use Illuminate\Filesystem\AwsS3V3Adapter;
@@ -56,6 +59,7 @@ final class StorageJanitor
     private const SUMMARY_KEYS = [
         'idle_builds', 'budget_builds', 'builds_purged', 'build_bytes', 'originals_purged', 'original_bytes',
         'orphan_objects', 'orphan_bytes', 'multipart_aborted', 'temp_files', 'cache_files', 'errors',
+        'superseded_builds', 'cores_purged', 'core_bytes',
     ];
 
     /** @var array<string, int> */
@@ -98,10 +102,12 @@ final class StorageJanitor
 
     private function apply(bool $dryRun, bool $sweepObjects): void
     {
+        $this->supersedeByDeltaV2();
         $this->expireIdleBuilds();
         $this->enforceBudget();
         $this->purgeTerminalBuilds();
         $this->purgeSupersededOriginals();
+        $this->purgeDeltaCores();
         // Listing the bucket is the expensive part: every six hours, or when asked.
         if ($sweepObjects || $dryRun || Cache::add(self::SWEPT, true, now()->addHours(6))) {
             $this->sweepObjects();
@@ -110,7 +116,7 @@ final class StorageJanitor
 
         if (! $dryRun) {
             Cache::forever(self::LAST_RUN, ['at' => now()->toIso8601ZuluString(), 'summary' => $this->summary]);
-            $removed = array_sum(array_diff_key($this->summary, ['errors' => 0, 'build_bytes' => 0, 'original_bytes' => 0, 'orphan_bytes' => 0]));
+            $removed = array_sum(array_diff_key($this->summary, ['errors' => 0, 'build_bytes' => 0, 'original_bytes' => 0, 'orphan_bytes' => 0, 'core_bytes' => 0]));
             if ($removed > 0 || $this->summary['errors'] > 0) {
                 $this->audit->record('storage.janitor_applied', after: $this->summary, actor: Actor::system('storage'));
             }
@@ -230,6 +236,75 @@ final class StorageJanitor
         }
     }
 
+    /**
+     * Delta v3 migration (docs/adr/DELTA_V3.md): once a team's `delta-v2` build of an artifact is deliverable, the
+     * team's older whole and `delta-v1` builds of it that serve no device the new one does not are ended, as an
+     * idle build would be (never while in use).
+     */
+    private function supersedeByDeltaV2(): void
+    {
+        $replacements = SignedBuild::query()
+            ->where('format', SigningService::FORMAT_DELTA_V2)
+            ->where('status', SignedBuildStatus::Deliverable->value)
+            ->whereNull('device_id')->whereNotNull('apple_team_id')
+            ->whereNull('purged_at')->whereNotNull('storage_path')
+            ->with(['profile', 'certificate'])
+            ->orderByDesc('id')
+            ->get()
+            ->filter(fn (SignedBuild $build) => $build->isDeliverable())
+            ->unique(fn (SignedBuild $build) => $build->artifact_id.':'.$build->apple_team_id);
+        foreach ($replacements as $replacement) {
+            $covered = array_map('intval', $replacement->profile?->device_ids ?? []);
+            $older = SignedBuild::query()
+                ->where('artifact_id', $replacement->artifact_id)
+                ->where('apple_team_id', $replacement->apple_team_id)->whereNull('device_id')
+                ->whereIn('format', [SignedBuild::FORMAT_FULL, SignedBuild::FORMAT_DELTA])
+                ->where('status', SignedBuildStatus::Deliverable->value)
+                ->where('id', '<', $replacement->id)
+                ->whereNull('purged_at')->whereNotNull('storage_path')
+                ->with('profile')
+                ->get();
+            foreach ($older as $build) {
+                $devices = array_map('intval', $build->profile?->device_ids ?? []);
+                if ($build->profile === null || array_diff($devices, $covered) !== []) {
+                    continue;
+                }
+                if ($this->reclaim($build, 'DELTA_V2_SUPERSEDED')) {
+                    $this->summary['superseded_builds']++;
+                }
+            }
+        }
+    }
+
+    /**
+     * A delta v3 core goes once no build that still has its file uses it and its artifact is no longer published
+     * (docs/adr/DELTA_V3.md, "Janitor"). One just uploaded is left an hour for the pack that will name it.
+     */
+    private function purgeDeltaCores(): void
+    {
+        $cores = DeltaCore::query()
+            ->where('updated_at', '<', now()->subHour())
+            ->whereDoesntHave('builds', fn ($query) => $query->whereNull('purged_at'))
+            ->whereHas('artifact', fn ($query) => $query->where('status', '!=', ArtifactStatus::Published->value))
+            ->get();
+        foreach ($cores as $core) {
+            $this->summary['cores_purged']++;
+            $this->summary['core_bytes'] += $core->size_bytes;
+            if ($this->dryRun) {
+                continue;
+            }
+            try {
+                // cores/<sha256>.bin is named by content: another row cannot share it (sha256 is unique).
+                Storage::disk('signed')->delete($core->storage_path);
+                $this->cache->forget($core->sha256);
+                @unlink(StoredDeltaCoreLocator::keptPath($core->sha256));
+                $core->delete();
+            } catch (Throwable $exception) {
+                $this->failed('core', $core->sha256, $exception);
+            }
+        }
+    }
+
     /** Builds that can no longer be installed lose their file after a short grace period. */
     private function purgeTerminalBuilds(): void
     {
@@ -285,7 +360,7 @@ final class StorageJanitor
     private function sweepObjects(): void
     {
         // Signed builds may live on their own disk (SIGNED_BUILDS_DRIVER); each prefix is swept where it lives.
-        foreach (['signed' => ['signed'], 'artifacts' => ['originals', 'uploads']] as $name => $prefixes) {
+        foreach (['signed' => ['signed', 'cores'], 'artifacts' => ['originals', 'uploads']] as $name => $prefixes) {
             /** @var FilesystemAdapter $disk */
             $disk = Storage::disk($name);
             try {
@@ -321,6 +396,10 @@ final class StorageJanitor
             // Terminal builds that still name their file are purgeTerminalBuilds' to remove.
             return $build === null || $build->purged_at !== null
                 || ($build->storage_path === null && in_array($build->status, self::TERMINAL_BUILDS, true));
+        }
+        // A delta v3 core blob whose manifest never came (DeltaCoreStore keeps a lone blob as pending).
+        if (preg_match('~^cores/([a-f0-9]{64})\.bin$~D', $path, $match) === 1) {
+            return $modified->lt(now()->subDay()) && DeltaCore::query()->where('sha256', $match[1])->doesntExist();
         }
         if (preg_match('~^originals/[a-f0-9]{2}/[a-f0-9]{64}\.ipa$~D', $path) === 1) {
             return $modified->lt(now()->subDay())

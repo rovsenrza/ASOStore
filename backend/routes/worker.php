@@ -13,4 +13,5 @@ Route::post('/leases', [WorkerController::class, 'lease'])->name('leases');
 Route::post('/jobs/{job}/heartbeat', [WorkerController::class, 'jobHeartbeat'])->name('jobs.heartbeat');
 Route::get('/jobs/{job}/source', [WorkerController::class, 'source'])->name('jobs.source');
 Route::put('/jobs/{job}/artifact', [WorkerController::class, 'upload'])->name('jobs.artifact');
+Route::put('/jobs/{job}/core', [WorkerController::class, 'core'])->name('jobs.core');
 Route::post('/jobs/{job}/result', [WorkerController::class, 'result'])->name('jobs.result');
