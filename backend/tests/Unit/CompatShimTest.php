@@ -320,3 +320,26 @@ it('ships real fat arm64/arm64e VTBUnmask variants at the configured default dir
             ->and(strlen($bytes))->toBeGreaterThan(10000);
     }
 });
+
+it('gives an «as is + shim» build only the App-Group shim, and a plain «as is» build nothing', function () {
+    $list = tempnam(sys_get_temp_dir(), 'asis');
+    $shimList = tempnam(sys_get_temp_dir(), 'asisshim');
+    config([
+        'storefront.signing.as_is_file' => $list,
+        'storefront.signing.as_is_shim_file' => $shimList,
+        'storefront.signing.relay_hook.vk_bundle_ids' => ['com.vk.vkclient'],
+    ]);
+    $vk = fn (string $sha) => AppArtifact::factory()->make(['sha256' => $sha, 'bundle_identifier' => 'com.vk.vkclient',
+        'inspection' => ['entitlements' => ['com.apple.security.application-groups' => ['group.vk']]]]);
+    file_put_contents($list, str_repeat('a', 64).PHP_EOL);
+    file_put_contents($shimList, str_repeat('b', 64).PHP_EOL);
+    $shim = app(CompatShim::class);
+
+    expect($shim->dylibsFor($vk(str_repeat('a', 64))))->toBe([])
+        ->and(array_column($shim->dylibsFor($vk(str_repeat('b', 64))), 'name'))->toBe([CompatShim::NAME])
+        ->and($shim->asIs($vk(str_repeat('b', 64))))->toBeTrue()
+        ->and($shim->originalTeamFor($vk(str_repeat('b', 64)), 'TEAM'))->toBeNull();
+
+    @unlink($list);
+    @unlink($shimList);
+});

@@ -45,9 +45,13 @@ class CompatShim
      */
     public function dylibsFor(AppArtifact $artifact, ?string $deviceUdid = null): array
     {
-        // A build published «as is» is only re-signed: nothing of ours goes into it.
+        // A build published «as is» is only re-signed: nothing of ours goes into it — except the
+        // plain App-Group/keychain shim for the builds listed «as is + shim».
         if ($this->asIs($artifact)) {
-            return [];
+            $content = $this->asIsWithShim($artifact) && $this->enabled() && ! $this->skipped($artifact)
+                && $this->needsShim($artifact) ? $this->encoded() : null;
+
+            return $content !== null ? [['name' => self::NAME, 'content' => $content]] : [];
         }
         $dylibs = [];
         if ($this->enabled() && ! $this->skipped($artifact)
@@ -333,13 +337,28 @@ class CompatShim
      */
     public function asIs(AppArtifact $artifact): bool
     {
-        return in_array(strtolower((string) $artifact->sha256), self::asIsHashes(), true);
+        return in_array(strtolower((string) $artifact->sha256), self::asIsHashes(), true)
+            || $this->asIsWithShim($artifact);
+    }
+
+    /**
+     * «As is» builds that still get the App-Group/keychain shim (and nothing else of ours):
+     * listed by SHA-256 in storefront.signing.as_is_shim_file.
+     */
+    public function asIsWithShim(AppArtifact $artifact): bool
+    {
+        return in_array(strtolower((string) $artifact->sha256), self::hashesIn((string) config('storefront.signing.as_is_shim_file')), true);
     }
 
     /** @return list<string> */
     public static function asIsHashes(): array
     {
-        $file = (string) config('storefront.signing.as_is_file');
+        return self::hashesIn((string) config('storefront.signing.as_is_file'));
+    }
+
+    /** @return list<string> */
+    private static function hashesIn(string $file): array
+    {
         if ($file === '' || ! is_file($file)) {
             return [];
         }
