@@ -5,7 +5,8 @@ import PackageDescription
 // the worker API, re-signs IPAs with zsign and the device profile, checks the
 // result, and uploads it. Runs on Linux (Docker) in production; builds on
 // macOS for development. No third-party dependencies: hashes come from
-// CryptoKit on macOS and the system's OpenSSL libcrypto on Linux.
+// CryptoKit on macOS and the system's OpenSSL libcrypto on Linux; raw DEFLATE
+// (delta-v2 packs) from the system zlib on both.
 let package = Package(
     name: "StorefrontRunner",
     platforms: [.macOS(.v14)],
@@ -14,10 +15,13 @@ let package = Package(
     ],
     targets: [
         .systemLibrary(name: "COpenSSL", path: "Sources/COpenSSL", pkgConfig: "libcrypto", providers: [.apt(["libssl-dev"])]),
+        // zlib, for the raw DEFLATE chunks of delta-v2 packs (both platforms).
+        .systemLibrary(name: "CZlib", path: "Sources/CZlib", providers: [.apt(["zlib1g-dev"])]),
         .target(name: "RunnerCore", dependencies: [
+            "CZlib",
             .target(name: "COpenSSL", condition: .when(platforms: [.linux])),
         ]),
         .executableTarget(name: "StorefrontRunner", dependencies: ["RunnerCore"]),
-        .testTarget(name: "RunnerCoreTests", dependencies: ["RunnerCore"], resources: [.copy("Fixtures")]),
+        .testTarget(name: "RunnerCoreTests", dependencies: ["RunnerCore", "CZlib"], resources: [.copy("Fixtures")]),
     ]
 )

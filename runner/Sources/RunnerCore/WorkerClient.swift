@@ -49,19 +49,78 @@ public struct SigningJob: Codable, Sendable {
         }
     }
 
+    /// `delta: {enabled, version, core: null | {sha256, manifest}, core_path}` (docs/adr/DELTA_V3.md,
+    /// "Backend"). Leases that predate delta v2 carry only `enabled` and decode as version 1.
     public struct Delta: Codable, Sendable {
-        public var enabled: Bool
+        /// The artifact's newest shared core, as the lease offers it.
+        public struct Core: Codable, Sendable {
+            public var sha256: String
+            public var manifest: DeltaPack.CoreManifest
 
-        public init(enabled: Bool = false) {
+            public init(sha256: String, manifest: DeltaPack.CoreManifest) {
+                self.sha256 = sha256
+                self.manifest = manifest
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                sha256 = try container.decode(String.self, forKey: .sha256).lowercased()
+                // The manifest is an object; a JSON string holding it is accepted as well.
+                if let text = try? container.decode(String.self, forKey: .manifest) {
+                    manifest = try JSONDecoder().decode(DeltaPack.CoreManifest.self, from: Data(text.utf8))
+                } else {
+                    manifest = try container.decode(DeltaPack.CoreManifest.self, forKey: .manifest)
+                }
+            }
+
+            enum CodingKeys: String, CodingKey { case sha256, manifest }
+        }
+
+        public var enabled: Bool
+        /// 1: `delta-v1` tree packs; 2: `delta-v2` packs (shared core + team patch).
+        public var version: Int
+        /// Nil when the artifact has no core yet (the runner then builds and uploads one).
+        public var core: Core?
+        /// Worker endpoint for a new core (`PUT`, see WorkerClient.uploadCore).
+        public var corePath: String?
+        /// The lease had a `core` this runner could not read: delta v2 is not attempted (a broken
+        /// core must not be mistaken for "no core").
+        public var coreUnreadable: Bool
+
+        public init(enabled: Bool = false, version: Int = 1, core: Core? = nil, corePath: String? = nil) {
             self.enabled = enabled
+            self.version = version
+            self.core = core
+            self.corePath = corePath
+            self.coreUnreadable = false
         }
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+            version = (try? container.decodeIfPresent(Int.self, forKey: .version)) ?? 1
+            corePath = try? container.decodeIfPresent(String.self, forKey: .corePath)
+            // A core that does not decode never fails the lease: the job still signs (v1 or full).
+            coreUnreadable = false
+            if (try? container.decodeNil(forKey: .core)) ?? true {
+                core = nil
+            } else if let decoded = try? container.decode(Core.self, forKey: .core) {
+                core = decoded
+            } else {
+                core = nil
+                coreUnreadable = true
+            }
         }
 
-        enum CodingKeys: String, CodingKey { case enabled }
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(enabled, forKey: .enabled)
+            try container.encode(version, forKey: .version)
+            try container.encode(core, forKey: .core)
+            try container.encodeIfPresent(corePath, forKey: .corePath)
+        }
+
+        enum CodingKeys: String, CodingKey { case enabled, version, core, corePath = "core_path" }
     }
 
     /// An app extension signed with its own profile (one per bundle ID).
@@ -269,6 +328,52 @@ public final class WorkerClient: Sendable {
         }
     }
 
+    /// Encoded manifests up to this length travel in the `X-Core-Manifest` header.
+    public static let coreManifestHeaderLimit = 64 * 1024
+
+    /// Uploads a core built by this runner (delta v2), always **before** the pack that references it.
+    /// The wire format the backend's `PUT /api/worker/v1/jobs/{job}/core` endpoint matches:
+    ///
+    /// 1. `PUT {core_path}`, body = the core blob (`Content-Type: application/octet-stream`), signed
+    ///    like every worker request (`X-Content-SHA256` = SHA-256 of the blob), plus
+    ///    `X-Core-Sha256: <lowercase hex SHA-256 of the blob>` and, when the manifest JSON encoded as
+    ///    base64url without padding (RFC 4648 §5) is shorter than 64 KiB, `X-Core-Manifest: <that text>`.
+    /// 2. Only when the encoded manifest is 64 KiB or longer (no `X-Core-Manifest` on request 1):
+    ///    `PUT {core_path}?part=manifest`, body = the manifest JSON (`Content-Type: application/json`),
+    ///    `X-Content-SHA256` = SHA-256 of that JSON, `X-Core-Sha256` = the blob's SHA-256 again. The
+    ///    signed path is `core_path` without the query (the backend signs `getPathInfo()`).
+    ///
+    /// Both requests are idempotent (the backend keys the core by its SHA-256) and retried as uploads are.
+    public func uploadCore(_ job: SigningJob, core: DeltaPack.CoreUpload) async throws {
+        guard let path = job.delta.corePath, !path.isEmpty else { throw RunnerError.configuration("lease has no core_path") }
+        let encoded = Self.base64URL(core.manifest)
+        let inHeader = encoded.utf8.count < Self.coreManifestHeaderLimit
+        try await retry.run("core upload") {
+            var request = self.request("PUT", path, bodyHash: core.sha256)
+            request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            request.setValue(core.sha256, forHTTPHeaderField: "X-Core-Sha256")
+            if inHeader { request.setValue(encoded, forHTTPHeaderField: "X-Core-Manifest") }
+            let (data, response) = try await self.session.upload(for: request, fromFile: core.blob)
+            try self.check(response, body: data)
+        }
+        guard !inHeader else { return }
+        try await retry.run("core manifest upload") {
+            var request = self.request("PUT", path, bodyHash: RequestSigner.sha256(core.manifest), query: [URLQueryItem(name: "part", value: "manifest")])
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue(core.sha256, forHTTPHeaderField: "X-Core-Sha256")
+            request.httpBody = core.manifest
+            let (data, response) = try await self.session.data(for: request)
+            try self.check(response, body: data)
+        }
+    }
+
+    static func base64URL(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
     public func reportSuccess(_ job: SigningJob, sha256: String, report: [String: String], format: String? = nil) async throws {
         struct Body: Encodable { var status = "succeeded"; var sha256: String; var format: String?; var report: [String: String] }
         _ = try await send("POST", job.resultPath, json: Body(sha256: sha256, format: format, report: report))
@@ -296,8 +401,11 @@ public final class WorkerClient: Sendable {
         return data
     }
 
-    private func request(_ method: String, _ path: String, bodyHash: String) -> URLRequest {
-        var request = URLRequest(url: baseURL.appending(path: path))
+    /// `query` is added to the URL only; the signature covers the path alone.
+    func request(_ method: String, _ path: String, bodyHash: String, query: [URLQueryItem] = []) -> URLRequest {
+        var url = baseURL.appending(path: path)
+        if !query.isEmpty { url.append(queryItems: query) }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = Self.idleTimeout
         request.setValue("application/json", forHTTPHeaderField: "Accept")

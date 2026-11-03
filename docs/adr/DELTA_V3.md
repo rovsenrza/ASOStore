@@ -90,6 +90,12 @@ for the whole pack vs. the tree when the pack ends up with no kind-2 entry.
 * Core upload: validates the header sha256 against the body, size ≤ the source IPA size, manifest JSON (sent
   as header-less multipart or a second request — implementer's choice, documented in code), stores
   `cores/<sha>.bin` once (idempotent by sha), creates the row.
+  Runner wire format (`WorkerClient.uploadCore`): request 1 is `PUT {core_path}`, body = blob, signed as
+  usual (`X-Content-SHA256` = blob sha256), plus `X-Core-Sha256: <hex>` and, when the manifest JSON in
+  base64url without padding is shorter than 64 KiB, `X-Core-Manifest: <base64url>`. Otherwise (no
+  `X-Core-Manifest`) request 2 follows: `PUT {core_path}?part=manifest`, body = manifest JSON,
+  `X-Content-SHA256` = its sha256, `X-Core-Sha256` again; the signed path excludes the query. The body is
+  not streamed by `VerifyWorkerSignature` unless `/core` is treated like `/artifact`.
 * Verifier (`SignatureVerifier::checkDelta`): for v2 also checks the core exists, every `"c"`/`"t"` range is
   inside its blob, and **streams every kind-2 entry through inflate**: decompressed length == `size` and
   CRC-32 == `crc`. ClamAV is skipped as for v1.

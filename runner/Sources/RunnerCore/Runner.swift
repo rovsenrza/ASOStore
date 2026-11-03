@@ -51,7 +51,7 @@ public actor Runner {
 
     private struct Signed: Sendable {
         var sha256: String
-        /// "delta-v1" when the upload was a pack; nil for a full IPA.
+        /// "delta-v1" / "delta-v2" when the upload was a pack; nil for a full IPA.
         var format: String?
         var report: [String: String]
     }
@@ -132,13 +132,34 @@ public actor Runner {
         try Task.checkCancellation()
         // Delta builds: the pack is cut from the signed folder (no IPA is written); any trouble there
         // ends in the full IPA, built the usual way.
-        let output = job.delta.enabled
+        var output = job.delta.enabled
             ? try await signer.signDeltaDetached(job: job, identity: identity, source: source, workDirectory: folder, cancellation: cancellation)
             : try await signer.signDetached(job: job, identity: identity, source: source, workDirectory: folder, cancellation: cancellation)
         try Task.checkCancellation()
-        var report = output.report
         let uploadStarted = Date()
-        try await client.upload(job, file: output.ipa, sha256: output.sha256, format: output.format)
+        if output.format == DeltaPack.formatV2 {
+            // Delta v2: a new core goes up first, then the pack. A failure of either (after the
+            // transfer retries) falls back to the v1 pack from the same tree, then to the full IPA.
+            do {
+                if let core = output.core {
+                    try await client.uploadCore(job, core: core)
+                    Log.info("job \(job.jobID) core \(core.sha256) uploaded (\(core.size) bytes)")
+                }
+                try await client.upload(job, file: output.ipa, sha256: output.sha256, format: output.format)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                try Task.checkCancellation()
+                let reason = "upload: \(error)"
+                Log.error("job \(job.jobID) delta-v2 upload failed (\(error)); falling back")
+                output = try await signer.fallbackFromDeltaV2Detached(output, reason: reason, job: job, identity: identity, source: source, workDirectory: folder, cancellation: cancellation)
+                try Task.checkCancellation()
+                try await client.upload(job, file: output.ipa, sha256: output.sha256, format: output.format)
+            }
+        } else {
+            try await client.upload(job, file: output.ipa, sha256: output.sha256, format: output.format)
+        }
+        var report = output.report
         report["download_seconds"] = String(format: "%.1f", downloadSeconds)
         report["source_cache"] = sourceCache
         report["upload_seconds"] = String(format: "%.1f", Date().timeIntervalSince(uploadStarted))

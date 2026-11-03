@@ -508,10 +508,12 @@ final class FileReader {
 /// Sequential output file that hashes what it writes.
 final class FileSink {
     private var descriptor: Int32
-    private var hasher = Digest.Hasher(.sha256)
+    private var hasher: Digest.Hasher?
     private(set) var size: UInt64 = 0
 
-    init(_ url: URL) throws {
+    /// `hashing: false` for scratch files whose SHA-256 nobody needs (`finish` then returns "").
+    init(_ url: URL, hashing: Bool = true) throws {
+        hasher = hashing ? Digest.Hasher(.sha256) : nil
         try? FileManager.default.removeItem(at: url)
         descriptor = open(url.path, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
         guard descriptor >= 0 else { throw DeltaPack.Unusable("cannot create \(url.lastPathComponent): \(String(cString: strerror(errno)))") }
@@ -531,7 +533,7 @@ final class FileSink {
             guard count > 0 else { throw DeltaPack.Unusable("cannot write the pack: \(String(cString: strerror(errno)))") }
             done += count
         }
-        hasher.update(Data(bytes: bytes.baseAddress!, count: bytes.count))
+        if hasher != nil { hasher!.update(Data(bytes: bytes.baseAddress!, count: bytes.count)) }
         size += UInt64(bytes.count)
     }
 
@@ -544,7 +546,7 @@ final class FileSink {
     /// Closes the file and returns the SHA-256 of everything written.
     func finish() -> String {
         close()
-        return hasher.finalize().hex
+        return hasher?.finalize().hex ?? ""
     }
 }
 
