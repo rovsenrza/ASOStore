@@ -617,8 +617,18 @@ static void BridgeBGTasks(void) {
     if (sd) { gOrigSetAppDel = (SetAppDelIMP)method_getImplementation(sd); method_setImplementation(sd, (IMP)MySetAppDelegate); }
 }
 
+// Our pipeline injects this dylib into the app's extensions too (zsign -P) so the compat shim that
+// rides alongside it can remap App Groups there; the relay hooks themselves (BG tasks, biometrics,
+// VoIP, APNs) are for the container app only and would be wrong in a Share/Notification/Broadcast
+// extension. Bail out there and let the shim do its work.
+static BOOL VKRunningInAppExtension(void) {
+    return [[[NSBundle mainBundle] bundlePath] hasSuffix:@".appex"]
+        || [[NSBundle mainBundle] objectForInfoDictionaryKey:@"NSExtension"] != nil;
+}
+
 __attribute__((constructor))
 static void VKRelayInit(void) {
+    if (VKRunningInAppExtension()) return;
 #ifndef VK_FACEID_ONLY
     gQueue = dispatch_queue_create("vkrelay", DISPATCH_QUEUE_SERIAL);
 #endif

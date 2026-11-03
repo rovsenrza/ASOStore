@@ -376,15 +376,19 @@ class CompatShim
     }
 
     /**
-     * Whether the compat shim must also be injected into the app's extensions (zsign -P). True
-     * only for the plain App-Group/keychain shim — never the MAX/VK relay hooks — and only when
-     * an extension shares an App Group with the app, as a VPN's packet-tunnel extension does: it
-     * reads the tunnel config the container app writes to the shared group, so without the remap
-     * in the extension process the two never share and the VPN cannot connect.
+     * Whether the compat shim must also be injected into the app's extensions (zsign -P). The App-Group
+     * remap has to run in every process that opens the shared container, or the app and its extensions
+     * land in different containers and never share: a VPN's packet-tunnel reads the config the app wrote,
+     * and VK hands voice/photo/video/music attachments between the app and its Share/Broadcast extensions
+     * through `group.com.vk.*`. So this is true when the plain shim is injected AND an extension shares an
+     * App Group. The only other dylib allowed alongside it is VKRelay, which no-ops in an extension
+     * (VKRelayInit returns early there); the MAX/TG/VTB hooks do not guard themselves, so an app carrying
+     * one of them is still kept out of its extensions.
      */
     public function injectsIntoExtensions(AppArtifact $artifact): bool
     {
-        if (array_column($this->dylibsFor($artifact), 'name') !== [self::NAME]) {
+        $names = array_column($this->dylibsFor($artifact), 'name');
+        if (! in_array(self::NAME, $names, true) || array_diff($names, [self::NAME, self::VK_RELAY_NAME]) !== []) {
             return false;
         }
         foreach ($artifact->inspection['nested_bundles'] ?? [] as $nested) {
