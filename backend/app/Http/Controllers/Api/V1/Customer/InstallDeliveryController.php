@@ -13,6 +13,7 @@ use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use App\Services\Installations\InstallationService;
 use App\Services\Signing\Delta\DeltaComposer;
+use App\Services\Signing\Delta\DeltaCoreLocator;
 use App\Services\Signing\Delta\DeltaException;
 use Illuminate\Filesystem\AwsS3V3Adapter;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -126,7 +127,8 @@ class InstallDeliveryController extends Controller
 
     /**
      * A delta build: the IPA is composed while it is sent, from the artifact's original and the pack of
-     * entries re-signing changed (docs/adr/DELTA_BUILDS.md). Same Range behaviour as a stored file.
+     * entries re-signing changed (docs/adr/DELTA_BUILDS.md), plus the artifact's shared core for a delta-v2
+     * pack (docs/adr/DELTA_V3.md). Same Range behaviour as a stored file.
      */
     private function streamDelta(Request $request, SignedBuild $build, FilesystemAdapter $signed, string $relative, int $size, int $start, int $end, string $filename): SymfonyResponse
     {
@@ -146,7 +148,16 @@ class InstallDeliveryController extends Controller
                 $packPath = $copy->path;
             }
             $basePath = $base->path($artifact->storage_path);
-            $plan = DeltaComposer::plan($basePath, $packPath);
+            // A delta-v2 pack's segmented entries read from the artifact's shared core.
+            $coreSha256 = DeltaComposer::requiredCore($packPath);
+            $corePath = $coreSha256 === null ? null : app(DeltaCoreLocator::class)->localPath($coreSha256);
+            if ($coreSha256 !== null && ($corePath === null || ! is_file($corePath))) {
+                $copy?->release();
+                Log::error('install.delta_core_missing', ['build' => $build->public_id, 'core' => $coreSha256]);
+
+                return new SymfonyResponse('', 503, ['Retry-After' => '30', 'Cache-Control' => 'private, no-store']);
+            }
+            $plan = DeltaComposer::plan($basePath, $packPath, corePath: $corePath);
             if ($plan->size !== $size) {
                 throw new DeltaException("Composed {$plan->size} bytes, the build says {$size}.");
             }
@@ -175,7 +186,7 @@ class InstallDeliveryController extends Controller
             return new SymfonyResponse('', $status, $headers);
         }
 
-        return new StreamedResponse(function () use ($plan, $basePath, $packPath, $start, $end, $copy) {
+        return new StreamedResponse(function () use ($plan, $basePath, $packPath, $corePath, $start, $end, $copy) {
             // A client that hangs up would otherwise abort PHP mid-echo and skip `finally`, leaving the
             // temporary pack copy behind; keep running so the alive check ends the loop and we clean up.
             ignore_user_abort(true);
@@ -186,7 +197,7 @@ class InstallDeliveryController extends Controller
                 $plan->stream($basePath, $packPath, $start, $end, function (string $chunk) {
                     echo $chunk;
                     flush();
-                }, fn () => connection_status() === CONNECTION_NORMAL);
+                }, fn () => connection_status() === CONNECTION_NORMAL, $corePath);
             } finally {
                 $copy?->release();
             }

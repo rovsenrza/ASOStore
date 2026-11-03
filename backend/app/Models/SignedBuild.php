@@ -42,6 +42,9 @@ class SignedBuild extends Model
 
     public const FORMAT_DELTA = 'delta-v1';
 
+    /** A pack whose re-signed Mach-Os are segmented over a shared core (docs/adr/DELTA_V3.md). */
+    public const FORMAT_DELTA_V2 = 'delta-v2';
+
     protected $fillable = [
         'artifact_id', 'device_id', 'apple_team_id', 'signing_profile_id', 'certificate_id', 'status', 'status_reason',
         'format', 'delivered_size', 'sha256', 'size_bytes', 'storage_path', 'signing_report', 'signed_at', 'verified_at', 'expires_at', 'last_used_at',
@@ -103,7 +106,7 @@ class SignedBuild extends Model
     /** Whether storage_path holds a pack to compose the IPA from, not the IPA itself. */
     public function isDelta(): bool
     {
-        return $this->format === self::FORMAT_DELTA;
+        return in_array($this->format, [self::FORMAT_DELTA, self::FORMAT_DELTA_V2], true);
     }
 
     /** The byte size a client downloads: the composed IPA for a delta build, the stored file otherwise. */
