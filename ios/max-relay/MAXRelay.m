@@ -5,6 +5,8 @@
 // behaviour it changes is clearing our relay's delivered notifications + the badge when the app
 // becomes active (see ClearDeliveredAndBadge). One registration per launch (and on token change).
 #import <Foundation/Foundation.h>
+#import <CallKit/CallKit.h>
+#import <AVFoundation/AVFoundation.h>
 #import <objc/runtime.h>
 #import <objc/message.h>
 #import <dispatch/dispatch.h>
@@ -361,6 +363,55 @@ static bool h_avCat(id self, SEL _cmd, id cat, id mode, unsigned long long opts,
     return o_avCat(self, _cmd, cat, mode, opts, err);
 }
 
+// --- Incoming-call audio for a CLOSED/backgrounded app --------------------------------------------
+// The bug: when MAX is not open and a call comes in, the call connects but neither side hears audio;
+// when MAX is open it works. A cold/background launch from a VoIP push never gets its voice I/O unit
+// running — AUIOClient_StartIO fails 'what' until the app is foregrounded (device log 2026-11-03:
+// speaker engine starts, but the mic/voice unit only starts ~25s later when the app comes forward).
+// This re-instates the fix that was device-confirmed working 2026-10-21 but was lost in a later
+// rebuild: watch all CallKit calls; when a NON-outgoing call connects, force the app's own
+// AVAudioSession into the call configuration and activate it, retried to win against MAX's resets.
+// Mode VoiceChat WITHOUT DefaultToSpeaker => earpiece (also fixes "call opens on loudspeaker and the
+// speaker can't be turned off"); the user can still switch to speaker from the CallKit UI.
+static void ForceCallAudioActive(NSString *why) {
+    @try {
+        AVAudioSession *s = [AVAudioSession sharedInstance];
+        NSError *e1 = nil, *e2 = nil;
+        [s setCategory:AVAudioSessionCategoryPlayAndRecord
+                  mode:AVAudioSessionModeVoiceChat
+               options:AVAudioSessionCategoryOptionAllowBluetooth
+                 error:&e1];
+        [s setActive:YES withOptions:0 error:&e2];
+        RLog([NSString stringWithFormat:@"AUDIO force(%@) cat=%@ setActiveErr=%@", why, e1 ?: @"ok", e2 ?: @"ok"]);
+    } @catch (__unused id e) {}
+}
+
+@interface MXCallAudio : NSObject <CXCallObserverDelegate>
+@end
+@implementation MXCallAudio
+- (void)callObserver:(CXCallObserver *)observer callChanged:(CXCall *)call {
+    if (call.isOutgoing || call.hasEnded || !call.hasConnected) return;
+    RLog(@"AUDIO incoming call connected -> forcing call audio active");
+    // MAX keeps re-configuring its session as the call sets up; re-apply so one application wins and
+    // the voice unit starts even though the app launched cold in the background.
+    for (int i = 0; i < 10; i++) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(i * 0.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            ForceCallAudioActive([NSString stringWithFormat:@"+%.1fs", i * 0.4]);
+        });
+    }
+}
+@end
+static CXCallObserver *gCallObserver;
+static MXCallAudio *gCallAudio;
+static void InstallCallAudioObserver(void) {
+    @try {
+        gCallAudio = [MXCallAudio new];
+        gCallObserver = [CXCallObserver new];
+        [gCallObserver setDelegate:gCallAudio queue:dispatch_get_main_queue()];
+        RLog(@"AUDIO CXCallObserver installed");
+    } @catch (__unused id e) {}
+}
+
 static void Swizzle(const char *cls, const char *sel, IMP repl, void *slot) {
     Class c = objc_getClass(cls); if (!c) return;
     Method m = class_getInstanceMethod(c, sel_registerName(sel)); if (!m) return;
@@ -597,6 +648,8 @@ static void MAXRelayInit(void) {
     Swizzle("OKMAudioSession", "setShouldOverrideToEarForVoicePlayback:", (IMP)h_ovrEar, &o_ovrEar);
     Swizzle("AVAudioSession", "overrideOutputAudioPort:error:", (IMP)h_avOverride, &o_avOverride);
     Swizzle("AVAudioSession", "setCategory:mode:options:error:", (IMP)h_avCat, &o_avCat);
+    // Make incoming calls audible when MAX was closed (restores the 2026-10-21 fix).
+    InstallCallAudioObserver();
     struct rebinding rb = {"nw_connection_send", (void *)my_nw_connection_send, (void **)&orig_nw_connection_send};
     rebind_symbols(&rb, 1);
 
