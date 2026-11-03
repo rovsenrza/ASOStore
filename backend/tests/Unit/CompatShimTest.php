@@ -51,13 +51,28 @@ it('injects the shim into extensions only for a shim-only app whose extension sh
     // No extensions at all.
     expect($shim->injectsIntoExtensions(artifactWith(['com.apple.security.application-groups' => ['group.x']])))->toBeFalse();
 
-    // A relay-hook app (more than the plain shim injected) must never push hooks into extensions.
-    $relay = tempnam(sys_get_temp_dir(), 'relay').'.dylib';
-    file_put_contents($relay, "\xCF\xFA\xED\xFE relay");
-    config(['storefront.signing.relay_hook.bundle_ids' => ['com.vk.vkclient'], 'storefront.signing.relay_hook.path' => $relay]);
+    // A VK-relay app: VKRelay rides alongside the shim but no-ops in an extension, so the shim is
+    // still injected there to remap group.com.vk.* and keep the media handoff container shared.
+    $vkRelay = tempnam(sys_get_temp_dir(), 'vkrelay').'.dylib';
+    file_put_contents($vkRelay, "\xCF\xFA\xED\xFE vkrelay");
+    config([
+        'storefront.signing.relay_hook.vk_bundle_ids' => ['com.vk.vkclient'],
+        'storefront.signing.relay_hook.vk_path' => $vkRelay,
+        'storefront.signing.relay_hook.vk_faceid_path' => $vkRelay,
+    ]);
     expect($shim->injectsIntoExtensions(AppArtifact::factory()->make(['bundle_identifier' => 'com.vk.vkclient', 'inspection' => [
         'entitlements' => ['com.apple.security.application-groups' => ['group.com.vk.vkclient']],
         'nested_bundles' => [['type' => 'extension', 'bundle_identifier' => 'com.vk.vkclient.Share', 'entitlements' => ['com.apple.security.application-groups' => ['group.com.vk.vkclient']]]],
+    ]])))->toBeTrue();
+    @unlink($vkRelay);
+
+    // A MAX-relay app (its hook does not guard itself) must never push hooks into extensions.
+    $relay = tempnam(sys_get_temp_dir(), 'relay').'.dylib';
+    file_put_contents($relay, "\xCF\xFA\xED\xFE relay");
+    config(['storefront.signing.relay_hook.bundle_ids' => ['ru.oneme.app'], 'storefront.signing.relay_hook.path' => $relay]);
+    expect($shim->injectsIntoExtensions(AppArtifact::factory()->make(['bundle_identifier' => 'ru.oneme.app', 'inspection' => [
+        'entitlements' => ['com.apple.security.application-groups' => ['group.ru.oneme.app']],
+        'nested_bundles' => [['type' => 'extension', 'bundle_identifier' => 'ru.oneme.app.Share', 'entitlements' => ['com.apple.security.application-groups' => ['group.ru.oneme.app']]]],
     ]])))->toBeFalse();
     @unlink($relay);
 });
