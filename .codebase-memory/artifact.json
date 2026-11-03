@@ -1,12 +1,12 @@
 {
     "schema_version": 2,
-    "commit": "c52ab5c65ce90e3139bf85188f456947c024c737",
-    "indexed_at": "2026-11-03T07:32:45Z",
+    "commit": "95abf42402d19b50c3c6220046cf866f8f60ead2",
+    "indexed_at": "2026-11-03T13:18:46Z",
     "project": "Users-User-Desktop-untitled-folder",
-    "nodes": 11228,
-    "edges": 40206,
-    "original_size": 29425664,
-    "compressed_size": 5763248,
-    "compression_level": 9,
+    "nodes": 11246,
+    "edges": 40294,
+    "original_size": 42008576,
+    "compressed_size": 7824002,
+    "compression_level": 3,
     "reconcile_basis": "git-clean-head"
 }
