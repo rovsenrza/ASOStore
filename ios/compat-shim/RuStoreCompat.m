@@ -263,23 +263,25 @@ RS_INTERPOSE(rs_SecItemDelete, SecItemDelete);
 // _dyld_get_image_name and flag the session as tampered when they spot a dylib we injected
 // (RuStoreCompat / VKRelay / libsubstrate). A flagged VK session still *reads* (music, text,
 // notifications) but its server blocks *high-risk* actions: sending voice messages, photos and
-// video fail with a red "!". OrwellVK — the mod whose uploads work — fishhooks exactly these
-// functions to drop its injected images from the list. We do the same by dyld interposing, but
-// only when gHideImages is set (VK), so no other re-signed app is touched. VK enumerates purely
-// through these _dyld_* calls (it does not read the all-image list via task_info), so this is
-// sufficient — the same scope the working mod uses.
+// video fail with a red "!". OrwellVK — the mod whose uploads work — hooks _dyld_get_image_name
+// to make its injected images report an innocuous name.
+//
+// IMPORTANT: we do NOT touch _dyld_image_count or the per-index header/slide. Collapsing the
+// image count (an earlier attempt) crashed VK at launch: the ObjC/Swift runtime and dyld cache
+// the real count and then index by it, so a shortened count / shifted indices / a NULL header
+// faults. Keeping the count and every index exactly as dyld reports them, and only rewriting the
+// *name string* for our own images, leaves every consumer consistent while still defeating a
+// name-based scan. Gated behind gHideImages (VK only); a pure pass-through for every other app.
 static BOOL gHideImages = NO;
-static uint32_t (*o_dyld_count)(void);
-static const char *(*o_dyld_name)(uint32_t);
-static const struct mach_header *(*o_dyld_header)(uint32_t);
-static intptr_t (*o_dyld_slide)(uint32_t);
-
-static void RSEnsureDyld(void) {
-    if (!o_dyld_count)  o_dyld_count  = (void *)dlsym(RTLD_NEXT, "_dyld_image_count");
-    if (!o_dyld_name)   o_dyld_name   = (void *)dlsym(RTLD_NEXT, "_dyld_get_image_name");
-    if (!o_dyld_header) o_dyld_header = (void *)dlsym(RTLD_NEXT, "_dyld_get_image_header");
-    if (!o_dyld_slide)  o_dyld_slide  = (void *)dlsym(RTLD_NEXT, "_dyld_get_image_vmaddr_slide");
-}
+// The real function, captured at static init (dyld never interposes the interposer's own image, so
+// this binds to libdyld's _dyld_get_image_name — NOT our rs_dyld_name). Do NOT resolve it with
+// dlsym(RTLD_NEXT) at call time: RTLD_NEXT searches images loaded AFTER ours, but libdyld loads
+// BEFORE us, so dlsym returns NULL (or, worse, our own interposed symbol) and the first call to
+// _dyld_get_image_name faults / recurses — crashing every shimmed app at launch. volatile, like
+// orig_SecItemAdd above, keeps it a __data pointer out of a fishhookable GOT slot.
+static const char *(* volatile o_dyld_name)(uint32_t) = _dyld_get_image_name;
+// A real, innocuous image path handed back in place of ours. libMobileGestalt is always present.
+static const char *const kRSDecoyImageName = "/usr/lib/libMobileGestalt.dylib";
 
 static BOOL RSImageHidden(const char *name) {
     if (name == NULL) return NO;
@@ -290,43 +292,12 @@ static BOOL RSImageHidden(const char *name) {
         || strstr(name, "/MobileSubstrate");
 }
 
-// Map a caller-visible index (our shortened list) to a real dyld index, skipping hidden images.
-static int RSRealIndex(uint32_t visible) {
-    uint32_t n = o_dyld_count(), seen = 0;
-    for (uint32_t i = 0; i < n; i++) {
-        if (RSImageHidden(o_dyld_name(i))) continue;
-        if (seen == visible) return (int)i;
-        seen++;
-    }
-    return -1;
-}
-
-static uint32_t rs_dyld_count(void) {
-    RSEnsureDyld();
-    if (!gHideImages) return o_dyld_count();
-    uint32_t n = o_dyld_count(), v = 0;
-    for (uint32_t i = 0; i < n; i++) if (!RSImageHidden(o_dyld_name(i))) v++;
-    return v;
-}
 static const char *rs_dyld_name(uint32_t i) {
-    RSEnsureDyld();
-    if (!gHideImages) return o_dyld_name(i);
-    int r = RSRealIndex(i); return r < 0 ? NULL : o_dyld_name((uint32_t)r);
+    const char *name = o_dyld_name(i);
+    if (gHideImages && RSImageHidden(name)) return kRSDecoyImageName;
+    return name;
 }
-static const struct mach_header *rs_dyld_header(uint32_t i) {
-    RSEnsureDyld();
-    if (!gHideImages) return o_dyld_header(i);
-    int r = RSRealIndex(i); return r < 0 ? NULL : o_dyld_header((uint32_t)r);
-}
-static intptr_t rs_dyld_slide(uint32_t i) {
-    RSEnsureDyld();
-    if (!gHideImages) return o_dyld_slide(i);
-    int r = RSRealIndex(i); return r < 0 ? 0 : o_dyld_slide((uint32_t)r);
-}
-RS_INTERPOSE(rs_dyld_count, _dyld_image_count);
 RS_INTERPOSE(rs_dyld_name, _dyld_get_image_name);
-RS_INTERPOSE(rs_dyld_header, _dyld_get_image_header);
-RS_INTERPOSE(rs_dyld_slide, _dyld_get_image_vmaddr_slide);
 
 #pragma mark - Original bundle ID
 
@@ -762,7 +733,7 @@ static void RuStoreCompatInit(void) {
         // VK's anti-tamper scans the loaded-image list and, finding our injected dylibs, blocks
         // high-risk actions server-side (sending voice/photo/video fail with a red "!") while still
         // allowing reads. Hide our images from its _dyld_* enumeration — VK only, like the mod.
-        if (gIsVK) { RSEnsureDyld(); gHideImages = YES; }
+        if (gIsVK) { gHideImages = YES; }
         // Before the bundle hooks below, so the report names our real bundle ID.
         RSTelemetryStart(gOriginalBundleID);
 #ifdef RUSTORE_COMPAT_DEBUG
