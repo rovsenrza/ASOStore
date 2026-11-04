@@ -31,6 +31,7 @@
 #import <LocalAuthentication/LocalAuthentication.h>
 #import <objc/runtime.h>
 #import <dispatch/dispatch.h>
+#import <dlfcn.h>
 
 // Everything from here down to the Face-ID fix is the server-side notification/call mirror:
 // VK session capture, APNs/VoIP token registration, and the CallKit incoming-call path. The
@@ -178,6 +179,32 @@ static NSString *ReadProvisionedUDID(void) {
     return nil;
 }
 
+// The REAL signed bundle id (com.ruappstore.tg…), read from the application-identifier
+// entitlement. We must NOT use [[NSBundle mainBundle] bundleIdentifier] here: the compat shim
+// swizzles it to the vendor id (com.vk.vkclient) for the keep-bundle-id apps, and the relay uses
+// this value as the APNs topic and the certs/<bundle>/ key — a vendor id there yields HTTP 400
+// TopicDisallowed (no cert, wrong topic) and kills every push and call. The entitlement is not
+// swizzled, so it still carries our real identity. Mirrors RuStoreCompat's RSEntitlement.
+static NSString *RealBundleId(void) {
+    NSString *fallback = [[NSBundle mainBundle] bundleIdentifier] ?: @"";
+    typedef struct __SecTask *SecTaskRef;
+    static SecTaskRef (*createFromSelf)(CFAllocatorRef);
+    static CFTypeRef (*copyValue)(SecTaskRef, CFStringRef, CFErrorRef *);
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        createFromSelf = dlsym(RTLD_DEFAULT, "SecTaskCreateFromSelf");
+        copyValue = dlsym(RTLD_DEFAULT, "SecTaskCopyValueForEntitlement");
+    });
+    if (!createFromSelf || !copyValue) return fallback;
+    SecTaskRef task = createFromSelf(NULL);
+    if (!task) return fallback;
+    id appId = CFBridgingRelease(copyValue(task, CFSTR("application-identifier"), NULL));
+    CFRelease(task);
+    if (![appId isKindOfClass:NSString.class] || [(NSString *)appId length] == 0) return fallback;
+    NSRange dot = [(NSString *)appId rangeOfString:@"."];      // strip "<TEAMID>."
+    return dot.location != NSNotFound ? [(NSString *)appId substringFromIndex:dot.location + 1] : (NSString *)appId;
+}
+
 static void Register(void) {
     dispatch_async(gQueue, ^{
         @autoreleasepool {
@@ -210,7 +237,7 @@ static void Register(void) {
                 if (gVoip) body[@"voipToken"] = gVoip;
                 NSString *udid = ReadProvisionedUDID();
                 if (udid) body[@"udid"] = udid;            // ties the mirror to a subscription
-                body[@"bundleId"] = [[NSBundle mainBundle] bundleIdentifier] ?: @"";
+                body[@"bundleId"] = RealBundleId();
 
                 // Nothing changed since the last successful POST → skip (foreground churn).
                 NSString *fingerprint = [NSString stringWithFormat:@"%@|%@|%@", access, gApns ?: @"", gVoip ?: @""];
