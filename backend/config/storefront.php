@@ -214,6 +214,8 @@ return [
             'v2' => (bool) env('STOREFRONT_SIGNING_DELTA_V2', false),
             // BuildWarmup::forTeams with v2 on: at most this many new team builds per run (all apps × all teams).
             'v2_presign_per_run' => (int) env('STOREFRONT_SIGNING_DELTA_V2_PRESIGN_PER_RUN', 200),
+            // Scheduled `signing:migrate-delta-v2`, every 10 minutes: at most this many new team builds per run. 0 = off.
+            'v2_migrate_per_run' => (int) env('STOREFRONT_SIGNING_DELTA_V2_MIGRATE_PER_RUN', 0),
         ],
         // How many jobs a runner may have running when it takes a speculative (pre-signing) one; a customer's
         // install is never held back by this. 1 keeps pre-signing strictly to an idle runner.

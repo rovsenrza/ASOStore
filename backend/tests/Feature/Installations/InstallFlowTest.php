@@ -2138,4 +2138,51 @@ describe('delta v3: shared core + team patch', function () {
         $this->artisan('signing:migrate-delta-v2')->expectsOutputToContain('0 builds queued')->assertSuccessful();
         expect(SignedBuild::count())->toBe(2);
     });
+
+    it('waits for the builds in progress before queueing more of the catalog', function () {
+        config(['storefront.signing.delta_builds.enabled' => false]);
+        runnerHeartbeat()->assertOk();
+        app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+        $inProgress = SignedBuild::sole();
+        config(['storefront.signing.delta_builds.enabled' => true]);
+
+        $this->artisan('signing:migrate-delta-v2', ['--max-pending' => 1])->expectsOutputToContain('Paused')->assertSuccessful();
+        expect(SignedBuild::count())->toBe(1);
+
+        $inProgress->forceFill(['status' => SignedBuildStatus::SigningFailed])->save();
+        $inProgress->forceFill(['updated_at' => now()->subDays(2)])->saveQuietly();
+        $this->artisan('signing:migrate-delta-v2', ['--max-pending' => 1])->expectsOutputToContain('1 builds queued')->assertSuccessful();
+        expect(SignedBuild::count())->toBe(2);
+    });
+
+    it('stops queueing the catalog while signing keeps failing', function () {
+        config(['storefront.signing.delta_builds.enabled' => false]);
+        runnerHeartbeat()->assertOk();
+        app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+        $failed = SignedBuild::sole();
+        $failed->forceFill(['status' => SignedBuildStatus::SigningFailed])->save();
+        config(['storefront.signing.delta_builds.enabled' => true]);
+
+        $this->artisan('signing:migrate-delta-v2', ['--pause-after-failures' => 1])->expectsOutputToContain('Paused')->assertSuccessful();
+        expect(SignedBuild::count())->toBe(1);
+
+        $failed->forceFill(['updated_at' => now()->subHour()])->saveQuietly();
+        $this->artisan('signing:migrate-delta-v2', ['--pause-after-failures' => 1])->expectsOutputToContain('0 builds queued')->assertSuccessful();
+    });
+
+    it('leaves a team and app whose build failed for a day, so it does not use up the limit', function () {
+        config(['storefront.signing.delta_builds.enabled' => false]);
+        runnerHeartbeat()->assertOk();
+        app(InstallationService::class)->prepare($this->customer, $this->device, $this->catalogApp);
+        $failed = SignedBuild::sole();
+        $failed->forceFill(['status' => SignedBuildStatus::SigningFailed])->save();
+        config(['storefront.signing.delta_builds.enabled' => true]);
+
+        $this->artisan('signing:migrate-delta-v2')->expectsOutputToContain('0 builds queued')->assertSuccessful();
+        expect(SignedBuild::count())->toBe(1);
+
+        $failed->forceFill(['updated_at' => now()->subDays(2)])->saveQuietly();
+        $this->artisan('signing:migrate-delta-v2')->expectsOutputToContain('1 builds queued')->assertSuccessful();
+        expect(SignedBuild::count())->toBe(2);
+    });
 });

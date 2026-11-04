@@ -60,6 +60,15 @@ Schedule::call(fn () => app(RetentionService::class)->run())
 Schedule::call(fn () => app(BuildWarmup::class)->forTeams())
     ->name('signing:presign-teams')->everyFifteenMinutes()->withoutOverlapping();
 
+// Delta v3 migration of the rest of the catalog, in small steps (0 switches it off). The builds are speculative, so a
+// customer's install always goes first; the janitor then ends the old builds the new ones replace.
+$deltaMigratePerRun = (int) config('storefront.signing.delta_builds.v2_migrate_per_run', 0);
+if ($deltaMigratePerRun > 0) {
+    Schedule::command('signing:migrate-delta-v2', [
+        '--apps=all', "--limit={$deltaMigratePerRun}", '--max-pending='.($deltaMigratePerRun * 2), '--pause-after-failures=5',
+    ])->everyTenMinutes()->withoutOverlapping(30);
+}
+
 // Platega payments whose callback never arrived (store orders on the website and in the bot).
 Schedule::call(fn () => app(PlategaPayments::class)->reconcile())
     ->name('platega:reconcile')->everyTwoMinutes()->withoutOverlapping();

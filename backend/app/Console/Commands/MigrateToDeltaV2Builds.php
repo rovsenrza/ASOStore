@@ -25,6 +25,8 @@ class MigrateToDeltaV2Builds extends Command
     protected $signature = 'signing:migrate-delta-v2
         {--apps=all : "all", or this many apps, the least installed over the last 30 days first}
         {--limit= : Queue at most this many builds in this run}
+        {--max-pending= : Queue nothing while this many builds (any kind) are still being made}
+        {--pause-after-failures= : Queue nothing after this many failed builds in the last 30 minutes}
         {--dry-run : Only list what would be queued}';
 
     protected $description = 'Queue delta v3 (delta-v2) team builds of the catalog, least popular apps first';
@@ -33,6 +35,13 @@ class MigrateToDeltaV2Builds extends Command
         SignedBuildStatus::SigningPending, SignedBuildStatus::Signing, SignedBuildStatus::Signed,
         SignedBuildStatus::SignatureVerified, SignedBuildStatus::Deliverable,
     ];
+
+    private const IN_PROGRESS = [
+        SignedBuildStatus::SigningPending, SignedBuildStatus::Signing, SignedBuildStatus::Signed,
+        SignedBuildStatus::SignatureVerified,
+    ];
+
+    private const FAILED = [SignedBuildStatus::SigningFailed, SignedBuildStatus::ValidationFailed];
 
     public function handle(InstallationService $installations): int
     {
@@ -50,6 +59,13 @@ class MigrateToDeltaV2Builds extends Command
         $limit = $this->option('limit') === null ? PHP_INT_MAX : max(0, (int) $this->option('limit'));
         $dryRun = (bool) $this->option('dry-run');
 
+        $paused = $dryRun ? null : $this->pauseReason();
+        if ($paused !== null) {
+            $this->line("Paused: {$paused}.");
+
+            return self::SUCCESS;
+        }
+
         $apps = $this->apps($appsOption === 'all' ? null : (int) $appsOption);
         // Only teams a runner can sign for right now.
         $signable = Certificate::query()->where('status', 'ACTIVE')->whereNotNull('runner_id')
@@ -65,6 +81,11 @@ class MigrateToDeltaV2Builds extends Command
                 ->where('format', SigningService::FORMAT_DELTA_V2)->whereNull('purged_at')
                 ->whereIn('status', array_map(fn (SignedBuildStatus $status) => $status->value, self::LIVE))
                 ->pluck('apple_team_id')->map(fn ($id) => (int) $id)->flip();
+            // A build that just failed would fail again and use up the limit of every run: tried again after a day.
+            $failedLately = SignedBuild::query()->where('artifact_id', $artifact->id)->whereNull('device_id')
+                ->whereIn('status', array_map(fn (SignedBuildStatus $status) => $status->value, self::FAILED))
+                ->where('updated_at', '>=', now()->subDay())
+                ->pluck('apple_team_id')->map(fn ($id) => (int) $id)->flip();
             $count = ['done' => 0, 'queued' => 0, 'waiting' => 0, 'skipped' => 0];
             foreach ($devices as $team => $device) {
                 if ($haveV2->has($team)) {
@@ -72,7 +93,7 @@ class MigrateToDeltaV2Builds extends Command
 
                     continue;
                 }
-                if ($dryRun || $limit <= $totals['queued'] + $count['queued']) {
+                if ($dryRun || $failedLately->has($team) || $limit <= $totals['queued'] + $count['queued']) {
                     $count['waiting']++;
 
                     continue;
@@ -98,6 +119,32 @@ class MigrateToDeltaV2Builds extends Command
             $totals['done'], $totals['queued'], $totals['waiting'], $dryRun ? 'to queue' : 'waiting (in progress or over --limit)', $totals['skipped']));
 
         return self::SUCCESS;
+    }
+
+    /** Why this run should queue nothing: the signing pipeline is busy, or something is wrong with it. */
+    private function pauseReason(): ?string
+    {
+        $maxPending = $this->option('max-pending');
+        if ($maxPending !== null) {
+            $pending = SignedBuild::query()
+                ->whereIn('status', array_map(fn (SignedBuildStatus $status) => $status->value, self::IN_PROGRESS))
+                ->count();
+            if ($pending >= (int) $maxPending) {
+                return "{$pending} builds in progress";
+            }
+        }
+        $maxFailures = $this->option('pause-after-failures');
+        if ($maxFailures !== null) {
+            $failures = SignedBuild::query()
+                ->whereIn('status', array_map(fn (SignedBuildStatus $status) => $status->value, self::FAILED))
+                ->where('updated_at', '>=', now()->subMinutes(30))
+                ->count();
+            if ($failures >= (int) $maxFailures) {
+                return "{$failures} builds failed in the last 30 minutes";
+            }
+        }
+
+        return null;
     }
 
     /**
