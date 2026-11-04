@@ -150,6 +150,17 @@ static void h_layout(id self, SEL _cmd) {
 }
 
 
+// MAX draws its own OMUIKit.TabBar whose badge hides at zero, but leaves the underlying UITabBarItem
+// it feeds with badgeValue @"0". While its own bar was on top that was invisible; we reveal the stock
+// UITabBar (for the iOS 26 glass platter), which then renders a red "0" on the Chats tab with no
+// unread. Normalise: a nil/empty/"0" badge becomes no badge; real counts pass through. (This hook is
+// not what crashed earlier — that was a mistyped MAXRelay notification getter; this is independent.)
+static void (*o_setBadge)(id, SEL, NSString *);
+static void h_setBadge(id self, SEL _cmd, NSString *value) {
+    if (value.length == 0 || [value isEqualToString:@"0"]) value = nil;
+    o_setBadge(self, _cmd, value);
+}
+
 static void Hook(Class c, SEL sel, IMP imp, IMP *orig) {
     Method m = class_getInstanceMethod(c, sel);
     if (!m) return;
@@ -341,6 +352,8 @@ static void MAXGlassInit(void) {
     Hook(c, @selector(layoutSubviews), (IMP)h_layout, (IMP *)&o_layout);
     Hook(c, @selector(setAlpha:), (IMP)h_setAlpha, (IMP *)&o_setAlpha);
     Hook(c, @selector(setHidden:), (IMP)h_setHidden, (IMP *)&o_setHidden);
+    Class item = objc_getClass("UITabBarItem");
+    if (item) Hook(item, @selector(setBadgeValue:), (IMP)h_setBadge, (IMP *)&o_setBadge);
     InstallControlHooks();
     [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidFinishLaunchingNotification object:nil
         queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *n) { InstallControlHooks(); }];

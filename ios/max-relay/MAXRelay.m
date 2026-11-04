@@ -419,6 +419,20 @@ static void Swizzle(const char *cls, const char *sel, IMP repl, void *slot) {
     method_setImplementation(m, repl);
 }
 
+// --- Notification-permission UI (the false "Enable Notifications" banner + "!" badges) ------------
+// MAX reads iOS notification authorization through the DEFAULT UNUserNotificationCenter, which the
+// diyorde bundle spoof binds to ru.oneme.app (not our signed com.ruappstore), so it always reads
+// notDetermined and shows the purple "Enable Notifications" banner, the red "!" on the Settings tab +
+// the "Notifications and Sounds" row, and "Enable All Notifications" OFF — even after the user enables
+// notifications in iOS Settings (our relay-driven push honours them). Force the two getters that drive
+// that UI. IMPORTANT return types (verified in the Mach-O objc metadata, a wrong type crashes):
+//   PushPermissionBannerService.isPushEnabled is `T@"NSNumber"` (boxed Bool) -> return @YES, NOT a raw
+//     BOOL (a raw YES is read as an object pointer 0x1 and objc_retain()'d -> EXC_BAD_ACCESS).
+//   OMNotificationsSettings.areNotificationsEnabled is `TB` (real BOOL) -> return YES.
+static id   h_isPushEnabled(__unused id self, __unused SEL _cmd) { return @YES; }
+static BOOL h_notifsEnabled(__unused id self, __unused SEL _cmd) { return YES; }
+static IMP  o_isPushEnabled, o_notifsEnabled;  // unused; Swizzle needs a slot
+
 // MAX's own read->removeDeliveredNotifications cleanup only tracks notifications it posted from its
 // own message store; the banners OUR relay posts are not in that store, so MAX never clears them and
 // they pile up after the user has read the chat (customer complaint: the notification stays after you
@@ -498,6 +512,29 @@ static id RealScopedCenter(void) {
         if (realCenter) return realCenter;
     }
     return center;
+}
+
+// Root fix for the false "Enable Notifications" banner / "!" badges / "Enable All Notifications" OFF
+// (native PushPermissionBannerService AND diyorde's OKMInAppBannerPresenter both gate on this): MAX
+// asks UNUserNotificationCenter for the authorization status, but the diyorde bundle spoof binds the
+// default center to ru.oneme.app, which is always notDetermined -> MAX thinks notifications are off
+// even though the user enabled them for the real signed app. Answer every getNotificationSettings
+// query from the REAL-bundle-scoped center (authorized), by invoking the ORIGINAL implementation on a
+// real-scoped center (never the swizzled selector, so no recursion). Cached so we don't alloc per call.
+static id gRealCenterForSettings;
+static void (*o_getSettings)(id, SEL, id);
+static void h_getSettings(id self, SEL _cmd, id handler) {
+    @try {
+        if (!gRealCenterForSettings) {
+            id rc = RealScopedCenter();
+            // Only adopt a center that is genuinely real-bundle-scoped (not the default fallback).
+            Class cCenter = NSClassFromString(@"UNUserNotificationCenter");
+            id def = cCenter ? ((id (*)(id, SEL))objc_msgSend)((id)cCenter, sel_registerName("currentNotificationCenter")) : nil;
+            if (rc && rc != def) gRealCenterForSettings = rc;
+        }
+        if (gRealCenterForSettings) { o_getSettings(gRealCenterForSettings, _cmd, handler); return; }
+    } @catch (__unused id e) {}
+    o_getSettings(self, _cmd, handler);
 }
 
 static void ForceRemoteRegistration(void) {
@@ -650,6 +687,12 @@ static void MAXRelayInit(void) {
     Swizzle("AVAudioSession", "setCategory:mode:options:error:", (IMP)h_avCat, &o_avCat);
     // Make incoming calls audible when MAX was closed (restores the 2026-10-21 fix).
     InstallCallAudioObserver();
+    // Silence the false "Enable Notifications" banner + "!" badges (bundle spoof hides real auth).
+    // Root fix: answer notification-settings queries from the real-bundle center (authorized).
+    Swizzle("UNUserNotificationCenter", "getNotificationSettingsWithCompletionHandler:", (IMP)h_getSettings, &o_getSettings);
+    // Belt-and-suspenders: the getters some views read directly (correct return types; a wrong type crashes).
+    Swizzle("_TtC16OMPushPermission27PushPermissionBannerService", "isPushEnabled", (IMP)h_isPushEnabled, &o_isPushEnabled);
+    Swizzle("OMNotificationsSettings", "areNotificationsEnabled", (IMP)h_notifsEnabled, &o_notifsEnabled);
     struct rebinding rb = {"nw_connection_send", (void *)my_nw_connection_send, (void **)&orig_nw_connection_send};
     rebind_symbols(&rb, 1);
 
