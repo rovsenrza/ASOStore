@@ -32,6 +32,30 @@
 #import <UserNotifications/UserNotifications.h>
 
 static void RSDiag(NSString *event);   // diagnostic beacon (defined below), usable everywhere
+
+#import <dlfcn.h>
+// The app's REAL signed bundle id, read from the code-signing entitlement (NOT swizzled by the
+// keep-bundle-id shim, which rewrites NSBundle.bundleIdentifier to the vendor id). Shared by both
+// builds. Mirrors RuStoreCompat's RSEntitlement.
+static NSString *RealBundleId(void) {
+    NSString *fallback = [[NSBundle mainBundle] bundleIdentifier] ?: @"";
+    typedef struct __SecTask *SecTaskRef;
+    static SecTaskRef (*createFromSelf)(CFAllocatorRef);
+    static CFTypeRef (*copyValue)(SecTaskRef, CFStringRef, CFErrorRef *);
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        createFromSelf = dlsym(RTLD_DEFAULT, "SecTaskCreateFromSelf");
+        copyValue = dlsym(RTLD_DEFAULT, "SecTaskCopyValueForEntitlement");
+    });
+    if (!createFromSelf || !copyValue) return fallback;
+    SecTaskRef task = createFromSelf(NULL);
+    if (!task) return fallback;
+    id appId = CFBridgingRelease(copyValue(task, CFSTR("application-identifier"), NULL));
+    CFRelease(task);
+    if (![appId isKindOfClass:NSString.class] || [(NSString *)appId length] == 0) return fallback;
+    NSRange dot = [(NSString *)appId rangeOfString:@"."];      // strip "<TEAMID>."
+    return dot.location != NSNotFound ? [(NSString *)appId substringFromIndex:dot.location + 1] : (NSString *)appId;
+}
 #import <objc/runtime.h>
 #import <dispatch/dispatch.h>
 #import <dlfcn.h>
@@ -187,26 +211,7 @@ static NSString *ReadProvisionedUDID(void) {
 // swizzles it to the vendor id (com.vk.vkclient) for the keep-bundle-id apps, and the relay uses
 // this value as the APNs topic and the certs/<bundle>/ key — a vendor id there yields HTTP 400
 // TopicDisallowed (no cert, wrong topic) and kills every push and call. The entitlement is not
-// swizzled, so it still carries our real identity. Mirrors RuStoreCompat's RSEntitlement.
-static NSString *RealBundleId(void) {
-    NSString *fallback = [[NSBundle mainBundle] bundleIdentifier] ?: @"";
-    typedef struct __SecTask *SecTaskRef;
-    static SecTaskRef (*createFromSelf)(CFAllocatorRef);
-    static CFTypeRef (*copyValue)(SecTaskRef, CFStringRef, CFErrorRef *);
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        createFromSelf = dlsym(RTLD_DEFAULT, "SecTaskCreateFromSelf");
-        copyValue = dlsym(RTLD_DEFAULT, "SecTaskCopyValueForEntitlement");
-    });
-    if (!createFromSelf || !copyValue) return fallback;
-    SecTaskRef task = createFromSelf(NULL);
-    if (!task) return fallback;
-    id appId = CFBridgingRelease(copyValue(task, CFSTR("application-identifier"), NULL));
-    CFRelease(task);
-    if (![appId isKindOfClass:NSString.class] || [(NSString *)appId length] == 0) return fallback;
-    NSRange dot = [(NSString *)appId rangeOfString:@"."];      // strip "<TEAMID>."
-    return dot.location != NSNotFound ? [(NSString *)appId substringFromIndex:dot.location + 1] : (NSString *)appId;
-}
+// swizzled, so it still carries our real identity. (RealBundleId is defined once near the top.)
 
 static void Register(void) {
     dispatch_async(gQueue, ^{
@@ -709,18 +714,39 @@ static void RequestNotificationAuthorization(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         @try {
+            // The keep-bundle-id shim (RuStoreCompat) swizzles -[NSBundle bundleIdentifier] to the
+            // vendor id (com.vk.vkclient) so VK's music catalog loads. But UNUserNotificationCenter
+            // registers with usernotificationsd under the MAIN bundle id; the vendor id is not the
+            // installed app → requestAuthorization fails with UNErrorCodeNotificationsNotAllowed (1),
+            // so no prompt and no Settings entry (device-confirmed via diag). Force the REAL signed id
+            // (read from the code-signing entitlement, bypassing the swizzle) just for the registration
+            // window, then restore the vendor-id swizzle so music keeps working.
+            NSString *realId = RealBundleId();
+            Method bm = class_getInstanceMethod([NSBundle class], @selector(bundleIdentifier));
+            IMP prevImp = bm ? method_getImplementation(bm) : NULL;
+            BOOL overrode = NO;
+            if (bm && realId.length && ![[[NSBundle mainBundle] bundleIdentifier] isEqualToString:realId]) {
+                IMP realImp = imp_implementationWithBlock(^NSString *(__unused id s) { return realId; });
+                method_setImplementation(bm, realImp);
+                overrode = YES;
+            }
+            RSDiag([NSString stringWithFormat:@"notif-bundleid real=%@ override=%d", realId ?: @"-", overrode]);
             UNUserNotificationCenter *c = [UNUserNotificationCenter currentNotificationCenter];
-            [c getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *s) {
-                RSDiag([NSString stringWithFormat:@"notif-before status=%ld", (long)s.authorizationStatus]);
-            }];
             UNAuthorizationOptions opts = UNAuthorizationOptionAlert | UNAuthorizationOptionBadge | UNAuthorizationOptionSound;
             [c requestAuthorizationWithOptions:opts completionHandler:^(BOOL granted, NSError *e) {
                 NSLog(@"[VKRelay] notification authorization granted=%d err=%@", granted, e ?: @"none");
-                RSDiag([NSString stringWithFormat:@"notif-request granted=%d err=%@", granted, e ? @"yes" : @"no"]);
+                RSDiag([NSString stringWithFormat:@"notif-request granted=%d code=%ld", granted, (long)e.code]);
                 dispatch_async(dispatch_get_main_queue(), ^{
                     @try { [[UIApplication sharedApplication] registerForRemoteNotifications]; } @catch (__unused id x) {}
                 });
             }];
+            // Restore the vendor-id swizzle after the (synchronous) registration window so VK's music
+            // gating keeps seeing the vendor id. The "not allowed" check happens at call time, so a
+            // short window suffices.
+            if (overrode) {
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)),
+                               dispatch_get_main_queue(), ^{ @try { method_setImplementation(bm, prevImp); } @catch (__unused id x) {} });
+            }
         } @catch (__unused id e) { RSDiag(@"notif-threw"); }
     });
 }
