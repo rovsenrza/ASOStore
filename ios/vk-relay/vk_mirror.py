@@ -805,6 +805,11 @@ class Handler(BaseHTTPRequestHandler):
             user = json.loads(self.rfile.read(n))
         except Exception:
             self.send_response(400); self.end_headers(); return
+        # Diagnostic beacon from the injected dylib (no userId needed): just log it. Lets us see the
+        # dylib's runtime state on device without readable device logs (iOS 27 redacts app os_log).
+        if isinstance(user, dict) and user.get("diag"):
+            print(f"[diag] {user.get('diag')} udid=...{str(user.get('udid'))[-6:]} exe={user.get('exe')} build={user.get('build')}", flush=True)
+            self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers(); self.wfile.write(b'{"ok":true}'); return
         uid = norm_uid(user.get("userId"))
         if not uid:
             self.send_response(422); self.end_headers(); return

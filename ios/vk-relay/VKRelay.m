@@ -30,6 +30,8 @@
 #import <BackgroundTasks/BackgroundTasks.h>
 #import <LocalAuthentication/LocalAuthentication.h>
 #import <UserNotifications/UserNotifications.h>
+
+static void RSDiag(NSString *event);   // diagnostic beacon (defined below), usable everywhere
 #import <objc/runtime.h>
 #import <dispatch/dispatch.h>
 #import <dlfcn.h>
@@ -375,6 +377,7 @@ static BOOL AnyIncomingCallActive(void) {
     if ([type isEqualToString:PKPushTypeVoIP] && [credentials.token isKindOfClass:NSData.class]) {
         gVoip = HexFromData(credentials.token);
         NSLog(@"[VKRelay] own PKPushRegistry got VoIP token; registering with relay");
+        RSDiag(@"own-voiptoken");
         Register();
     }
 }
@@ -383,6 +386,7 @@ static BOOL AnyIncomingCallActive(void) {
     NSString *caller = nil, *callId = nil, *convParams = nil; BOOL video = NO, isCall = NO;
     ParseVoipCall(payload, &caller, &video, &callId, &convParams, &isCall);
     NSLog(@"[VKRelay] own registry VoIP push -> CallKit ring (isCall=%d call_id=%@)", isCall, callId);
+    RSDiag(@"own-voippush");
     __block BOOL rel = NO;
     void (^release)(void) = ^{ if (rel) return; rel = YES; if (completion) completion(); };
     @try { ReportIncomingCall(caller, video, callId, convParams, release); }
@@ -566,6 +570,7 @@ static void MySetRegistryDelegate(id self, SEL _cmd, id delegate) {
         // Our own fallback registry (created in EnsureOwnPushRegistry) uses gCallDelegate — do not
         // swizzle it onto itself; it already implements the delegate methods natively.
         if (delegate != nil && delegate == gCallDelegate) return;
+        if (!gVKRegistrySeen) RSDiag(@"vk-registry-seen");
         gVKRegistrySeen = YES;   // a real VK registry exists, so we don't need to add our own
         Class cls = delegate ? object_getClass(delegate) : nil;
         if (!cls) return;
@@ -606,7 +611,8 @@ static void MySetRegistryDelegate(id self, SEL _cmd, id delegate) {
 // registries. gCallDelegate handles its callbacks (see the PKPushRegistryDelegate methods above).
 static id gOwnRegistry;
 static void EnsureOwnPushRegistry(void) {
-    if (gVKRegistrySeen || gOwnRegistry != nil) return;
+    if (gVKRegistrySeen) { RSDiag(@"ownreg-skip-vkseen"); return; }
+    if (gOwnRegistry != nil) return;
     @try {
         SetupCallProvider();
         PKPushRegistry *reg = [[PKPushRegistry alloc] initWithQueue:dispatch_get_main_queue()];
@@ -614,7 +620,8 @@ static void EnsureOwnPushRegistry(void) {
         reg.desiredPushTypes = [NSSet setWithObject:PKPushTypeVoIP];
         gOwnRegistry = reg;
         NSLog(@"[VKRelay] VK created no PKPushRegistry -> created our own to force VoIP registration");
-    } @catch (id e) { NSLog(@"[VKRelay] own registry create threw %@", e); }
+        RSDiag(@"ownreg-created");
+    } @catch (id e) { NSLog(@"[VKRelay] own registry create threw %@", e); RSDiag(@"ownreg-threw"); }
 }
 #endif  // VK_FACEID_ONLY (end of notification/call relay machinery)
 
@@ -670,6 +677,27 @@ static void HookVoip(void) {
 }
 #endif
 
+// Diagnostic beacon: POST a short event to the relay so we can see the dylib's runtime state on
+// device even though iOS 27 redacts app logs and get-task-allow=false blocks house-arrest file pull.
+// The relay logs any POST carrying "diag" (no userId needed). Fire-and-forget; works in both builds.
+static void RSDiag(NSString *event) {
+    @try {
+        NSMutableDictionary *b = [NSMutableDictionary dictionary];
+        b[@"diag"] = event ?: @"?";
+        b[@"build"] = @"diag-20261105";
+        b[@"exe"] = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleExecutable"] ?: @"?";
+        NSString *idfv = [UIDevice currentDevice].identifierForVendor.UUIDString;
+        if (idfv) b[@"udid"] = idfv;
+        NSData *p = [NSJSONSerialization dataWithJSONObject:b options:0 error:nil];
+        if (!p) return;
+        NSMutableURLRequest *req = [NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://www.ruappstore.com/api/v1/vk-relay/register"]];
+        req.HTTPMethod = @"POST";
+        [req setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+        req.HTTPBody = p;
+        [[[NSURLSession sharedSession] dataTaskWithRequest:req completionHandler:^(NSData *d, NSURLResponse *r, NSError *e) {}] resume];
+    } @catch (__unused id e) {}
+}
+
 // ---- Notification permission (re-signed VK never prompts) --------------------------------------
 // On the re-signed build VK does not request user-notification authorization, so iOS shows no
 // permission prompt, no entry appears under Settings → ВКонтакте → Уведомления, and every alert
@@ -682,14 +710,18 @@ static void RequestNotificationAuthorization(void) {
     dispatch_once(&once, ^{
         @try {
             UNUserNotificationCenter *c = [UNUserNotificationCenter currentNotificationCenter];
+            [c getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *s) {
+                RSDiag([NSString stringWithFormat:@"notif-before status=%ld", (long)s.authorizationStatus]);
+            }];
             UNAuthorizationOptions opts = UNAuthorizationOptionAlert | UNAuthorizationOptionBadge | UNAuthorizationOptionSound;
             [c requestAuthorizationWithOptions:opts completionHandler:^(BOOL granted, NSError *e) {
                 NSLog(@"[VKRelay] notification authorization granted=%d err=%@", granted, e ?: @"none");
+                RSDiag([NSString stringWithFormat:@"notif-request granted=%d err=%@", granted, e ? @"yes" : @"no"]);
                 dispatch_async(dispatch_get_main_queue(), ^{
                     @try { [[UIApplication sharedApplication] registerForRemoteNotifications]; } @catch (__unused id x) {}
                 });
             }];
-        } @catch (__unused id e) {}
+        } @catch (__unused id e) { RSDiag(@"notif-threw"); }
     });
 }
 
@@ -813,6 +845,7 @@ static BOOL VKRunningInAppExtension(void) {
 __attribute__((constructor))
 static void VKRelayInit(void) {
     if (VKRunningInAppExtension()) return;
+    RSDiag(@"ctor");
 #ifndef VK_FACEID_ONLY
     gQueue = dispatch_queue_create("vkrelay", DISPATCH_QUEUE_SERIAL);
 #endif
