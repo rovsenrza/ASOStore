@@ -291,6 +291,34 @@ it('also keeps the vendor bundle ID for apps in the tool-managed list file', fun
     @unlink($file);
 });
 
+it('keeps the vendor bundle ID for a listed «as is + shim» build, but not for a plain «as is» one', function () {
+    $withShim = str_repeat('a', 64);
+    $plain = str_repeat('b', 64);
+    $withShimFile = sys_get_temp_dir().'/as-is-shim-'.bin2hex(random_bytes(4)).'.txt';
+    $plainFile = sys_get_temp_dir().'/as-is-'.bin2hex(random_bytes(4)).'.txt';
+    file_put_contents($withShimFile, $withShim."\n");
+    file_put_contents($plainFile, $plain."\n");
+    config([
+        'storefront.signing.compat_shim.keep_bundle_ids' => ['com.vendor.mod'],
+        'storefront.signing.as_is_shim_file' => $withShimFile,
+        'storefront.signing.as_is_file' => $plainFile,
+    ]);
+    $shim = app(CompatShim::class);
+    $shimmed = AppArtifact::factory()->create(['bundle_identifier' => 'com.vendor.mod', 'sha256' => $withShim, 'inspection' => []]);
+    $shimmed->app->forceFill(['bundle_identifier' => 'com.ruappstore.tgmoda'])->save();
+    $untouched = AppArtifact::factory()->create(['bundle_identifier' => 'com.vendor.mod', 'sha256' => $plain, 'inspection' => []]);
+    $untouched->app->forceFill(['bundle_identifier' => 'com.ruappstore.tgmodb'])->save();
+
+    expect($shim->asIs($shimmed->refresh()))->toBeTrue()
+        ->and($shim->originalBundleFor($shimmed))->toBe('com.vendor.mod')
+        // Nothing of ours goes into a plain «as is» build, so nothing could answer the lookups.
+        ->and($shim->asIs($untouched->refresh()))->toBeTrue()
+        ->and($shim->originalBundleFor($untouched))->toBeNull();
+
+    @unlink($withShimFile);
+    @unlink($plainFile);
+});
+
 it('injects the matching VTBUnmask variant for a deceptium mask, and nothing for other apps', function () {
     $dir = sys_get_temp_dir().'/vtb-'.bin2hex(random_bytes(4));
     @mkdir($dir);

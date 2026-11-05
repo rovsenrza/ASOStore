@@ -421,7 +421,10 @@ class CompatShim
     public function originalBundleFor(AppArtifact $artifact): ?string
     {
         $original = $artifact->bundle_identifier;
-        if (! $this->enabled() || $this->asIs($artifact) || ! is_string($original) || $original === $artifact->signingBundleIdentifier()) {
+        // A plain «as is» build carries nothing of ours, so nothing could answer the lookups; an
+        // «as is + shim» build has the shim, so a listed one can still see its vendor bundle ID.
+        $untouched = $this->asIs($artifact) && ! $this->asIsWithShim($artifact);
+        if (! $this->enabled() || $untouched || ! is_string($original) || $original === $artifact->signingBundleIdentifier()) {
             return null;
         }
 
