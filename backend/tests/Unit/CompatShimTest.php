@@ -390,3 +390,30 @@ it('gives an «as is + shim» build only the App-Group shim, and a plain «as is
     @unlink($list);
     @unlink($shimList);
 });
+
+it('adds VKRelay to a VK as-is + shim build only for the listed device', function () {
+    $relay = tempnam(sys_get_temp_dir(), 'vkrelay').'.dylib';
+    file_put_contents($relay, "\xCF\xFA\xED\xFE full relay");
+    $list = tempnam(sys_get_temp_dir(), 'asis-shim');
+    $vk = AppArtifact::factory()->make(['bundle_identifier' => 'com.vk.vkclient', 'sha256' => str_repeat('a', 64), 'inspection' => []]);
+    $other = AppArtifact::factory()->make(['bundle_identifier' => 'com.vk.vkme', 'sha256' => str_repeat('b', 64), 'inspection' => []]);
+    file_put_contents($list, $vk->sha256.PHP_EOL.$other->sha256.PHP_EOL);
+    config([
+        'storefront.signing.as_is_shim_file' => $list,
+        'storefront.signing.relay_hook.vk_bundle_ids' => ['com.vk.vkclient'],
+        'storefront.signing.relay_hook.vk_path' => $relay,
+        'storefront.signing.relay_hook.vk_as_is_relay_udids' => ['OWNER-UDID'],
+        // Being a full-relay test device is not enough on an as-is build.
+        'storefront.signing.relay_hook.vk_full_relay_udids' => ['OWNER-UDID', 'TESTER-UDID'],
+    ]);
+    $shim = app(CompatShim::class);
+    $names = fn (AppArtifact $artifact, ?string $udid) => array_column($shim->dylibsFor($artifact, $udid), 'name');
+
+    expect($names($vk, 'owner-udid'))->toBe([CompatShim::NAME, CompatShim::VK_RELAY_NAME])
+        ->and($names($vk, 'TESTER-UDID'))->toBe([CompatShim::NAME])
+        ->and($names($vk, null))->toBe([CompatShim::NAME])
+        ->and($names($other, 'OWNER-UDID'))->toBe([CompatShim::NAME]);
+
+    @unlink($relay);
+    @unlink($list);
+});

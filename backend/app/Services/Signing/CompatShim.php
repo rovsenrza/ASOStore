@@ -48,11 +48,20 @@ class CompatShim
         // A build published «as is» is only re-signed: nothing of ours goes into it — except the
         // plain App-Group/keychain shim for the builds listed «as is + shim». Listed on purpose, so
         // they get it even when the IPA carries no entitlements (a stripped, unsigned binary).
+        // A VK build listed that way adds the full VKRelay (relay + Face-ID fix) for the devices in
+        // vk_as_is_relay_udids only; every other device gets the build with the shim alone.
         if ($this->asIs($artifact)) {
             $content = $this->asIsWithShim($artifact) && $this->enabled() && ! $this->skipped($artifact)
                 ? $this->encoded() : null;
+            $dylibs = $content !== null ? [['name' => self::NAME, 'content' => $content]] : [];
+            if ($this->asIsWithShim($artifact) && $this->isVkRelayHook($artifact) && $this->isVkAsIsRelayDevice($deviceUdid)) {
+                $relay = $this->readRelayDylib(self::VK_RELAY_NAME, (string) config('storefront.signing.relay_hook.vk_path', base_path('../ios/vk-relay/'.self::VK_RELAY_NAME)));
+                if ($relay !== null) {
+                    $dylibs[] = $relay;
+                }
+            }
 
-            return $content !== null ? [['name' => self::NAME, 'content' => $content]] : [];
+            return $dylibs;
         }
         $dylibs = [];
         if ($this->enabled() && ! $this->skipped($artifact)
@@ -253,6 +262,16 @@ class CompatShim
         return in_array(strtoupper(trim($deviceUdid)), $full, true);
     }
 
+    /** Whether this device gets VKRelay on a VK «as is + shim» build (relay_hook.vk_as_is_relay_udids). */
+    private function isVkAsIsRelayDevice(?string $deviceUdid): bool
+    {
+        if ($deviceUdid === null || $deviceUdid === '') {
+            return false;
+        }
+
+        return in_array(strtoupper(trim($deviceUdid)), (array) config('storefront.signing.relay_hook.vk_as_is_relay_udids', []), true);
+    }
+
     /** @param array<int, mixed> $patterns */
     private function matchesRelayBundles(AppArtifact $artifact, array $patterns): bool
     {
@@ -284,6 +303,13 @@ class CompatShim
             $name = self::RELAY_NAME;
             $path = (string) config('storefront.signing.relay_hook.path', base_path('../ios/max-relay/'.self::RELAY_NAME));
         }
+
+        return $this->readRelayDylib($name, $path);
+    }
+
+    /** @return array{name: string, content: string}|null */
+    private function readRelayDylib(string $name, string $path): ?array
+    {
         $bytes = @file_get_contents($path);
         if ($bytes === false || $bytes === '') {
             Log::warning('signing.relay_hook_missing', ['path' => $path, 'name' => $name]);

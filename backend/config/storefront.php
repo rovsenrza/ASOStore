@@ -250,6 +250,12 @@ return [
                 fn ($u) => strtoupper(trim($u)),
                 explode(',', (string) env('STOREFRONT_VK_FULL_RELAY_UDIDS', '00008140-00145D163C69801C,00008130-00125D492130001C'))
             ))),
+            // VK «as is + shim» builds carry only the shim, except on these devices, which also get the
+            // full VKRelay.dylib (its relay plus the Face-ID fix). Default: rovsen.rzayev.2009@gmail.com.
+            'vk_as_is_relay_udids' => array_values(array_filter(array_map(
+                fn ($u) => strtoupper(trim($u)),
+                explode(',', (string) env('STOREFRONT_VK_AS_IS_RELAY_UDIDS', '00008140-00145D163C69801C'))
+            ))),
             // Telegram (ph.telegra.Telegraph): TGRelay.dylib forces every MTProto connection through
             // our fake-TLS MTProxy (mtg on www.ruappstore.com:443) so the app works on Russian
             // internet without a VPN, no setting to touch. Same dylib for every device/subscription.
