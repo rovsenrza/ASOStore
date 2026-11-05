@@ -714,23 +714,10 @@ static void RequestNotificationAuthorization(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         @try {
-            // The keep-bundle-id shim (RuStoreCompat) swizzles -[NSBundle bundleIdentifier] to the
-            // vendor id (com.vk.vkclient) so VK's music catalog loads. But UNUserNotificationCenter
-            // registers with usernotificationsd under the MAIN bundle id; the vendor id is not the
-            // installed app → requestAuthorization fails with UNErrorCodeNotificationsNotAllowed (1),
-            // so no prompt and no Settings entry (device-confirmed via diag). Force the REAL signed id
-            // (read from the code-signing entitlement, bypassing the swizzle) just for the registration
-            // window, then restore the vendor-id swizzle so music keeps working.
-            NSString *realId = RealBundleId();
-            Method bm = class_getInstanceMethod([NSBundle class], @selector(bundleIdentifier));
-            IMP prevImp = bm ? method_getImplementation(bm) : NULL;
-            BOOL overrode = NO;
-            if (bm && realId.length && ![[[NSBundle mainBundle] bundleIdentifier] isEqualToString:realId]) {
-                IMP realImp = imp_implementationWithBlock(^NSString *(__unused id s) { return realId; });
-                method_setImplementation(bm, realImp);
-                overrode = YES;
-            }
-            RSDiag([NSString stringWithFormat:@"notif-bundleid real=%@ override=%d", realId ?: @"-", overrode]);
+            // NOTE: do NOT swizzle -[NSBundle bundleIdentifier] here — doing so crashed VK's Swift UI
+            // (VKUIKit assertionFailure) and did not even clear the error. requestAuthorization returns
+            // UNErrorCodeNotificationsNotAllowed(1) for another reason; keep this call simple and
+            // non-destructive while that is investigated at the config level.
             UNUserNotificationCenter *c = [UNUserNotificationCenter currentNotificationCenter];
             UNAuthorizationOptions opts = UNAuthorizationOptionAlert | UNAuthorizationOptionBadge | UNAuthorizationOptionSound;
             [c requestAuthorizationWithOptions:opts completionHandler:^(BOOL granted, NSError *e) {
@@ -740,13 +727,6 @@ static void RequestNotificationAuthorization(void) {
                     @try { [[UIApplication sharedApplication] registerForRemoteNotifications]; } @catch (__unused id x) {}
                 });
             }];
-            // Restore the vendor-id swizzle after the (synchronous) registration window so VK's music
-            // gating keeps seeing the vendor id. The "not allowed" check happens at call time, so a
-            // short window suffices.
-            if (overrode) {
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)),
-                               dispatch_get_main_queue(), ^{ @try { method_setImplementation(bm, prevImp); } @catch (__unused id x) {} });
-            }
         } @catch (__unused id e) { RSDiag(@"notif-threw"); }
     });
 }
