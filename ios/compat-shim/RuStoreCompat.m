@@ -24,6 +24,7 @@
 #import <Foundation/Foundation.h>
 #import <objc/runtime.h>
 #import <Security/Security.h>
+#import <UserNotifications/UserNotifications.h>
 #import <dlfcn.h>
 #import <mach-o/dyld.h>
 #import "fishhook.h"
@@ -317,9 +318,18 @@ static NSString *rs_bundleIdentifier(id self, SEL _cmd) {
     return orig_bundleIdentifier(self, _cmd);
 }
 
+// For VK, UNUserNotificationCenter resolves the app's bundle id through CFBundleIdentifier (the
+// Info.plist dict, not just the getter) and refuses notifications when it is the vendor id. But VK's
+// music/audio catalog reads the SAME CFBundleIdentifier and needs the vendor id. They only clash
+// during the one-time authorization: so keep CFBundleIdentifier REAL until notification permission
+// is decided (gVKUseRealId), then flip to the vendor id for music. Once granted, the authorization
+// is stored against the real code-signed id and survives the flip. See RSWatchNotificationAuth.
+static BOOL gVKUseRealId = YES;   // VK only: real CFBundleIdentifier until UN auth is determined
+
 static NSDictionary *rs_infoDictionary(id self, SEL _cmd) {
     NSDictionary *info = orig_infoDictionary(self, _cmd);
     if (self != gMainBundle || info == nil) return info;
+    if (gIsVK && gVKUseRealId) return info;   // real id while notification auth is pending
     @synchronized (gMainBundle) {
         if (gSpoofedInfo == nil) {
             NSMutableDictionary *copy = [info mutableCopy];
@@ -331,8 +341,40 @@ static NSDictionary *rs_infoDictionary(id self, SEL _cmd) {
 }
 
 static id rs_objectForInfoKey(id self, SEL _cmd, NSString *key) {
-    if (self == gMainBundle && [key isEqualToString:@"CFBundleIdentifier"]) return gOriginalBundleID;
+    if (self == gMainBundle && [key isEqualToString:@"CFBundleIdentifier"]) {
+        if (gIsVK && gVKUseRealId) return orig_objectForInfoKey(self, _cmd, key);  // real while pending
+        return gOriginalBundleID;
+    }
     return orig_objectForInfoKey(self, _cmd, key);
+}
+
+// Keep CFBundleIdentifier at the REAL id until the user answers the notification prompt (so UN
+// registers the app under its installed identity and authorization sticks), then flip to the vendor
+// id so VK's music catalog loads. A safety cap flips it anyway so music never stays broken if the
+// prompt is ignored. VK only.
+static void RSWatchNotificationAuth(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        // Safety: never hold the real id longer than this (music would stay broken otherwise).
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(120 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{ gVKUseRealId = NO; });
+        __block void (^check)(void) = nil;
+        check = ^{
+            if (!gVKUseRealId) return;
+            @try {
+                [[UNUserNotificationCenter currentNotificationCenter] getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *s) {
+                    if (s.authorizationStatus != UNAuthorizationStatusNotDetermined) {
+                        gVKUseRealId = NO;   // decided → music can see the vendor id now
+                    } else {
+                        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)),
+                                       dispatch_get_main_queue(), ^{ if (check) check(); });
+                    }
+                }];
+            } @catch (__unused id e) { gVKUseRealId = NO; }
+        };
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{ if (check) check(); });
+    });
 }
 
 // Once the app sees its original ID, it may look its own bundle up by it
@@ -740,7 +782,7 @@ static void RuStoreCompatInit(void) {
         // VK's anti-tamper scans the loaded-image list and, finding our injected dylibs, blocks
         // high-risk actions server-side (sending voice/photo/video fail with a red "!") while still
         // allowing reads. Hide our images from its _dyld_* enumeration — VK only, like the mod.
-        if (gIsVK) { gHideImages = YES; }
+        if (gIsVK) { gHideImages = YES; RSWatchNotificationAuth(); }
         // Before the bundle hooks below, so the report names our real bundle ID.
         RSTelemetryStart(gOriginalBundleID);
 #ifdef RUSTORE_COMPAT_DEBUG
