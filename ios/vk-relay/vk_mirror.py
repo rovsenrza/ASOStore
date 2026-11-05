@@ -250,6 +250,30 @@ def vk_get(method, token, user=None, _retry=True, **params):
     return body.get("response", {})
 
 
+def recent_apns(u):
+    """The device's recent APNs tokens, newest first (deduped, max 3). A re-signed VK rotates its
+    APNs token almost every launch and only the token registered under the real signed identity
+    receives our topic=<real bundle> alerts; the relay cannot tell which, so alerts go to the last
+    few tokens and 410s prune the dead ones. VoIP is unaffected (its token is stable)."""
+    toks = list(u.get("apnsTokens") or [])
+    t = u.get("apnsToken")
+    if t and t not in toks:
+        toks.insert(0, t)
+    return [x for x in toks if x][:3]
+
+
+def send_alert_all(uid, bundle, body, u):
+    pc, pk = certs_for(bundle)
+    # Read the freshest token history from state (the caller's snapshot can lag behind a new register).
+    try:
+        fresh = load_state().get(str(uid)) or u
+    except Exception:
+        fresh = u
+    toks = recent_apns(fresh) or recent_apns(u)
+    for tok in toks:
+        apns_curl(uid, pc, pk, bundle, "alert", tok, body)
+
+
 def apns_curl(uid, cert, key, topic, ptype, token, body):
     """One APNs HTTP/2 push via curl; prunes a dead token on 410/BadDeviceToken. Shared by the
     message mirror and the notifications poller."""
@@ -278,8 +302,16 @@ def apns_curl(uid, cert, key, topic, ptype, token, body):
                 st = load_state(); u = st.get(uid)
                 if u:
                     field = "voipToken" if ptype == "voip" else "apnsToken"
-                    if u.get(field):
-                        u[field] = ""; save_state(st)
+                    changed = False
+                    if field == "apnsToken":
+                        toks = [x for x in (u.get("apnsTokens") or []) if x and x != token]
+                        if toks != (u.get("apnsTokens") or []):
+                            u["apnsTokens"] = toks; changed = True
+                        if u.get("apnsToken") == token:
+                            u["apnsToken"] = toks[0] if toks else ""; changed = True
+                    elif u.get(field):
+                        u[field] = ""; changed = True
+                    if changed: save_state(st)
                     print(f"[push] {uid} pruned {field} ({reason or status})", flush=True)
             except Exception as e:
                 print(f"[push] {uid} prune failed: {e}", flush=True)
@@ -436,8 +468,7 @@ class NotificationsPoller(threading.Thread):
             tap = notif_tap_data(it, uid)       # native tap target (post/photo/comment/profile)
             if tap:
                 payload["data"] = tap
-            apns_curl(uid, *certs_for(bundle), bundle, "alert", apns,
-                      json.dumps(payload, ensure_ascii=False))
+            send_alert_all(uid, bundle, json.dumps(payload, ensure_ascii=False), u)
             print(f"[notif] {uid} {it.get('icon_type')}: {body[:48]!r} -> push", flush=True)
         if dates:
             self.seen_after = max(self.seen_after, max(dates))
@@ -493,8 +524,7 @@ class Mirror(threading.Thread):
         aps = {"alert": {"title": title, "body": text or "📷"}, "sound": "default",
                "thread-id": f"vk-{peer_id}"}
         payload = {"aps": aps, "data": {"url": f"vk://vk.com/im?sel={int(peer_id)}"}}
-        pc, pk = certs_for(bundle)
-        self._curl(pc, pk, bundle, "alert", token, json.dumps(payload, ensure_ascii=False))
+        send_alert_all(str(self.user.get("userId")), bundle, json.dumps(payload, ensure_ascii=False), self.user)
 
     def push_call(self, token, bundle, caller, video=False, peer_id=0):
         # Our own VoIP payload (ruas_call), consumed by VKRelay.dylib's PushKit hook, which reports
@@ -798,11 +828,21 @@ def bundle_has_cert(b):
 def merge_registration(previous, incoming):
     """Keep push tokens during partial registrations from the same installation."""
     merged = dict(incoming)
-    if (previous.get("udid") and previous.get("udid") == incoming.get("udid")
-            and previous.get("bundleId") and previous.get("bundleId") == incoming.get("bundleId")):
+    same_install = (previous.get("udid") and previous.get("udid") == incoming.get("udid")
+                    and previous.get("bundleId") and previous.get("bundleId") == incoming.get("bundleId"))
+    if same_install:
         for field in ("apnsToken", "voipToken"):
             if not merged.get(field) and previous.get(field):
                 merged[field] = previous[field]
+    # Keep a short history of recent APNs tokens (newest first) so alerts can be fanned out across
+    # the token the re-signed app rotates through each launch.
+    toks = list(previous.get("apnsTokens") or [])
+    for t in ([previous.get("apnsToken")] if not same_install else []):
+        pass
+    newtok = merged.get("apnsToken")
+    if newtok:
+        toks = [newtok] + [x for x in toks if x and x != newtok]
+    merged["apnsTokens"] = toks[:3]
     return merged
 
 
@@ -840,7 +880,7 @@ class Handler(BaseHTTPRequestHandler):
             save_state(state)
             start_or_update(state[uid])
         print(f"[relay] registered user {uid} bundle={user.get('bundleId')} "
-              f"apns={bool(user.get('apnsToken'))} voip={bool(user.get('voipToken'))}", flush=True)
+              f"apns={str(user.get('apnsToken',''))[:10]} voip={str(user.get('voipToken',''))[:10]}", flush=True)
         self.send_response(200); self.send_header("Content-Type", "application/json"); self.end_headers()
         self.wfile.write(b'{"ok":true}')
 
