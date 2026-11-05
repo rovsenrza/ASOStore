@@ -48,14 +48,19 @@ class CompatShim
         // A build published «as is» is only re-signed: nothing of ours goes into it — except the
         // plain App-Group/keychain shim for the builds listed «as is + shim». Listed on purpose, so
         // they get it even when the IPA carries no entitlements (a stripped, unsigned binary).
-        // A VK build listed that way adds the full VKRelay (relay + Face-ID fix) for the devices in
-        // vk_as_is_relay_udids only; every other device gets the build with the shim alone.
+        // A VK build listed that way also carries VKRelay, in the same two variants as a normal VK
+        // sign: the full relay (notifications + calls + Face-ID fix) only for the devices in
+        // vk_as_is_relay_udids, and the Face-ID-only build (crash + Face-ID fixes, no relay/call
+        // code) for every other device. So the relay stays hidden from other customers while they
+        // still get the launch-crash and Face-ID fixes.
         if ($this->asIs($artifact)) {
             $content = $this->asIsWithShim($artifact) && $this->enabled() && ! $this->skipped($artifact)
                 ? $this->encoded() : null;
             $dylibs = $content !== null ? [['name' => self::NAME, 'content' => $content]] : [];
-            if ($this->asIsWithShim($artifact) && $this->isVkRelayHook($artifact) && $this->isVkAsIsRelayDevice($deviceUdid)) {
-                $relay = $this->readRelayDylib(self::VK_RELAY_NAME, (string) config('storefront.signing.relay_hook.vk_path', base_path('../ios/vk-relay/'.self::VK_RELAY_NAME)));
+            if ($this->asIsWithShim($artifact) && $this->isVkRelayHook($artifact)) {
+                $relay = $this->isVkAsIsRelayDevice($deviceUdid)
+                    ? $this->readRelayDylib(self::VK_RELAY_NAME, (string) config('storefront.signing.relay_hook.vk_path', base_path('../ios/vk-relay/'.self::VK_RELAY_NAME)))
+                    : $this->readRelayDylib(self::VK_RELAY_NAME, (string) config('storefront.signing.relay_hook.vk_faceid_path', base_path('../ios/vk-relay/VKRelay-faceid.dylib')));
                 if ($relay !== null) {
                     $dylibs[] = $relay;
                 }

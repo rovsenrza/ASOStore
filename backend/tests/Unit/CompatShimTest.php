@@ -372,7 +372,8 @@ it('gives an «as is + shim» build only the App-Group shim, and a plain «as is
         'storefront.signing.as_is_shim_file' => $shimList,
         'storefront.signing.relay_hook.vk_bundle_ids' => ['com.vk.vkclient'],
     ]);
-    $vk = fn (string $sha) => AppArtifact::factory()->make(['sha256' => $sha, 'bundle_identifier' => 'com.vk.vkclient',
+    // A non-VK bundle, so this exercises the generic shim-only path (VK adds a relay — see below).
+    $vk = fn (string $sha) => AppArtifact::factory()->make(['sha256' => $sha, 'bundle_identifier' => 'com.sound.power',
         'inspection' => ['entitlements' => ['com.apple.security.application-groups' => ['group.vk']]]]);
     file_put_contents($list, str_repeat('a', 64).PHP_EOL);
     file_put_contents($shimList, str_repeat('b', 64).PHP_EOL);
@@ -384,16 +385,18 @@ it('gives an «as is + shim» build only the App-Group shim, and a plain «as is
         ->and($shim->originalTeamFor($vk(str_repeat('b', 64)), 'TEAM'))->toBeNull();
 
     // Listed on purpose: a stripped binary without entitlements still gets the shim.
-    $bare = AppArtifact::factory()->make(['sha256' => str_repeat('b', 64), 'bundle_identifier' => 'com.vk.vkclient', 'inspection' => []]);
+    $bare = AppArtifact::factory()->make(['sha256' => str_repeat('b', 64), 'bundle_identifier' => 'com.sound.power', 'inspection' => []]);
     expect(array_column($shim->dylibsFor($bare), 'name'))->toBe([CompatShim::NAME]);
 
     @unlink($list);
     @unlink($shimList);
 });
 
-it('adds VKRelay to a VK as-is + shim build only for the listed device', function () {
+it('ships the full VK relay on an as-is build only for the listed device, the Face-ID build otherwise', function () {
     $relay = tempnam(sys_get_temp_dir(), 'vkrelay').'.dylib';
     file_put_contents($relay, "\xCF\xFA\xED\xFE full relay");
+    $faceid = tempnam(sys_get_temp_dir(), 'vkfaceid').'.dylib';
+    file_put_contents($faceid, "\xCF\xFA\xED\xFE faceid only");
     $list = tempnam(sys_get_temp_dir(), 'asis-shim');
     $vk = AppArtifact::factory()->make(['bundle_identifier' => 'com.vk.vkclient', 'sha256' => str_repeat('a', 64), 'inspection' => []]);
     $other = AppArtifact::factory()->make(['bundle_identifier' => 'com.vk.vkme', 'sha256' => str_repeat('b', 64), 'inspection' => []]);
@@ -402,18 +405,30 @@ it('adds VKRelay to a VK as-is + shim build only for the listed device', functio
         'storefront.signing.as_is_shim_file' => $list,
         'storefront.signing.relay_hook.vk_bundle_ids' => ['com.vk.vkclient'],
         'storefront.signing.relay_hook.vk_path' => $relay,
+        'storefront.signing.relay_hook.vk_faceid_path' => $faceid,
         'storefront.signing.relay_hook.vk_as_is_relay_udids' => ['OWNER-UDID'],
         // Being a full-relay test device is not enough on an as-is build.
         'storefront.signing.relay_hook.vk_full_relay_udids' => ['OWNER-UDID', 'TESTER-UDID'],
     ]);
     $shim = app(CompatShim::class);
+    // Both variants ship under the same injected name; tell them apart by the dylib's bytes.
+    $relayBytes = base64_encode(file_get_contents($relay));
+    $faceidBytes = base64_encode(file_get_contents($faceid));
+    $vkRelay = fn (AppArtifact $artifact, ?string $udid) => collect($shim->dylibsFor($artifact, $udid))->firstWhere('name', CompatShim::VK_RELAY_NAME)['content'] ?? null;
     $names = fn (AppArtifact $artifact, ?string $udid) => array_column($shim->dylibsFor($artifact, $udid), 'name');
 
-    expect($names($vk, 'owner-udid'))->toBe([CompatShim::NAME, CompatShim::VK_RELAY_NAME])
-        ->and($names($vk, 'TESTER-UDID'))->toBe([CompatShim::NAME])
-        ->and($names($vk, null))->toBe([CompatShim::NAME])
+    // Every VK device gets the shim + a VKRelay variant; a non-VK as-is + shim build gets the shim alone.
+    expect($names($vk, 'OWNER-UDID'))->toBe([CompatShim::NAME, CompatShim::VK_RELAY_NAME])
+        ->and($names($vk, 'TESTER-UDID'))->toBe([CompatShim::NAME, CompatShim::VK_RELAY_NAME])
+        ->and($names($vk, null))->toBe([CompatShim::NAME, CompatShim::VK_RELAY_NAME])
         ->and($names($other, 'OWNER-UDID'))->toBe([CompatShim::NAME]);
 
+    // The listed device gets the full relay; every other device and a team build get the Face-ID build.
+    expect($vkRelay($vk, 'owner-udid'))->toBe($relayBytes)
+        ->and($vkRelay($vk, 'TESTER-UDID'))->toBe($faceidBytes)
+        ->and($vkRelay($vk, null))->toBe($faceidBytes);
+
     @unlink($relay);
+    @unlink($faceid);
     @unlink($list);
 });
