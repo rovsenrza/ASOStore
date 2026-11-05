@@ -385,7 +385,7 @@ class NotificationsPoller(threading.Thread):
     """Polls notifications.get and pushes each new уведомление. First poll sets a baseline (no flood
     of old items); afterwards only items newer than the last seen date are pushed."""
 
-    INTERVAL = int(os.environ.get("VKRELAY_NOTIF_INTERVAL", "45"))
+    INTERVAL = int(os.environ.get("VKRELAY_NOTIF_INTERVAL", "20"))
 
     def __init__(self, user):
         super().__init__(daemon=True)
@@ -506,7 +506,7 @@ class Mirror(threading.Thread):
                 print(f"[mirror {self.user.get('userId')}] {e}", flush=True)
             # A failure is usually a rotated access token; the hook re-POSTs a fresh one on the next
             # app launch/foreground, which restarts this mirror. Back off meanwhile.
-            self.stop.wait(15)
+            self.stop.wait(5)
 
     def _session(self):
         u = self.user
@@ -676,7 +676,7 @@ class CallsPoller(threading.Thread):
                 self._session()
             except Exception as e:
                 print(f"[calls {self.user.get('userId')}] {e}", flush=True)
-            self.stop.wait(10)
+            self.stop.wait(4)
 
     def _session(self):
         u = self.user
