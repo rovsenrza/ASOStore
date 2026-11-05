@@ -318,30 +318,17 @@ static NSString *rs_bundleIdentifier(id self, SEL _cmd) {
     return orig_bundleIdentifier(self, _cmd);
 }
 
-// For VK, UNUserNotificationCenter resolves the app's bundle id through CFBundleIdentifier (the
-// Info.plist dict, not just the getter) and refuses notifications when it sees the vendor id. But
-// VK's music/audio catalog reads the SAME CFBundleIdentifier and needs the vendor id. They never
-// read it in the same call, so we separate by CALLER: when the read comes from Apple's notification/
-// push frameworks, return the REAL signed id (so UN registers the installed app and alerts/VoIP are
-// allowed); for every other caller (VK's own code) return the vendor id (so music loads). VK only.
-static BOOL RSCallerWantsRealId(void) {
-    if (!gIsVK) return NO;
-    void *ret = __builtin_return_address(0);
-    if (ret == NULL) return NO;
-    Dl_info info; memset(&info, 0, sizeof(info));
-    if (dladdr(ret, &info) == 0 || info.dli_fname == NULL) return NO;
-    const char *n = info.dli_fname;
-    return strstr(n, "UserNotifications") != NULL
-        || strstr(n, "PushKit") != NULL
-        || strstr(n, "UserNotificationsKit") != NULL
-        || strstr(n, "/BulletinBoard") != NULL
-        || strstr(n, "apsd") != NULL;
-}
-
+// CFBundleIdentifier (the Info.plist dict) is ALWAYS the vendor id for VK's music/audio catalog.
+// Keeping it consistent matters: a caller-based scheme (real for some readers, vendor for others)
+// made the push system register under two identities, so iOS issued a fresh APNs token almost every
+// launch and the relay's stored token went stale → notifications arrived only on alternate launches
+// (device-confirmed). Notification authorization is handled out-of-band by VKRelay via a
+// real-bundle-scoped UNUserNotificationCenter (the initWithBundleIdentifier: SPI), so the dict can
+// stay vendor without blocking notifications. The getter (-bundleIdentifier) stays REAL for VK (see
+// rs_bundleIdentifier) because the VoIP push registration keys its topic off it.
 static NSDictionary *rs_infoDictionary(id self, SEL _cmd) {
     NSDictionary *info = orig_infoDictionary(self, _cmd);
     if (self != gMainBundle || info == nil) return info;
-    if (RSCallerWantsRealId()) return info;   // real id for the notification/push frameworks
     @synchronized (gMainBundle) {
         if (gSpoofedInfo == nil) {
             NSMutableDictionary *copy = [info mutableCopy];
@@ -353,10 +340,7 @@ static NSDictionary *rs_infoDictionary(id self, SEL _cmd) {
 }
 
 static id rs_objectForInfoKey(id self, SEL _cmd, NSString *key) {
-    if (self == gMainBundle && [key isEqualToString:@"CFBundleIdentifier"]) {
-        if (RSCallerWantsRealId()) return orig_objectForInfoKey(self, _cmd, key);  // real for UN/push
-        return gOriginalBundleID;
-    }
+    if (self == gMainBundle && [key isEqualToString:@"CFBundleIdentifier"]) return gOriginalBundleID;
     return orig_objectForInfoKey(self, _cmd, key);
 }
 
