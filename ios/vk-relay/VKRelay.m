@@ -29,6 +29,7 @@
 #import <AVFoundation/AVFoundation.h>
 #import <BackgroundTasks/BackgroundTasks.h>
 #import <LocalAuthentication/LocalAuthentication.h>
+#import <UserNotifications/UserNotifications.h>
 #import <objc/runtime.h>
 #import <dispatch/dispatch.h>
 #import <dlfcn.h>
@@ -376,7 +377,9 @@ static void VKJoinCall(NSDictionary *ctx) {
 - (void)provider:(CXProvider *)provider didDeactivateAudioSession:(AVAudioSession *)audioSession {}
 @end
 
-static void ReportIncomingCall(NSString *caller, BOOL video, NSString *callId, NSString *convParams) {
+// Builds the CallKit provider once. Safe to call from the constructor, so the provider exists
+// before the first VoIP push arrives on a cold launch (no lazy setup inside the push handler).
+static void SetupCallProvider(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         gCalls = [NSMutableDictionary dictionary];
@@ -388,6 +391,16 @@ static void ReportIncomingCall(NSString *caller, BOOL video, NSString *callId, N
         gCallDelegate = [VKRCallDelegate new];
         [gProvider setDelegate:gCallDelegate queue:nil];
     });
+}
+
+// Reports the incoming call to CallKit and calls the PushKit completion handler ONLY inside the
+// report's own completion block. iOS kills the app if the push completion runs before the call is
+// actually registered, so the two must be ordered — calling completion() right after the report
+// (as before) is a race that still triggers the "never posted an incoming call" kill. A watchdog
+// releases the push if CallKit never calls back, so the completion is always invoked exactly once.
+static void ReportIncomingCall(NSString *caller, BOOL video, NSString *callId, NSString *convParams,
+                               void (^pushCompletion)(void)) {
+    SetupCallProvider();
     NSUUID *uuid = [NSUUID UUID];
     NSMutableDictionary *ctx = [NSMutableDictionary dictionary];
     if ([caller isKindOfClass:NSString.class]) ctx[@"caller"] = caller;
@@ -399,9 +412,18 @@ static void ReportIncomingCall(NSString *caller, BOOL video, NSString *callId, N
     update.remoteHandle = [[CXHandle alloc] initWithType:CXHandleTypeGeneric value:caller ?: @"VK"];
     update.hasVideo = video;
     update.localizedCallerName = caller ?: @"ВКонтакте";
+    __block BOOL released = NO;
+    void (^release)(void) = ^{
+        if (released) return; released = YES;
+        if (pushCompletion) pushCompletion();
+    };
     [gProvider reportNewIncomingCallWithUUID:uuid update:update completion:^(NSError *e) {
         NSLog(@"[VKRelay] CallKit reportNewIncomingCall err=%@", e ?: @"none");
+        release();
     }];
+    // Watchdog: never leave the VoIP push completion un-called (that itself causes the iOS kill).
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(4 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), release);
 }
 
 // iOS 13+ requires every VoIP push to report a CallKit call before the completion handler, or it
@@ -423,7 +445,7 @@ static void MyDidReceiveIncoming(id self, SEL _cmd, id registry, PKPushPayload *
     // so it completed WITHOUT reporting a call → the kill above. So we now ALWAYS report the call to
     // CallKit ourselves, synchronously, for every VoIP push. The relay only ever sends VoIP pushes
     // for real incoming calls, so a ring is always correct. (Answer→audio join stays in VKJoinCall.)
-    BOOL reported = NO;
+    NSString *caller = nil, *callId = nil, *convParams = nil; BOOL video = NO;
     @try {
         NSDictionary *d = [payload respondsToSelector:@selector(dictionaryPayload)] ? payload.dictionaryPayload : nil;
         if ([d isKindOfClass:NSDictionary.class]) {
@@ -435,26 +457,31 @@ static void MyDidReceiveIncoming(id self, SEL _cmd, id registry, PKPushPayload *
                 NSString *nm = [ci isKindOfClass:NSDictionary.class]
                     ? [NSString stringWithFormat:@"%@ %@", ci[@"first_name"] ?: @"", ci[@"last_name"] ?: @""] : @"VK";
                 nm = [nm stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-                NSLog(@"[VKRelay] native VoIP push -> CallKit ring (call_id=%@)", ctx[@"call_id"]);
-                ReportIncomingCall(nm.length ? nm : @"ВКонтакте", NO, ctx[@"call_id"], ctx[@"conversation_params"]);
-                reported = YES;
+                caller = nm.length ? nm : @"ВКонтакте";
+                callId = ctx[@"call_id"];
+                convParams = [ctx[@"conversation_params"] isKindOfClass:NSString.class] ? ctx[@"conversation_params"] : nil;
+                NSLog(@"[VKRelay] native VoIP push -> CallKit ring (call_id=%@)", callId);
             } else {
                 id call = d[@"ruas_call"];
                 if ([call isKindOfClass:NSDictionary.class]) {   // legacy our-format
-                    ReportIncomingCall(call[@"caller"], [call[@"video"] boolValue],
-                                       call[@"call_id"], call[@"conversation_params"]);
-                    reported = YES;
+                    caller = [call[@"caller"] isKindOfClass:NSString.class] ? call[@"caller"] : @"ВКонтакте";
+                    video = [call[@"video"] boolValue];
+                    callId = [call[@"call_id"] isKindOfClass:NSString.class] ? call[@"call_id"] : nil;
+                    convParams = [call[@"conversation_params"] isKindOfClass:NSString.class] ? call[@"conversation_params"] : nil;
                 }
             }
         }
     } @catch (__unused id e) {}
-    // Fail-safe: an unrecognised VoIP push still has to report a call, or iOS kills us. A stray ring
-    // is recoverable; a kill is not (it also suspends future VoIP delivery).
-    if (!reported) {
+    if (!caller) {
+        // Fail-safe: an unrecognised VoIP push still has to report a call, or iOS kills us. A stray
+        // ring is recoverable; a kill is not (it also suspends future VoIP delivery).
         NSLog(@"[VKRelay] unrecognised VoIP push -> generic CallKit ring (fail-safe)");
-        @try { ReportIncomingCall(@"ВКонтакте", NO, nil, nil); } @catch (__unused id e) {}
+        caller = @"ВКонтакте";
     }
-    if (completion) completion();
+    // ReportIncomingCall owns the push completion: it calls it inside CallKit's own completion so the
+    // call is registered before the push is released (and a watchdog guarantees it is always called).
+    @try { ReportIncomingCall(caller, video, callId, convParams, completion); }
+    @catch (__unused id e) { if (completion) completion(); }
 }
 
 typedef void (*SetDelegateIMP)(id, SEL, id);
@@ -546,6 +573,29 @@ static void HookVoip(void) {
 }
 #endif
 
+// ---- Notification permission (re-signed VK never prompts) --------------------------------------
+// On the re-signed build VK does not request user-notification authorization, so iOS shows no
+// permission prompt, no entry appears under Settings → ВКонтакте → Уведомления, and every alert
+// push the relay sends is silently dropped (APNs returns 200 but iOS has no authorization to show
+// it). We request authorization ourselves once per launch and register for remote notifications so
+// the token/registration exists. If VK ever requests too, iOS returns the existing status — no
+// double prompt. Runs in both the full and Face-ID-only builds, so every VK customer gets alerts.
+static void RequestNotificationAuthorization(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        @try {
+            UNUserNotificationCenter *c = [UNUserNotificationCenter currentNotificationCenter];
+            UNAuthorizationOptions opts = UNAuthorizationOptionAlert | UNAuthorizationOptionBadge | UNAuthorizationOptionSound;
+            [c requestAuthorizationWithOptions:opts completionHandler:^(BOOL granted, NSError *e) {
+                NSLog(@"[VKRelay] notification authorization granted=%d err=%@", granted, e ?: @"none");
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    @try { [[UIApplication sharedApplication] registerForRemoteNotifications]; } @catch (__unused id x) {}
+                });
+            }];
+        } @catch (__unused id e) {}
+    });
+}
+
 // ---- BGTask crash fix (the #1 customer crash) -------------------------------------------------
 // Re-signed VK crashes at launch with "No launch handler registered for task with identifier
 // com.vk.pushes": iOS wakes the app to run that background task, but VK (unlike com.vk.vkclient
@@ -592,6 +642,7 @@ static BOOL MyDidFinishLaunching(id self, SEL _cmd, id app, id opts) {
     BOOL r = gOrigDidFinish ? gOrigDidFinish(self, _cmd, app, opts) : YES;
     FillMissingBGTasks();  // VK has registered its handlers by now; fill the gaps before returning
     HookBiometrics();      // re-apply: VK's biometry classes are definitely loaded by now
+    RequestNotificationAuthorization();  // re-signed VK never prompts; ensure alerts can be shown
     return r;
 }
 
@@ -671,6 +722,7 @@ static void VKRelayInit(void) {
     BridgeBGTasks();  // must run before UIApplicationMain sets the delegate / VK registers its tasks
     HookBiometrics();  // stop the re-sign Face-ID loop in VK login + app-lock
 #ifndef VK_FACEID_ONLY
+    SetupCallProvider();  // provider ready before the first VoIP push on a cold launch
     HookVoip();
 #endif
 
