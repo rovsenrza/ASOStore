@@ -306,7 +306,14 @@ static NSDictionary *(*orig_infoDictionary)(id, SEL);
 static id (*orig_objectForInfoKey)(id, SEL, NSString *);
 
 static NSString *rs_bundleIdentifier(id self, SEL _cmd) {
-    if (self == gMainBundle) return gOriginalBundleID;
+    // For VK, the notification / push system (UNUserNotificationCenter → usernotificationsd) reads
+    // the main-bundle id through THIS getter and refuses notifications when it is not the installed
+    // app's real id: requestAuthorization returns UNErrorCodeNotificationsNotAllowed(1) and the
+    // device drops every alert AND VoIP push (device-confirmed). So return the REAL id from the
+    // getter for VK; its music/audio catalog reads the vendor id through CFBundleIdentifier
+    // (infoDictionary / objectForInfoDictionaryKey), which stay spoofed below — so music keeps
+    // working while notifications and calls start working.
+    if (self == gMainBundle && !gIsVK) return gOriginalBundleID;
     return orig_bundleIdentifier(self, _cmd);
 }
 
