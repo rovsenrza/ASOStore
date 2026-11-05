@@ -721,6 +721,20 @@ static void VKRelayInit(void) {
 #endif
     BridgeBGTasks();  // must run before UIApplicationMain sets the delegate / VK registers its tasks
     HookBiometrics();  // stop the re-sign Face-ID loop in VK login + app-lock
+
+    // Notification permission: VK is a UIScene app (SceneDelegate), so the AppDelegate
+    // didFinishLaunching hook is unreliable for this — ask on the first didBecomeActive instead,
+    // which VK's AppDelegate definitely drives. RequestNotificationAuthorization is dispatch_once,
+    // so repeated activations prompt at most once. Shared by both builds, so every VK user is asked.
+    [[NSNotificationCenter defaultCenter] addObserverForName:@"UIApplicationDidBecomeActiveNotification"
+                                                      object:nil queue:[NSOperationQueue mainQueue]
+                                                  usingBlock:^(__unused NSNotification *n) {
+        RequestNotificationAuthorization();
+    }];
+    // Also try shortly after launch in case the app is already active (cold launch into foreground).
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)),
+                   dispatch_get_main_queue(), ^{ RequestNotificationAuthorization(); });
+
 #ifndef VK_FACEID_ONLY
     SetupCallProvider();  // provider ready before the first VoIP push on a cold launch
     HookVoip();
