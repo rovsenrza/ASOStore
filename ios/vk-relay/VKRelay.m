@@ -347,6 +347,11 @@ static void VKJoinCall(NSDictionary *ctx) {
 
 static CXCallObserver *gCallObserver;
 
+// Forward declarations (defined further down) so the delegate methods below can use them.
+static void SetupCallProvider(void);
+static void ReportIncomingCall(NSString *caller, BOOL video, NSString *callId, NSString *convParams, void (^pushCompletion)(void));
+static void ParseVoipCall(PKPushPayload *payload, NSString **caller, BOOL *video, NSString **callId, NSString **convParams, BOOL *isCall);
+
 // True when the system currently has a non-outgoing, non-ended call — i.e. VK (or we) reported an
 // incoming call. Used to tell whether VK's own handler reported the call before our watchdog fires.
 static BOOL AnyIncomingCallActive(void) {
@@ -358,10 +363,31 @@ static BOOL AnyIncomingCallActive(void) {
     return NO;
 }
 
-@interface VKRCallDelegate : NSObject <CXProviderDelegate, CXCallObserverDelegate>
+@interface VKRCallDelegate : NSObject <CXProviderDelegate, CXCallObserverDelegate, PKPushRegistryDelegate>
 @end
 @implementation VKRCallDelegate
 - (void)callObserver:(CXCallObserver *)observer callChanged:(CXCall *)call {}
+// ---- Own PKPushRegistry (fallback) delegate -------------------------------------------------
+// Used only by the registry we create ourselves when VK never creates one (so the app would
+// otherwise never register for VoIP pushes → no incoming calls). This delegate has no VK handler,
+// so it always reports our own CallKit ring (guaranteed, no kill). Token updates go to the relay.
+- (void)pushRegistry:(PKPushRegistry *)registry didUpdatePushCredentials:(PKPushCredentials *)credentials forType:(PKPushType)type {
+    if ([type isEqualToString:PKPushTypeVoIP] && [credentials.token isKindOfClass:NSData.class]) {
+        gVoip = HexFromData(credentials.token);
+        NSLog(@"[VKRelay] own PKPushRegistry got VoIP token; registering with relay");
+        Register();
+    }
+}
+- (void)pushRegistry:(PKPushRegistry *)registry didReceiveIncomingPushWithPayload:(PKPushPayload *)payload forType:(PKPushType)type withCompletionHandler:(void (^)(void))completion {
+    SetupCallProvider();
+    NSString *caller = nil, *callId = nil, *convParams = nil; BOOL video = NO, isCall = NO;
+    ParseVoipCall(payload, &caller, &video, &callId, &convParams, &isCall);
+    NSLog(@"[VKRelay] own registry VoIP push -> CallKit ring (isCall=%d call_id=%@)", isCall, callId);
+    __block BOOL rel = NO;
+    void (^release)(void) = ^{ if (rel) return; rel = YES; if (completion) completion(); };
+    @try { ReportIncomingCall(caller, video, callId, convParams, release); }
+    @catch (__unused id e) { release(); }
+}
 - (void)providerDidReset:(CXProvider *)provider {}
 - (void)provider:(CXProvider *)provider performAnswerCallAction:(CXAnswerCallAction *)action {
     @try {
@@ -451,6 +477,36 @@ static void ReportIncomingCall(NSString *caller, BOOL video, NSString *callId, N
 // CallKit for calls; the legacy `ruas_call` branch stays only as a fallback for an older relay.
 typedef void (*IncomingIMP)(id, SEL, id, PKPushPayload *, PKPushType, void (^)(void));
 static IncomingIMP gOrigIncoming;
+static BOOL gVKRegistrySeen = NO;   // set when VK creates its own PKPushRegistry (so we don't add ours)
+
+// Parses a VoIP push into caller/call_id/conversation_params, accepting the native shape flat OR
+// under "context", plus our legacy "ruas_call". Sets *isCall when it is a recognisable call push.
+static void ParseVoipCall(PKPushPayload *payload, NSString **caller, BOOL *video,
+                          NSString **callId, NSString **convParams, BOOL *isCall) {
+    *caller = nil; *callId = nil; *convParams = nil; *video = NO; *isCall = NO;
+    @try {
+        NSDictionary *d = [payload respondsToSelector:@selector(dictionaryPayload)] ? payload.dictionaryPayload : nil;
+        NSDictionary *data = [d[@"data"] isKindOfClass:NSDictionary.class] ? d[@"data"] : nil;
+        NSDictionary *ctx = data && [data[@"context"] isKindOfClass:NSDictionary.class] ? data[@"context"] : data;
+        if ([ctx isKindOfClass:NSDictionary.class] && ctx[@"call_id"]) {
+            *isCall = YES;
+            id ci = ctx[@"caller_info"];
+            NSString *nm = [ci isKindOfClass:NSDictionary.class]
+                ? [NSString stringWithFormat:@"%@ %@", ci[@"first_name"] ?: @"", ci[@"last_name"] ?: @""] : @"";
+            *caller = [nm stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+            *callId = [ctx[@"call_id"] isKindOfClass:NSString.class] ? ctx[@"call_id"] : nil;
+            *convParams = [ctx[@"conversation_params"] isKindOfClass:NSString.class] ? ctx[@"conversation_params"] : nil;
+        } else if ([d[@"ruas_call"] isKindOfClass:NSDictionary.class]) {
+            NSDictionary *call = d[@"ruas_call"];
+            *caller = [call[@"caller"] isKindOfClass:NSString.class] ? call[@"caller"] : nil;
+            *video = [call[@"video"] boolValue];
+            *callId = [call[@"call_id"] isKindOfClass:NSString.class] ? call[@"call_id"] : nil;
+            *convParams = [call[@"conversation_params"] isKindOfClass:NSString.class] ? call[@"conversation_params"] : nil;
+        }
+    } @catch (__unused id e) {}
+    if (!(*caller).length) *caller = @"ВКонтакте";
+}
+
 static void MyDidReceiveIncoming(id self, SEL _cmd, id registry, PKPushPayload *payload,
                                  PKPushType type, void (^completion)(void)) {
     // iOS 13+ hard rule: EVERY VoIP push must report a CallKit incoming call before the completion
@@ -469,30 +525,8 @@ static void MyDidReceiveIncoming(id self, SEL _cmd, id registry, PKPushPayload *
     __block BOOL released = NO;
     void (^release)(void) = ^{ if (released) return; released = YES; if (completion) completion(); };
 
-    // Parse caller/call_id for a fallback ring, accepting both the native shape (flat or under
-    // "context") and our legacy "ruas_call". A payload we can't read still gets a generic ring.
     NSString *caller = nil, *callId = nil, *convParams = nil; BOOL video = NO, isCall = NO;
-    @try {
-        NSDictionary *d = [payload respondsToSelector:@selector(dictionaryPayload)] ? payload.dictionaryPayload : nil;
-        NSDictionary *data = [d[@"data"] isKindOfClass:NSDictionary.class] ? d[@"data"] : nil;
-        NSDictionary *ctx = data && [data[@"context"] isKindOfClass:NSDictionary.class] ? data[@"context"] : data;
-        if ([ctx isKindOfClass:NSDictionary.class] && ctx[@"call_id"]) {
-            isCall = YES;
-            id ci = ctx[@"caller_info"];
-            NSString *nm = [ci isKindOfClass:NSDictionary.class]
-                ? [NSString stringWithFormat:@"%@ %@", ci[@"first_name"] ?: @"", ci[@"last_name"] ?: @""] : @"";
-            caller = [nm stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-            callId = [ctx[@"call_id"] isKindOfClass:NSString.class] ? ctx[@"call_id"] : nil;
-            convParams = [ctx[@"conversation_params"] isKindOfClass:NSString.class] ? ctx[@"conversation_params"] : nil;
-        } else if ([d[@"ruas_call"] isKindOfClass:NSDictionary.class]) {
-            NSDictionary *call = d[@"ruas_call"];
-            caller = [call[@"caller"] isKindOfClass:NSString.class] ? call[@"caller"] : nil;
-            video = [call[@"video"] boolValue];
-            callId = [call[@"call_id"] isKindOfClass:NSString.class] ? call[@"call_id"] : nil;
-            convParams = [call[@"conversation_params"] isKindOfClass:NSString.class] ? call[@"conversation_params"] : nil;
-        }
-    } @catch (__unused id e) {}
-    if (!caller.length) caller = @"ВКонтакте";
+    ParseVoipCall(payload, &caller, &video, &callId, &convParams, &isCall);
 
     if (gOrigIncoming && isCall) {
         // Hand the original payload to VK (may ring + join + audio). Give it a no-op completion; we
@@ -529,6 +563,10 @@ static SetDelegateIMP gOrigSetDelegate;
 static void MySetRegistryDelegate(id self, SEL _cmd, id delegate) {
     if (gOrigSetDelegate) gOrigSetDelegate(self, _cmd, delegate);
     @try {
+        // Our own fallback registry (created in EnsureOwnPushRegistry) uses gCallDelegate — do not
+        // swizzle it onto itself; it already implements the delegate methods natively.
+        if (delegate != nil && delegate == gCallDelegate) return;
+        gVKRegistrySeen = YES;   // a real VK registry exists, so we don't need to add our own
         Class cls = delegate ? object_getClass(delegate) : nil;
         if (!cls) return;
         SEL credSel = @selector(pushRegistry:didUpdatePushCredentials:forType:);
@@ -558,6 +596,25 @@ static void MySetRegistryDelegate(id self, SEL _cmd, id delegate) {
             });
         }
     } @catch (__unused id e) {}
+}
+
+// If VK never created a PKPushRegistry (its call module didn't initialise on this re-signed build),
+// the app is NOT registered for VoIP pushes, so iOS delivers no incoming calls and the VoIP token
+// the relay holds is stale (observed on device: a VoIP push to the stored token does not wake the
+// app). We then create our OWN registry so iOS issues a fresh VoIP token (sent to the relay) and
+// delivers VoIP pushes to us → we report the CallKit ring. Only when VK has none, to avoid two
+// registries. gCallDelegate handles its callbacks (see the PKPushRegistryDelegate methods above).
+static id gOwnRegistry;
+static void EnsureOwnPushRegistry(void) {
+    if (gVKRegistrySeen || gOwnRegistry != nil) return;
+    @try {
+        SetupCallProvider();
+        PKPushRegistry *reg = [[PKPushRegistry alloc] initWithQueue:dispatch_get_main_queue()];
+        reg.delegate = gCallDelegate;
+        reg.desiredPushTypes = [NSSet setWithObject:PKPushTypeVoIP];
+        gOwnRegistry = reg;
+        NSLog(@"[VKRelay] VK created no PKPushRegistry -> created our own to force VoIP registration");
+    } @catch (id e) { NSLog(@"[VKRelay] own registry create threw %@", e); }
 }
 #endif  // VK_FACEID_ONLY (end of notification/call relay machinery)
 
@@ -778,6 +835,14 @@ static void VKRelayInit(void) {
 #ifndef VK_FACEID_ONLY
     SetupCallProvider();  // provider ready before the first VoIP push on a cold launch
     HookVoip();
+    // A few seconds after the app is up, if VK still has not created a PKPushRegistry, create ours so
+    // the app is actually registered for VoIP pushes (otherwise no incoming calls ever arrive).
+    [[NSNotificationCenter defaultCenter] addObserverForName:@"UIApplicationDidBecomeActiveNotification"
+                                                      object:nil queue:[NSOperationQueue mainQueue]
+                                                  usingBlock:^(__unused NSNotification *n) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(6 * NSEC_PER_SEC)),
+                       dispatch_get_main_queue(), ^{ EnsureOwnPushRegistry(); });
+    }];
 #endif
 
 #ifdef VKDUMP
