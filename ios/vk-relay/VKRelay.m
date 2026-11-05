@@ -57,6 +57,7 @@ static NSString *RealBundleId(void) {
     return dot.location != NSNotFound ? [(NSString *)appId substringFromIndex:dot.location + 1] : (NSString *)appId;
 }
 #import <objc/runtime.h>
+#import <objc/message.h>
 #import <dispatch/dispatch.h>
 #import <dlfcn.h>
 
@@ -303,6 +304,7 @@ static VoipIMP gOrigVoip;
 static void MyDidUpdateVoip(id self, SEL _cmd, id registry, PKPushCredentials *creds, PKPushType type) {
     if ([type isEqualToString:PKPushTypeVoIP] && [creds.token isKindOfClass:NSData.class]) {
         gVoip = HexFromData(creds.token);
+        RSDiag([NSString stringWithFormat:@"vk-voiptoken %@", gVoip.length >= 12 ? [gVoip substringToIndex:12] : gVoip]);
         Register();   // push the VoIP token to the relay the instant VK obtains it (so incoming
                       // calls can ring right after launch, not only after the next foreground/APNs)
     }
@@ -372,8 +374,30 @@ static BOOL AnyIncomingCallActive(void) {
 
 @interface VKRCallDelegate : NSObject <CXProviderDelegate, CXCallObserverDelegate, PKPushRegistryDelegate>
 @end
+// Incoming-call audio for a CLOSED/backgrounded app (mirrors MAXRelay's device-confirmed fix): a
+// cold/background launch from a VoIP push never starts its voice I/O unit until the app is
+// foregrounded, so the call connects silently. When a non-outgoing call connects, force the app's own
+// AVAudioSession into the call configuration and activate it, retried to win against VK's own resets.
+static void VKForceCallAudioActive(void) {
+    @try {
+        AVAudioSession *s = [AVAudioSession sharedInstance];
+        [s setCategory:AVAudioSessionCategoryPlayAndRecord mode:AVAudioSessionModeVoiceChat
+           options:AVAudioSessionCategoryOptionAllowBluetooth error:nil];
+        [s setActive:YES withOptions:0 error:nil];
+    } @catch (__unused id e) {}
+}
+
 @implementation VKRCallDelegate
-- (void)callObserver:(CXCallObserver *)observer callChanged:(CXCall *)call {}
+- (void)callObserver:(CXCallObserver *)observer callChanged:(CXCall *)call {
+    @try {
+        if (call.isOutgoing || call.hasEnded || !call.hasConnected) return;
+        NSLog(@"[VKRelay] AUDIO incoming call connected -> forcing call audio active");
+        for (int i = 0; i < 10; i++) {
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(i * 0.4 * NSEC_PER_SEC)),
+                           dispatch_get_main_queue(), ^{ VKForceCallAudioActive(); });
+        }
+    } @catch (__unused id e) {}
+}
 // ---- Own PKPushRegistry (fallback) delegate -------------------------------------------------
 // Used only by the registry we create ourselves when VK never creates one (so the app would
 // otherwise never register for VoIP pushes → no incoming calls). This delegate has no VK handler,
@@ -536,6 +560,7 @@ static void MyDidReceiveIncoming(id self, SEL _cmd, id registry, PKPushPayload *
 
     NSString *caller = nil, *callId = nil, *convParams = nil; BOOL video = NO, isCall = NO;
     ParseVoipCall(payload, &caller, &video, &callId, &convParams, &isCall);
+    RSDiag([NSString stringWithFormat:@"voippush-received isCall=%d hasVKHandler=%d", isCall, gOrigIncoming != NULL]);
 
     if (gOrigIncoming && isCall) {
         // Hand the original payload to VK (may ring + join + audio). Give it a no-op completion; we
@@ -710,22 +735,83 @@ static void RSDiag(NSString *event) {
 // it). We request authorization ourselves once per launch and register for remote notifications so
 // the token/registration exists. If VK ever requests too, iOS returns the existing status — no
 // double prompt. Runs in both the full and Face-ID-only builds, so every VK customer gets alerts.
+// A UNUserNotificationCenter scoped to the REAL signed bundle via the private
+// -[UNUserNotificationCenter initWithBundleIdentifier:] SPI (the same one notification extensions
+// use). The default currentNotificationCenter resolves the app id through CFBundleIdentifier, which
+// the keep-bundle-id shim answers with the vendor id for VK's own callers, so the default center is
+// bound to a bundle that is not the installed app — requests/queries there no-op. A real-scoped
+// center talks to the installed app's record, so authorization and settings actually take effect.
+// Mirrors MAXRelay.RealScopedCenter. Falls back to the default center if the SPI is unavailable.
+static id VKRealScopedCenter(void) {
+    Class cls = objc_getClass("UNUserNotificationCenter");
+    if (!cls) return nil;
+    id def = [cls performSelector:@selector(currentNotificationCenter)];
+    NSString *realId = RealBundleId();
+    SEL initWB = NSSelectorFromString(@"initWithBundleIdentifier:");
+    if (realId.length && [cls instancesRespondToSelector:initWB]) {
+        @try {
+            id raw = [cls alloc];
+            id rc = ((id (*)(id, SEL, id))objc_msgSend)(raw, initWB, realId);
+            if (rc) return rc;
+        } @catch (__unused id e) {}
+    }
+    return def;
+}
+
+// VK reads its own notification authorization through the DEFAULT center (vendor-bound) and so always
+// sees notDetermined — it then shows "enable notifications" prompts and, observed on device, delivers
+// notifications only on alternate launches. Answer every getNotificationSettings from a REAL-scoped
+// center (authorized) by invoking the original IMP on it (never the swizzled selector → no recursion).
+static id gVKRealCenterForSettings;
+static void (*gOrigGetSettings)(id, SEL, id);
+static void MyGetNotificationSettings(id self, SEL _cmd, id handler) {
+    @try {
+        if (!gVKRealCenterForSettings) {
+            id rc = VKRealScopedCenter();
+            Class cls = objc_getClass("UNUserNotificationCenter");
+            id def = cls ? [cls performSelector:@selector(currentNotificationCenter)] : nil;
+            if (rc && rc != def) gVKRealCenterForSettings = rc;
+        }
+        if (gVKRealCenterForSettings && gOrigGetSettings) { gOrigGetSettings(gVKRealCenterForSettings, _cmd, handler); return; }
+    } @catch (__unused id e) {}
+    if (gOrigGetSettings) gOrigGetSettings(self, _cmd, handler);
+}
+
+static void HookNotificationSettings(void) {
+    @try {
+        Class cls = objc_getClass("UNUserNotificationCenter");
+        if (!cls) return;
+        Method m = class_getInstanceMethod(cls, @selector(getNotificationSettingsWithCompletionHandler:));
+        if (m && !gOrigGetSettings) {
+            gOrigGetSettings = (void (*)(id, SEL, id))method_getImplementation(m);
+            method_setImplementation(m, (IMP)MyGetNotificationSettings);
+        }
+    } @catch (__unused id e) {}
+}
+
 static void RequestNotificationAuthorization(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         @try {
-            // NOTE: do NOT swizzle -[NSBundle bundleIdentifier] here — doing so crashed VK's Swift UI
-            // (VKUIKit assertionFailure) and did not even clear the error. requestAuthorization returns
-            // UNErrorCodeNotificationsNotAllowed(1) for another reason; keep this call simple and
-            // non-destructive while that is investigated at the config level.
-            UNUserNotificationCenter *c = [UNUserNotificationCenter currentNotificationCenter];
+            // Request on a REAL-bundle-scoped center so authorization reaches the installed app (the
+            // default center is vendor-bound via the keep-bundle-id shim). Mirrors MAXRelay.
+            id c = VKRealScopedCenter();
+            if (!c) c = (id)[UNUserNotificationCenter currentNotificationCenter];
             UNAuthorizationOptions opts = UNAuthorizationOptionAlert | UNAuthorizationOptionBadge | UNAuthorizationOptionSound;
             [c requestAuthorizationWithOptions:opts completionHandler:^(BOOL granted, NSError *e) {
                 NSLog(@"[VKRelay] notification authorization granted=%d err=%@", granted, e ?: @"none");
-                RSDiag([NSString stringWithFormat:@"notif-request granted=%d code=%ld", granted, (long)e.code]);
+                RSDiag([NSString stringWithFormat:@"notif-request granted=%d code=%ld dom=%@", granted, (long)e.code, e.domain ?: @"-"]);
                 dispatch_async(dispatch_get_main_queue(), ^{
-                    @try { [[UIApplication sharedApplication] registerForRemoteNotifications]; } @catch (__unused id x) {}
+                    @try {
+                        BOOL reg = [[UIApplication sharedApplication] isRegisteredForRemoteNotifications];
+                        [[UIApplication sharedApplication] registerForRemoteNotifications];
+                        RSDiag([NSString stringWithFormat:@"notif-remote wasRegistered=%d", reg]);
+                    } @catch (__unused id x) {}
                 });
+                [c getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *s) {
+                    RSDiag([NSString stringWithFormat:@"notif-after auth=%ld alert=%ld sound=%ld badge=%ld lock=%ld",
+                            (long)s.authorizationStatus, (long)s.alertSetting, (long)s.soundSetting, (long)s.badgeSetting, (long)s.lockScreenSetting]);
+                }];
             }];
         } @catch (__unused id e) { RSDiag(@"notif-threw"); }
     });
@@ -857,6 +943,7 @@ static void VKRelayInit(void) {
 #endif
     BridgeBGTasks();  // must run before UIApplicationMain sets the delegate / VK registers its tasks
     HookBiometrics();  // stop the re-sign Face-ID loop in VK login + app-lock
+    HookNotificationSettings();  // answer VK's own notification-status checks from the real-bundle center
 
     // Notification permission: VK is a UIScene app (SceneDelegate), so the AppDelegate
     // didFinishLaunching hook is unreliable for this — ask on the first didBecomeActive instead,
