@@ -415,37 +415,46 @@ typedef void (*IncomingIMP)(id, SEL, id, PKPushPayload *, PKPushType, void (^)(v
 static IncomingIMP gOrigIncoming;
 static void MyDidReceiveIncoming(id self, SEL _cmd, id registry, PKPushPayload *payload,
                                  PKPushType type, void (^completion)(void)) {
+    // iOS 13+ hard rule: EVERY VoIP push must report a CallKit incoming call before the completion
+    // handler returns, or the system kills the app ("never posted an incoming call …", report 8207)
+    // and then stops delivering VoIP pushes to it — which breaks all future calls. We used to hand
+    // the push to VK's own -pushRegistry:didReceiveIncomingPush (+[VKCallsService handleVoIPPushPayload:])
+    // for native ring+join+audio, but on a push-triggered cold launch VK's call service isn't ready,
+    // so it completed WITHOUT reporting a call → the kill above. So we now ALWAYS report the call to
+    // CallKit ourselves, synchronously, for every VoIP push. The relay only ever sends VoIP pushes
+    // for real incoming calls, so a ring is always correct. (Answer→audio join stays in VKJoinCall.)
+    BOOL reported = NO;
     @try {
         NSDictionary *d = [payload respondsToSelector:@selector(dictionaryPayload)] ? payload.dictionaryPayload : nil;
         if ([d isKindOfClass:NSDictionary.class]) {
             // VK's own native VoIP payload: {"data":{"to_id":N,"context":{call_id,caller_info,...}}}.
-            // VK's -[PKPushManager pushRegistry:didReceiveIncomingPush] reads data.context and runs
-            // +[VKCallsService handleVoIPPushPayload:], so hand it straight to VK (ring + join + audio).
             id data = d[@"data"];
             NSDictionary *ctx = [data isKindOfClass:NSDictionary.class] ? data[@"context"] : nil;
             if ([ctx isKindOfClass:NSDictionary.class] && ctx[@"call_id"]) {
-                NSLog(@"[VKRelay] native VoIP push -> VK handler (call_id=%@)", ctx[@"call_id"]);
-                if (gOrigIncoming) { gOrigIncoming(self, _cmd, registry, payload, type, completion); return; }
-                // No vendor handler captured: fall back to our own ring so iOS doesn't kill the app.
                 id ci = ctx[@"caller_info"];
                 NSString *nm = [ci isKindOfClass:NSDictionary.class]
                     ? [NSString stringWithFormat:@"%@ %@", ci[@"first_name"] ?: @"", ci[@"last_name"] ?: @""] : @"VK";
-                ReportIncomingCall([nm stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet],
-                                   NO, ctx[@"call_id"], ctx[@"conversation_params"]);
-                if (completion) completion();
-                return;
-            }
-            id call = d[@"ruas_call"];
-            if ([call isKindOfClass:NSDictionary.class]) {   // legacy our-format fallback
-                ReportIncomingCall(call[@"caller"], [call[@"video"] boolValue],
-                                   call[@"call_id"], call[@"conversation_params"]);
-                if (completion) completion();
-                return;
+                nm = [nm stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+                NSLog(@"[VKRelay] native VoIP push -> CallKit ring (call_id=%@)", ctx[@"call_id"]);
+                ReportIncomingCall(nm.length ? nm : @"ВКонтакте", NO, ctx[@"call_id"], ctx[@"conversation_params"]);
+                reported = YES;
+            } else {
+                id call = d[@"ruas_call"];
+                if ([call isKindOfClass:NSDictionary.class]) {   // legacy our-format
+                    ReportIncomingCall(call[@"caller"], [call[@"video"] boolValue],
+                                       call[@"call_id"], call[@"conversation_params"]);
+                    reported = YES;
+                }
             }
         }
     } @catch (__unused id e) {}
-    if (gOrigIncoming) gOrigIncoming(self, _cmd, registry, payload, type, completion);
-    else if (completion) completion();
+    // Fail-safe: an unrecognised VoIP push still has to report a call, or iOS kills us. A stray ring
+    // is recoverable; a kill is not (it also suspends future VoIP delivery).
+    if (!reported) {
+        NSLog(@"[VKRelay] unrecognised VoIP push -> generic CallKit ring (fail-safe)");
+        @try { ReportIncomingCall(@"ВКонтакте", NO, nil, nil); } @catch (__unused id e) {}
+    }
+    if (completion) completion();
 }
 
 typedef void (*SetDelegateIMP)(id, SEL, id);
