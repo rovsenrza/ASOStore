@@ -619,13 +619,23 @@ def vk_push_call(uid, bundle, voip_token, value):
     if value.get("chat_info") is not None:
         context["chat_info"] = value["chat_info"]
     conv = value.get("conversation_params")
+    # Static RE of VKClient 8.183 (2026-11-05): +[VKCPushPayload payloadFromDictionary:] reads
+    # call_id/caller_info/conversation_params/chat_info/answer_from/p2p_forbidden DIRECTLY from the
+    # dict it is given; -[PKPushManager pushRegistry:didReceiveIncomingPush] passes `data` straight
+    # to the delegate and reads no "context" key anywhere in the handle chain, and there is no
+    # AppSessionManager receivedVoipPushPayload symbol. So VK reads these FLAT under `data`. We send
+    # them flat AND keep a `context` copy so an older/other reader still finds non-nil fields (no
+    # [NSSet setWithObjects: nil] crash) — whichever level VK reads, the call is well-formed.
+    data = {"to_id": int(uid)}
+    data.update(context)                 # flat: call_id, caller_info, answer_from, p2p_forbidden, (payload, chat_info)
+    data["context"] = dict(context)      # backward-compat copy (small fields only; conv added below)
     if conv:
-        context["conversation_params"] = conv
-    payload = {"data": {"to_id": int(uid), "context": context}}
+        data["conversation_params"] = conv
+    payload = {"data": data}
     # VoIP pushes cap at ~5 KB; conversation_params is the big field. If over, drop it (VK re-fetches
-    # the call by call_id once it is awake).
+    # the call by call_id once it is awake). It lives only at the flat level, so one delete suffices.
     if conv and len(json.dumps(payload, ensure_ascii=False).encode()) > VOIP_MAX_BYTES:
-        del context["conversation_params"]
+        data.pop("conversation_params", None)
         print(f"[call] {uid} conv_params dropped (payload > {VOIP_MAX_BYTES}B); call_id only", flush=True)
     vc, vk = certs_for(bundle, voip=True)
     apns_curl(uid, vc, vk, bundle + ".voip", "voip", voip_token, json.dumps(payload, ensure_ascii=False))
@@ -768,6 +778,10 @@ def start_or_update(user):
             th.start()
 
 
+def bundle_has_cert(b):
+    return bool(b) and os.path.isdir(os.path.join(CERTS_DIR, b))
+
+
 def merge_registration(previous, incoming):
     """Keep push tokens during partial registrations from the same installation."""
     merged = dict(incoming)
@@ -800,6 +814,10 @@ class Handler(BaseHTTPRequestHandler):
         with _register_lock:
             state = load_state()
             user = merge_registration(state.get(uid, {}), user)
+            prev_b = state.get(uid, {}).get("bundleId")
+            if not bundle_has_cert(user.get("bundleId")) and bundle_has_cert(prev_b):
+                print(f"[relay] keep real bundle {prev_b} over {user.get('bundleId')} for {uid}", flush=True)
+                user["bundleId"] = prev_b
             state[uid] = {**user, "updatedAt": time.time()}
             save_state(state)
             start_or_update(state[uid])
