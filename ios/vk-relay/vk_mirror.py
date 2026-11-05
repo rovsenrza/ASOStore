@@ -31,6 +31,16 @@ REGISTER_PATH = "/api/v1/vk-relay/register"
 # APNs VoIP payloads cap at 5120 bytes; stay under it with headroom so the push is never rejected.
 VOIP_MAX_BYTES = 4800
 
+def _backoff_wait(exc, base):
+    """Long back-off for accounts whose token is dead (expired / invalid_grant / 1117): polling them
+    every few seconds floods VK and can rate-limit the relay IP, starving healthy accounts. They
+    restart with a fresh token when the app next registers, so backing off is safe."""
+    m = str(exc).lower()
+    if "expired" in m or "invalid_grant" in m or "1117" in m or "access token" in m:
+        return 300.0
+    return base
+
+
 # Subscription gating: reuse the MAX entitlement endpoint (device-UDID keyed, not MAX-specific).
 ENT_URL = os.environ.get("VKRELAY_ENTITLEMENT_URL", "https://ruappstore.com/api/v1/mx-relay/entitlement")
 ENT_SECRET = os.environ.get("VKRELAY_SECRET", "")
@@ -399,6 +409,7 @@ class NotificationsPoller(threading.Thread):
                 self.poll()
             except Exception as e:
                 print(f"[notif {self.user.get('userId')}] {e}", flush=True)
+                self.stop.wait(_backoff_wait(e, self.INTERVAL)); continue
             self.stop.wait(self.INTERVAL)
 
     def poll(self):
@@ -504,6 +515,7 @@ class Mirror(threading.Thread):
                 self._session()
             except Exception as e:
                 print(f"[mirror {self.user.get('userId')}] {e}", flush=True)
+                self.stop.wait(_backoff_wait(e, 5)); continue
             # A failure is usually a rotated access token; the hook re-POSTs a fresh one on the next
             # app launch/foreground, which restarts this mirror. Back off meanwhile.
             self.stop.wait(5)
@@ -676,6 +688,7 @@ class CallsPoller(threading.Thread):
                 self._session()
             except Exception as e:
                 print(f"[calls {self.user.get('userId')}] {e}", flush=True)
+                self.stop.wait(_backoff_wait(e, 4)); continue
             self.stop.wait(4)
 
     def _session(self):
