@@ -47,7 +47,10 @@ function renderProfile(user) {
     }
   });
 
-  profile.replaceChildren(list, renew, signOut);
+  const actions = document.createElement('div');
+  actions.className = 'stage-actions';
+  actions.append(renew, signOut);
+  profile.replaceChildren(list, actions);
 }
 
 async function load() {

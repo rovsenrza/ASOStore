@@ -41,11 +41,14 @@ function notice(tone, title, text, action = null) {
   body.textContent = text;
   block.append(heading, body);
   if (action) {
+    const row = document.createElement('div');
+    row.className = 'stage-actions';
     const link = document.createElement('a');
     link.className = 'btn btn--primary btn--small';
     link.href = action.href;
     link.textContent = action.label;
-    block.append(link);
+    row.append(link);
+    block.append(row);
   }
   return block;
 }

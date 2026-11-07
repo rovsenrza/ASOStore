@@ -152,8 +152,10 @@ p { text-wrap: pretty; }
   text-decoration: none;
   color: inherit;
   opacity: .78;
+  white-space: nowrap;
   transition: opacity var(--t-fast), background var(--t-fast);
 }
+@media (max-width: 1320px) { .site-nav a { padding-inline: 9px; } }
 .site-nav a:hover { opacity: 1; background: rgb(11 27 69 / 6%); }
 .site-nav a[aria-current="page"] { opacity: 1; font-weight: 600; }
 .site-header__actions { display: flex; align-items: center; gap: var(--s2); }
