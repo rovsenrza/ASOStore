@@ -3,6 +3,7 @@
 namespace App\Services\TelegramStore\Bot;
 
 use App\Models\TelegramStoreOrder;
+use App\Models\User;
 use App\Services\TelegramStore\CompletedOrder;
 use App\Services\TelegramStore\OrderService;
 use App\Services\TelegramStore\Payments\GatewayResolver;
@@ -10,6 +11,7 @@ use App\Services\TelegramStore\Payments\MockGateway;
 use App\Services\TelegramStore\Payments\PlategaException;
 use App\Services\TelegramStore\Payments\PlategaPayments;
 use App\Services\TelegramStore\PromoService;
+use App\Services\TelegramStore\RenewalAccounts;
 use Illuminate\Support\Facades\Cache;
 
 class CustomerHandler
@@ -25,6 +27,7 @@ class CustomerHandler
         private readonly PromoService $promos,
         private readonly ChannelGate $gate,
         private readonly PlategaPayments $platega,
+        private readonly RenewalAccounts $accounts,
     ) {}
 
     public function message(Context $ctx, string $text): void
@@ -53,6 +56,16 @@ class CustomerHandler
                 return;
             }
             isset($match[1]) ? $this->startOrder($ctx, $match[1]) : $this->messenger->show($ctx, $this->screens->plans($ctx->customer, $this->promos->remembered($ctx->userId())));
+
+            return;
+        }
+
+        // «Продлить» from a link on the site or in a post, the command, or plain words.
+        $wantsRenewal = $command === '/renew' || ($command === '/start' && preg_match('/^\/start\s+renew$/', $text) === 1) || str_contains($lower, 'продл');
+        if ($wantsRenewal) {
+            if (! $this->held($ctx, 'renew')) {
+                $this->messenger->show($ctx, $this->screens->renew($ctx->customer));
+            }
 
             return;
         }
@@ -89,20 +102,44 @@ class CustomerHandler
         }
 
         // Buying and paying need a subscription to the news channel.
-        if (preg_match('/^(buy|plan:\w+|(order|bal|pay:\w+|paid|mockpay|promo):[0-9a-z]{26})$/', $data) === 1 && $this->held($ctx, $data)) {
+        if (preg_match('/^(buy|renew|plan:\w+|rna:\w+|rnw:\w+:\w+|(order|bal|pay:\w+|paid|mockpay|promo):[0-9a-z]{26})$/', $data) === 1 && $this->held($ctx, $data)) {
             return;
         }
 
-        if (in_array($data, ['menu', 'buy', 'profile', 'orders', 'invite', 'help'], true)) {
+        if (in_array($data, ['menu', 'buy', 'renew', 'profile', 'orders', 'invite', 'help'], true)) {
             $this->messenger->answer($ctx);
             $this->messenger->show($ctx, match ($data) {
                 'menu' => $this->screens->menu(),
                 'buy' => $this->screens->plans($customer, $this->promos->remembered($customer->telegram_user_id)),
+                'renew' => $this->screens->renew($customer),
                 'profile' => $this->screens->profile($customer),
                 'orders' => $this->screens->orders($customer),
                 'invite' => $this->screens->invite($customer),
                 'help' => $this->screens->help(),
             });
+
+            return;
+        }
+
+        // One of several accounts picked: its terms.
+        if (preg_match('/^rna:(\w+)$/', $data, $match)) {
+            $account = $this->accounts->find($customer, $match[1]);
+            $this->messenger->answer($ctx, $account ? null : 'Аккаунт не найден.', ! $account);
+            $this->messenger->show($ctx, $account ? $this->screens->renewPlans($customer, $account) : $this->screens->renew($customer));
+
+            return;
+        }
+
+        if (preg_match('/^rnw:(\w+):(\w+)$/', $data, $match)) {
+            $account = $this->accounts->find($customer, $match[2]);
+            if (! $account || $this->planMissing($match[1])) {
+                $this->messenger->answer($ctx, 'Этот вариант больше недоступен.', true);
+                $this->messenger->show($ctx, $this->screens->renew($customer));
+
+                return;
+            }
+            $this->messenger->answer($ctx);
+            $this->startOrder($ctx, $match[1], $account);
 
             return;
         }
@@ -148,14 +185,14 @@ class CustomerHandler
     }
 
     /** Opens an order for the plan (a remembered promo code applies) and shows how to pay it. */
-    private function startOrder(Context $ctx, string $planKey): void
+    private function startOrder(Context $ctx, string $planKey, ?User $renewFor = null): void
     {
         if ($this->planMissing($planKey)) {
             $this->messenger->show($ctx, $this->screens->plans($ctx->customer, $this->promos->remembered($ctx->userId())));
 
             return;
         }
-        $order = $this->orders->create($ctx->customer, $planKey);
+        $order = $this->orders->create($ctx->customer, $planKey, $renewFor);
         if ($completed = $this->promos->applyRemembered($order)) {
             $this->finish($ctx, $completed);
 
@@ -288,7 +325,7 @@ class CustomerHandler
             return;
         }
         if ($order->status === TelegramStoreOrder::REVIEW) {
-            $this->messenger->answer($ctx, 'Уже проверяем — код придёт сюда.');
+            $this->messenger->answer($ctx, $order->isRenewal() ? 'Уже проверяем — подтверждение придёт сюда.' : 'Уже проверяем — код придёт сюда.');
 
             return;
         }
@@ -323,7 +360,7 @@ class CustomerHandler
     private function checkPayment(Context $ctx, TelegramStoreOrder $order): void
     {
         if ($order->status === TelegramStoreOrder::PAID) {
-            $this->messenger->answer($ctx, 'Заказ уже оплачен — код в сообщении выше.', true);
+            $this->messenger->answer($ctx, $order->isRenewal() ? 'Заказ уже оплачен, подписка продлена.' : 'Заказ уже оплачен — код в сообщении выше.', true);
 
             return;
         }
@@ -337,8 +374,10 @@ class CustomerHandler
         }
         $order->refresh();
         $this->messenger->answer($ctx, $order->status === TelegramStoreOrder::PAID
-            ? 'Заказ уже оплачен — код в сообщении выше.'
-            : 'Оплата пока не поступила. Если вы уже оплатили, код придёт сюда автоматически в течение пары минут.', true);
+            ? ($order->isRenewal() ? 'Заказ уже оплачен, подписка продлена.' : 'Заказ уже оплачен — код в сообщении выше.')
+            : ($order->isRenewal()
+                ? 'Оплата пока не поступила. Если вы уже оплатили, подписка продлится автоматически в течение пары минут.'
+                : 'Оплата пока не поступила. Если вы уже оплатили, код придёт сюда автоматически в течение пары минут.'), true);
     }
 
     private function cancel(Context $ctx, TelegramStoreOrder $order): void

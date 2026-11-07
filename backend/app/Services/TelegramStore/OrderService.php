@@ -3,6 +3,7 @@
 namespace App\Services\TelegramStore;
 
 use App\Enums\RoleSlug;
+use App\Models\ActivationCode;
 use App\Models\TelegramStoreCustomer;
 use App\Models\TelegramStoreOrder;
 use App\Models\User;
@@ -14,6 +15,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
 use RuntimeException;
+use Throwable;
 
 class OrderService
 {
@@ -27,13 +29,13 @@ class OrderService
      * Opens an order for a plan. Older unpaid orders of the customer are
      * cancelled so only one checkout is live at a time.
      */
-    public function create(TelegramStoreCustomer $customer, string $planKey): TelegramStoreOrder
+    public function create(TelegramStoreCustomer $customer, string $planKey, ?User $renewFor = null): TelegramStoreOrder
     {
         $plan = $this->settings->plan($planKey) ?? throw new InvalidArgumentException("Unknown plan {$planKey}.");
 
         // The customer row lock makes cancel-then-create atomic: a double tap waits here and then
         // cancels the first tap's order, so at most one order stays PENDING.
-        return DB::transaction(function () use ($customer, $plan, $planKey) {
+        return DB::transaction(function () use ($customer, $plan, $planKey, $renewFor) {
             TelegramStoreCustomer::query()->whereKey($customer->id)->lockForUpdate()->firstOrFail();
             TelegramStoreOrder::query()
                 ->where('customer_id', $customer->id)
@@ -41,16 +43,17 @@ class OrderService
                 ->get()
                 ->each(fn (TelegramStoreOrder $order) => $this->close($order, TelegramStoreOrder::CANCELLED));
 
-            return $this->openFor($customer, $plan, $planKey);
+            return $this->openFor($customer, $plan, $planKey, $renewFor);
         }, 3);
     }
 
     /** @param array{months: int, days: int, price: int} $plan */
-    private function openFor(TelegramStoreCustomer $customer, array $plan, string $planKey): TelegramStoreOrder
+    private function openFor(TelegramStoreCustomer $customer, array $plan, string $planKey, ?User $renewFor): TelegramStoreOrder
     {
         return TelegramStoreOrder::create([
             'public_id' => strtolower((string) Str::ulid()),
             'customer_id' => $customer->id,
+            'renew_user_id' => $renewFor?->id,
             'telegram_user_id' => $customer->telegram_user_id,
             'chat_id' => $customer->chat_id,
             'username' => $customer->username,
@@ -231,7 +234,7 @@ class OrderService
                 ->whereHas('roles', fn (Builder $roles) => $roles->where('slug', RoleSlug::Admin->value))
                 ->oldest('id')
                 ->first() ?? throw new RuntimeException('No admin account is available to issue activation codes.');
-            $code = $this->codes->generate($issuer, 1, (string) $locked->plan, $locked->duration_days, null, 'Telegram Store order '.$locked->reference())['codes'][0];
+            $code = $this->codes->generate($issuer, 1, (string) $locked->plan, $locked->duration_days, null, self::codeNote($locked))['codes'][0];
 
             $referrer = null;
             $bonus = 0;
@@ -259,7 +262,39 @@ class OrderService
         });
         $order->refresh();
 
-        return $result;
+        return $result ? $this->applyRenewal($result) : null;
+    }
+
+    /**
+     * A renewal order goes straight onto its account. If that fails the payment still stands:
+     * the buyer gets the code as with any other order and can redeem it by hand.
+     */
+    private function applyRenewal(CompletedOrder $completed): CompletedOrder
+    {
+        $account = $completed->order->renewUser;
+        if ($account === null) {
+            return $completed;
+        }
+        try {
+            $subscription = $this->codes->redeem($account, $completed->code);
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return $completed;
+        }
+
+        return new CompletedOrder($completed->order, $completed->code, $completed->referrer, $completed->referralBonus, $subscription);
+    }
+
+    /** Ties an issued code to its order; how the bot finds the account a customer activated. */
+    public static function codeNote(TelegramStoreOrder $order): string
+    {
+        return 'Telegram Store order '.$order->reference();
+    }
+
+    public function codeWasRedeemed(TelegramStoreOrder $order): bool
+    {
+        return ActivationCode::query()->where('note', self::codeNote($order))->whereNotNull('redeemed_by')->exists();
     }
 
     public function activationCode(TelegramStoreOrder $order): ?string

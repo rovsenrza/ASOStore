@@ -234,6 +234,7 @@ class AdminHandler
             'Покупатель: '.($order->isWeb()
                 ? 'сайт, '.e($order->user->email ?? 'аккаунт удалён')
                 : e($customer?->displayName() ?? $this->buyer($order))." (<code>{$order->telegram_user_id}</code>)"),
+            ...($order->isRenewal() ? ['Продление аккаунта: '.e($order->renewUser->email ?? 'удалён')] : []),
             'Тариф: '.$this->screens->planName($order).' · '.Format::rub($order->price_rub),
             '<b>К оплате деньгами: '.Format::rub($order->amount_due_rub).'</b>',
         ];
@@ -273,7 +274,11 @@ class AdminHandler
         $this->fulfillment->deliver($completed);
         $this->messenger->show($ctx, new Screen(
             "✅ Оплата заказа <code>{$order->reference()}</code> подтверждена, "
-            .($order->isWeb() ? 'доступ включён в аккаунте покупателя.' : 'код отправлен покупателю.')
+            .(match (true) {
+                $order->isWeb() => 'доступ включён в аккаунте покупателя.',
+                $completed->renewed !== null => 'подписка покупателя продлена.',
+                default => 'код отправлен покупателю.',
+            })
             .($completed->referralBonus > 0 ? "\nПригласившему начислено ".Format::rub($completed->referralBonus).'.' : ''),
             [[Screen::button('🧾 На проверке', 'adm:reviews'), Screen::button('‹ Панель', 'adm:panel')]],
         ));

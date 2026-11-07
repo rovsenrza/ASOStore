@@ -115,7 +115,9 @@ class Messenger
     {
         $order = $completed->order;
         if ($order->chat_id !== null) {
-            $this->notify($order->chat_id, $this->screens->paid($order, $completed->code));
+            $this->notify($order->chat_id, $completed->renewed
+                ? $this->screens->renewed($order, $completed->renewed)
+                : $this->screens->paid($order, $completed->code));
         }
 
         if ($completed->referrer && $completed->referralBonus > 0) {

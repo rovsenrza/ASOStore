@@ -96,7 +96,13 @@ function render(order) {
     case 'PAID':
       lead.textContent = 'Оплата получена. Спасибо!';
       reportPurchase(order);
-      if (order.channel === 'web') {
+      if (order.is_renewal) {
+        blocks = [notice('notice notice--ok', 'Подписка продлена', [
+          summary,
+          'Новые дни уже добавлены к вашему аккаунту, код вводить не нужно. Новую дату можно посмотреть в аккаунте.',
+        ])];
+        buttons = [link('Открыть аккаунт', '/account.html', true), order.channel === 'telegram' && /^https:\/\//i.test(order.bot_url ?? '') && link('Открыть бот', order.bot_url)].filter(Boolean);
+      } else if (order.channel === 'web') {
         blocks = [notice('notice notice--ok', 'Доступ включён', [
           summary,
           'Подписка уже действует в вашем аккаунте, код вводить не нужно. Осталось зарегистрировать iPhone.',

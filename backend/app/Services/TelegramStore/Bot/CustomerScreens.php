@@ -2,12 +2,15 @@
 
 namespace App\Services\TelegramStore\Bot;
 
+use App\Models\Subscription;
 use App\Models\TelegramStoreCustomer;
 use App\Models\TelegramStoreOrder;
 use App\Models\TelegramStorePromoCode;
+use App\Models\User;
 use App\Services\TelegramStore\OrderService;
 use App\Services\TelegramStore\Payments\Checkout;
 use App\Services\TelegramStore\Payments\GatewayResolver;
+use App\Services\TelegramStore\RenewalAccounts;
 use App\Services\TelegramStore\StoreSettings;
 use App\Services\TelegramStore\TelegramApi;
 
@@ -21,6 +24,7 @@ class CustomerScreens
         private readonly OrderService $orders,
         private readonly GatewayResolver $gateways,
         private readonly TelegramApi $api,
+        private readonly RenewalAccounts $accounts,
     ) {}
 
     public function welcomeText(): string
@@ -49,6 +53,7 @@ class CustomerScreens
     {
         $rows = [
             [Screen::button('🛍 Купить подписку', 'buy')],
+            [Screen::button('🔄 Продлить подписку', 'renew')],
             [Screen::button('👤 Профиль', 'profile'), Screen::button('👥 Пригласить друга', 'invite')],
         ];
         $info = [Screen::button('📖 Инструкция', 'help')];
@@ -72,15 +77,7 @@ class CustomerScreens
 
         $rows = [];
         foreach ($plans as $key => $plan) {
-            $saving = $this->settings->savingPercent($key);
-            $label = Format::months($plan['months']).' — '.Format::rub($plan['price']);
-            if ($plan['months'] > 1) {
-                $label .= ' · '.Format::rub((int) ceil($plan['price'] / $plan['months'])).'/мес';
-            }
-            if ($saving > 0) {
-                $label .= ' · −'.$saving.'%';
-            }
-            $rows[] = [Screen::button(($key === $best && $bestSaving > 0 ? '🔥 ' : '').$label, 'plan:'.$key)];
+            $rows[] = [Screen::button(($key === $best && $bestSaving > 0 ? '🔥 ' : '').$this->planLabel($key, $plan), 'plan:'.$key)];
         }
         $rows[] = [Screen::button('‹ Меню', 'menu')];
 
@@ -107,6 +104,78 @@ class CustomerScreens
         return new Screen($text, $rows);
     }
 
+    /** «Продлить подписку»: straight to the terms when the customer has one known account. */
+    public function renew(TelegramStoreCustomer $customer): Screen
+    {
+        $accounts = $this->accounts->for($customer);
+        if ($accounts->count() === 1) {
+            return $this->renewPlans($customer, $accounts->first());
+        }
+
+        if ($accounts->isEmpty()) {
+            $rows = [
+                [Screen::button('🛍 Выбрать тариф', 'buy')],
+                [Screen::link('🌐 Продлить на сайте', $this->renewUrl())],
+            ];
+            if ($support = $this->supportRow()) {
+                $rows[] = $support;
+            }
+            $rows[] = [Screen::button('‹ Меню', 'menu')];
+
+            return new Screen(
+                "<b>🔄 Продление подписки</b>\n\n"
+                ."Не нашли аккаунт, на котором активирован код из этого Telegram. Продлить можно двумя способами:\n\n"
+                ."<b>На сайте</b> — войдите в свой аккаунт, выберите срок и оплатите. Подписка продлится сама.\n\n"
+                .'<b>Здесь</b> — выберите тариф и оплатите, код придёт в этот чат. Введите его в своём аккаунте на странице активации: новые дни прибавятся к сроку.',
+                $rows,
+            );
+        }
+
+        $rows = $accounts->map(fn (User $user) => [Screen::button(
+            RenewalAccounts::maskEmail($user->email).' · '.$this->accessLine($user),
+            'rna:'.$user->public_id,
+        )])->all();
+        $rows[] = [Screen::button('‹ Меню', 'menu')];
+
+        return new Screen("<b>🔄 Продление подписки</b>\n\nКакой аккаунт продлить? 👇", $rows);
+    }
+
+    public function renewPlans(TelegramStoreCustomer $customer, User $account): Screen
+    {
+        $rows = [];
+        foreach ($this->settings->plans() as $key => $plan) {
+            $rows[] = [Screen::button($this->planLabel($key, $plan), "rnw:{$key}:{$account->public_id}")];
+        }
+        $rows[] = [Screen::button('‹ Меню', 'menu')];
+
+        $text = "<b>🔄 Продление подписки</b>\n\n"
+            .'Аккаунт: <b>'.e(RenewalAccounts::maskEmail($account->email))."</b>\n"
+            .'Подписка: <b>'.$this->accessLine($account)."</b>\n\n"
+            .'После оплаты подписка продлится сама, код вводить не нужно. ';
+        $text .= $account->activeSubscription ? 'Новые дни прибавятся к текущему сроку.' : 'Доступ включится сразу.';
+        if ($customer->balance_rub > 0) {
+            $text .= "\n\n💰 На балансе <b>".Format::rub($customer->balance_rub).'</b> — им можно оплатить заказ.';
+        }
+
+        return new Screen($text."\n\nВыберите срок 👇", $rows);
+    }
+
+    public function renewed(TelegramStoreOrder $order, Subscription $subscription): Screen
+    {
+        $rows = [[Screen::link('👤 Мой аккаунт', rtrim((string) config('app.url'), '/').'/account.html')]];
+        $rows[] = [Screen::button('‹ Меню', 'menu')];
+        $until = $subscription->ends_at ? 'до <b>'.Format::date($subscription->ends_at).'</b>' : '<b>без ограничения срока</b>';
+
+        return new Screen(
+            "✅ <b>Подписка продлена!</b>\n\n"
+            ."Заказ #{$order->shortReference()} · {$this->planName($order)}\n"
+            .'Аккаунт: '.e(RenewalAccounts::maskEmail($order->renewUser?->email))."\n"
+            ."Подписка действует {$until}.\n\n"
+            .'Код вводить не нужно, откройте Ru App Store на iPhone.',
+            $rows,
+        );
+    }
+
     public function order(TelegramStoreOrder $order, TelegramStoreCustomer $customer): Screen
     {
         $plan = $this->planName($order);
@@ -116,6 +185,9 @@ class CustomerScreens
             "Тариф: {$this->brandHtml()} · {$plan}",
             'Стоимость: '.Format::rub($order->price_rub),
         ];
+        if ($order->isRenewal()) {
+            array_splice($lines, 2, 0, ['🔄 Продление аккаунта '.e(RenewalAccounts::maskEmail($order->renewUser?->email))]);
+        }
         if ($order->discount_rub > 0 && $order->promoCode) {
             $lines[] = "Промокод {$order->promoCode->code}: −".Format::rub($order->discount_rub);
         }
@@ -151,7 +223,7 @@ class CustomerScreens
             $lines[] = 'Выберите способ оплаты 👇';
         }
         $rows[] = $this->legalRow();
-        $rows[] = [Screen::button('❌ Отменить', 'cancel:'.$order->public_id), Screen::button('‹ Тарифы', 'buy')];
+        $rows[] = [Screen::button('❌ Отменить', 'cancel:'.$order->public_id), Screen::button('‹ Тарифы', $order->isRenewal() ? 'renew' : 'buy')];
 
         return new Screen(implode("\n", $lines), $rows);
     }
@@ -173,7 +245,9 @@ class CustomerScreens
             return new Screen(
                 "<b>💳 Оплата заказа #{$order->shortReference()}</b>\n\nСумма: <b>{$amount}</b>\n\n"
                 ."Нажмите «Оплатить» — откроется защищённая страница платёжного сервиса Platega, там можно оплатить картой или через СБП.\n\n"
-                .'Код активации придёт в этот чат автоматически, как только платёж подтвердится. Если код не пришёл за пару минут, нажмите «Проверить оплату».',
+                .($order->isRenewal()
+                    ? 'Подписка продлится автоматически, как только платёж подтвердится. Если подтверждение не пришло за пару минут, нажмите «Проверить оплату».'
+                    : 'Код активации придёт в этот чат автоматически, как только платёж подтвердится. Если код не пришёл за пару минут, нажмите «Проверить оплату».'),
                 [
                     [Screen::link("💳 Оплатить {$amount}", (string) $checkout->url)],
                     [Screen::button('🔄 Проверить оплату', 'paid:'.$order->public_id)],
@@ -187,7 +261,7 @@ class CustomerScreens
             "<b>💳 Оплата заказа #{$order->shortReference()}</b>\n\nСумма: <b>{$amount}</b>\n\n"
             ."1. Нажмите «Перейти к оплате» и оплатите ровно {$amount}.\n"
             ."2. Вернитесь сюда и нажмите «Я оплатил».\n\n"
-            .'Код активации придёт в этот чат сразу после проверки платежа.',
+            .($order->isRenewal() ? 'Подписка продлится сразу после проверки платежа.' : 'Код активации придёт в этот чат сразу после проверки платежа.'),
             [
                 [Screen::link('Перейти к оплате →', (string) $checkout->url)],
                 [Screen::button('✅ Я оплатил', 'paid:'.$order->public_id)],
@@ -207,7 +281,9 @@ class CustomerScreens
 
         return new Screen(
             "⏳ <b>Проверяем оплату заказа #{$order->shortReference()}</b>\n\n"
-            .'Как только платёж подтвердится, код активации придёт в этот чат. Обычно это занимает несколько минут.',
+            .($order->isRenewal()
+                ? 'Как только платёж подтвердится, подписка продлится автоматически. Обычно это занимает несколько минут.'
+                : 'Как только платёж подтвердится, код активации придёт в этот чат. Обычно это занимает несколько минут.'),
             $rows,
         );
     }
@@ -242,7 +318,9 @@ class CustomerScreens
 
     public function paidPlaceholder(TelegramStoreOrder $order): Screen
     {
-        return new Screen("✅ Заказ #{$order->shortReference()} оплачен. Код активации — в сообщении ниже 👇");
+        return new Screen($order->isRenewal()
+            ? "✅ Заказ #{$order->shortReference()} оплачен. Подробности — в сообщении ниже 👇"
+            : "✅ Заказ #{$order->shortReference()} оплачен. Код активации — в сообщении ниже 👇");
     }
 
     public function expired(TelegramStoreOrder $order): Screen
@@ -252,9 +330,11 @@ class CustomerScreens
             $text .= "\n".Format::rub($order->balance_used_rub).' вернулись на баланс.';
         }
         $text .= "\n\nТариф «{$this->planName($order)}» по-прежнему доступен — оформить заново можно в один клик.";
-        $rows = $order->plan_key && $this->settings->plan($order->plan_key)
+        $rows = $order->isRenewal()
+            ? [[Screen::button('🔄 Продлить подписку', 'renew')]]
+            : ($order->plan_key && $this->settings->plan($order->plan_key)
             ? [[Screen::button('🔁 Оформить заново', 'plan:'.$order->plan_key)]]
-            : [[Screen::button('🛍 Выбрать тариф', 'buy')]];
+            : [[Screen::button('🛍 Выбрать тариф', 'buy')]]);
 
         return new Screen($text, $rows);
     }
@@ -271,7 +351,7 @@ class CustomerScreens
             $rows[] = $support;
         }
         $rows[] = $this->legalRow();
-        $rows[] = [Screen::button('🛍 Оформить новый заказ', 'buy')];
+        $rows[] = [$order->isRenewal() ? Screen::button('🔄 Продлить подписку', 'renew') : Screen::button('🛍 Оформить новый заказ', 'buy')];
 
         return new Screen($text, $rows);
     }
@@ -295,6 +375,7 @@ class CustomerScreens
 
         return new Screen(implode("\n", $lines), [
             [Screen::button('🧾 Мои заказы', 'orders'), Screen::button('👥 Пригласить друга', 'invite')],
+            [Screen::button('🔄 Продлить подписку', 'renew')],
             [Screen::button('🛍 Купить подписку', 'buy')],
             [Screen::button('‹ Меню', 'menu')],
         ]);
@@ -329,6 +410,12 @@ class CustomerScreens
 
     public function code(TelegramStoreOrder $order): Screen
     {
+        if ($order->isRenewal() && $this->orders->codeWasRedeemed($order)) {
+            return new Screen(
+                "✅ <b>Заказ #{$order->shortReference()}</b>\n\nЭтот заказ уже продлил подписку аккаунта ".e(RenewalAccounts::maskEmail($order->renewUser?->email)).'. Код вводить не нужно.',
+                [[Screen::button('‹ Мои заказы', 'orders')]],
+            );
+        }
         $code = $this->orders->activationCode($order);
 
         return new Screen(
@@ -371,7 +458,7 @@ class CustomerScreens
     public function help(): Screen
     {
         $url = e($this->activationUrl());
-        $rows = [[Screen::button('🛍 Купить подписку', 'buy')]];
+        $rows = [[Screen::button('🛍 Купить подписку', 'buy')], [Screen::button('🔄 Продлить подписку', 'renew')]];
         if ($support = $this->supportRow()) {
             $rows[] = $support;
         }
@@ -384,8 +471,8 @@ class CustomerScreens
             ."2. Оплатите заказ удобным способом.\n"
             ."3. Получите код активации в этом чате.\n"
             ."4. Введите код на странице активации:\n{$url}\n\n"
-            ."Код всегда доступен в «Профиль → Мои заказы».\n"
-            .'Подписка не продлевается автоматически.',
+            ."Код всегда доступен в «Профиль → Мои заказы».\n\n"
+            .'Подписка не продлевается автоматически: когда срок подойдёт к концу, нажмите «Продлить подписку» и оплатите. Новые дни прибавятся сами.',
             $rows,
         );
     }
@@ -430,6 +517,35 @@ class CustomerScreens
     public function activationUrl(): string
     {
         return config('telegram_store.activation_url') ?: rtrim((string) config('app.url'), '/').'/activate.html';
+    }
+
+    /** @param array{months: int, days: int, price: int} $plan */
+    private function planLabel(string $key, array $plan): string
+    {
+        $saving = $this->settings->savingPercent($key);
+        $label = Format::months($plan['months']).' — '.Format::rub($plan['price']);
+        if ($plan['months'] > 1) {
+            $label .= ' · '.Format::rub((int) ceil($plan['price'] / $plan['months'])).'/мес';
+        }
+
+        return $saving > 0 ? $label.' · −'.$saving.'%' : $label;
+    }
+
+    /** «активна до 01.12.2026» or «закончилась 05.11.2026». */
+    private function accessLine(User $user): string
+    {
+        $active = $user->activeSubscription;
+        if ($active) {
+            return $active->ends_at ? 'активна до '.Format::date($active->ends_at) : 'активна без ограничения срока';
+        }
+        $end = $this->accounts->lastEnd($user);
+
+        return $end ? 'закончилась '.Format::date($end) : 'не активна';
+    }
+
+    private function renewUrl(): string
+    {
+        return rtrim((string) config('app.url'), '/').'/renew.html';
     }
 
     /** @return list<array<string, string>>|null */

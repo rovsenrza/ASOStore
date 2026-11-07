@@ -27,6 +27,11 @@ function renderProfile(user) {
     row(list, t('account.plan'), t('account.noSubscription'));
   }
 
+  const renew = document.createElement('a');
+  renew.className = 'btn btn--primary';
+  renew.href = '/renew.html';
+  renew.textContent = user.subscription ? 'Продлить подписку' : 'Купить или продлить';
+
   const signOut = document.createElement('button');
   signOut.type = 'button';
   signOut.className = 'secondary-button';
@@ -42,7 +47,7 @@ function renderProfile(user) {
     }
   });
 
-  profile.replaceChildren(list, signOut);
+  profile.replaceChildren(list, renew, signOut);
 }
 
 async function load() {

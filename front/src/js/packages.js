@@ -44,7 +44,7 @@ function monthlyLabel(node, input, saving) {
   }
 }
 
-export function setupPackages(root = document, { api = null } = {}) {
+export function setupPackages(root = document, { api = null, returnTo = '/buy.html', authPage = '/register.html', payVerb = 'Оплатить' } = {}) {
   const block = root.querySelector('[data-packages]');
   if (!block) return null;
   const field = (name) => block.querySelector(`[data-offer-${name}]`);
@@ -69,7 +69,7 @@ export function setupPackages(root = document, { api = null } = {}) {
     const cta = field('cta');
     cta.href = input.dataset.buyUrl;
     field('cta-label').textContent = `Или заказать ${input.dataset.term} в Telegram`;
-    payLabel = `Оплатить ${rub(total)}`;
+    payLabel = `${payVerb} ${rub(total)}`;
     if (!payButton?.disabled) field('pay-label').textContent = payLabel;
     block.dispatchEvent(new CustomEvent('plan-change', { bubbles: true, detail: { value: input.value, term: input.dataset.term, total, buyUrl: input.dataset.buyUrl } }));
   };
@@ -117,7 +117,7 @@ export function setupPackages(root = document, { api = null } = {}) {
   const checkout = async () => {
     const plan = block.querySelector('input[name="plan"]:checked')?.value;
     if (!plan) return;
-    const back = `/buy.html?plan=${encodeURIComponent(plan)}#pricing`;
+    const back = `${returnTo}?plan=${encodeURIComponent(plan)}#pricing`;
     setBusy(true);
     try {
       const { data } = await api.post('/store/checkout', { plan }, {
@@ -127,7 +127,7 @@ export function setupPackages(root = document, { api = null } = {}) {
       return;
     } catch (error) {
       if (error?.code === 'UNAUTHENTICATED' || error?.code === 'SESSION_EXPIRED') {
-        location.assign(`/register.html?next=${encodeURIComponent(back)}`);
+        location.assign(`${authPage}?next=${encodeURIComponent(back)}`);
         return;
       }
       if (error?.code === 'EMAIL_NOT_VERIFIED') {

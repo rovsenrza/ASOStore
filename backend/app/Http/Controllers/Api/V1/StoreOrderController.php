@@ -6,6 +6,7 @@ use App\Enums\ErrorCode;
 use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
+use App\Models\Subscription;
 use App\Models\TelegramStoreOrder;
 use App\Services\TelegramStore\Bot\Format;
 use App\Services\TelegramStore\OrderService;
@@ -135,6 +136,9 @@ class StoreOrderController extends Controller
             'expires_at' => $order->expires_at->toIso8601ZuluString(),
             'paid_at' => $order->paid_at?->toIso8601ZuluString(),
             'bot_url' => $order->isWeb() ? null : $this->botUrl(),
+            // Already had access before this order: the result page speaks of extending, not starting.
+            'is_renewal' => $order->isRenewal() || ($order->user_id !== null
+                && Subscription::query()->where('user_id', $order->user_id)->where('created_at', '<', $order->created_at)->exists()),
         ];
     }
 

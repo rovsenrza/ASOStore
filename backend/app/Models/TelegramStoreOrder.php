@@ -15,6 +15,7 @@ use Illuminate\Support\Carbon;
  *
  * @property string $public_id
  * @property int|null $user_id
+ * @property int|null $renew_user_id
  * @property int|null $telegram_user_id
  * @property int|null $chat_id
  * @property string|null $payment_provider
@@ -63,6 +64,7 @@ class TelegramStoreOrder extends Model
             'referral_bonus_rub' => 'integer',
             'reviewed_by' => 'integer',
             'user_id' => 'integer',
+            'renew_user_id' => 'integer',
             'payment_amount_rub' => 'integer',
             'expires_at' => 'datetime',
             'paid_at' => 'datetime',
@@ -80,6 +82,21 @@ class TelegramStoreOrder extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * The account a bot order extends.
+     *
+     * @return BelongsTo<User, $this>
+     */
+    public function renewUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'renew_user_id');
+    }
+
+    public function isRenewal(): bool
+    {
+        return $this->renew_user_id !== null;
     }
 
     /** Bought on the website: no Telegram chat to message. */

@@ -616,3 +616,88 @@ it('locks the customer before cancelling pending orders, so a double tap leaves 
         ->and($first->refresh()->status)->toBe(TelegramStoreOrder::CANCELLED)
         ->and(TelegramStoreOrder::query()->where('status', TelegramStoreOrder::PENDING)->pluck('id')->all())->toBe([$second->id]);
 });
+
+describe('renewal', function () {
+    /** A customer who bought one code and redeemed it on $account. */
+    function redeemedOnAccount(object $test, App\Models\User $account): TelegramStoreCustomer
+    {
+        ($test->text)(BUYER_ID, '/start');
+        $customer = customer(BUYER_ID);
+        $orders = app(OrderService::class);
+        $completed = $orders->complete($orders->create($customer, 'month1'), 'mock');
+        app(App\Services\Activation\ActivationCodeService::class)->redeem($account, $completed->code);
+
+        return $customer;
+    }
+
+    it('extends the known account on payment without a code', function () {
+        $account = userWithRoles(RoleSlug::Customer);
+        $customer = redeemedOnAccount($this, $account);
+        $before = $account->activeSubscription()->first()->ends_at;
+
+        ($this->press)(BUYER_ID, 'renew');
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Продление подписки')->toContain('активна до');
+
+        ($this->press)(BUYER_ID, 'rnw:month3:'.$account->public_id);
+        $order = TelegramStoreOrder::query()->latest('id')->first();
+        expect($order->renew_user_id)->toBe($account->id)->and($order->isWeb())->toBeFalse();
+
+        $completed = app(OrderService::class)->complete($order, 'platega', settled: true, reference: 'tx-renew');
+        expect($completed->renewed)->not->toBeNull();
+        app(App\Services\TelegramStore\OrderFulfillment::class)->deliver($completed);
+
+        $ends = $account->activeSubscription()->first()->ends_at;
+        expect($ends->equalTo($before->copy()->addDays(90)))->toBeTrue();
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Подписка продлена')->not->toContain('<code>');
+
+        // A repeated callback changes nothing.
+        expect(app(OrderService::class)->complete($order, 'platega', settled: true, reference: 'tx-renew'))->toBeNull();
+        expect(App\Models\Subscription::query()->where('user_id', $account->id)->count())->toBe(2);
+    });
+
+    it('starts from today for an expired subscription', function () {
+        $account = userWithRoles(RoleSlug::Customer);
+        redeemedOnAccount($this, $account);
+        App\Models\Subscription::query()->where('user_id', $account->id)->update(['ends_at' => now()->subDay()]);
+
+        ($this->press)(BUYER_ID, 'renew');
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('закончилась');
+        ($this->press)(BUYER_ID, 'rnw:month1:'.$account->public_id);
+        $completed = app(OrderService::class)->complete(TelegramStoreOrder::query()->latest('id')->first(), 'mock');
+
+        expect($completed->renewed->ends_at->diffInDays(now()->addDays(30), true))->toBeLessThan(1);
+    });
+
+    it('refuses an account the customer never used', function () {
+        redeemedOnAccount($this, userWithRoles(RoleSlug::Customer));
+        $stranger = userWithRoles(RoleSlug::Customer);
+        $count = TelegramStoreOrder::query()->count();
+
+        ($this->press)(BUYER_ID, 'rnw:month1:'.$stranger->public_id);
+
+        expect(TelegramStoreOrder::query()->count())->toBe($count);
+    });
+
+    it('explains the code route when no account is known', function () {
+        ($this->text)(BUYER_ID, '/start');
+        ($this->press)(BUYER_ID, 'renew');
+
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Не нашли аккаунт');
+    });
+
+    it('still delivers the code when extending the account fails', function () {
+        $account = userWithRoles(RoleSlug::Customer);
+        $customer = redeemedOnAccount($this, $account);
+        $orders = app(OrderService::class);
+        $order = $orders->create($customer, 'month1', $account);
+        $mock = Mockery::mock(App\Services\Activation\ActivationCodeService::class)->makePartial();
+        $mock->shouldReceive('generate')->andReturn(['batch_id' => 'x', 'codes' => ['AAAA-BBBB-CCCC-DDDD']]);
+        $mock->shouldReceive('redeem')->andThrow(new RuntimeException('boom'));
+        app()->instance(App\Services\Activation\ActivationCodeService::class, $mock);
+        app()->forgetInstance(OrderService::class);
+
+        $completed = app(OrderService::class)->complete($order, 'mock');
+
+        expect($completed->renewed)->toBeNull()->and($completed->code)->toBe('AAAA-BBBB-CCCC-DDDD');
+    });
+});
