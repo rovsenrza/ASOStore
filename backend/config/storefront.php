@@ -152,6 +152,10 @@ return [
         'gift_days' => (int) env('STOREFRONT_DELAY_COMPENSATION_GIFT_DAYS', 7),
     ],
 
+    // Telegram message to the admins when Apple finally enables a device that waited this long
+    // (the normal 24–72 h wait stays quiet). 0 turns it off.
+    'long_wait_alert_days' => (float) env('STOREFRONT_LONG_WAIT_ALERT_DAYS', 4),
+
     'artifacts' => [
         'file_cache_enabled' => (bool) env('STOREFRONT_ARTIFACT_CACHE_ENABLED', true),
         'file_cache_path' => storage_path('app/private/artifact-cache'),

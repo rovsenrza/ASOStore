@@ -270,6 +270,7 @@ class DeviceRegistrationService
 
         if ($becameEligible) {
             app(BuildWarmup::class)->forDevice($registration->device->fresh());
+            app(LongWaitAlert::class)->handle($registration);
             // Only the device's current registration tells the owner (devices moved on 2026-10-07 have an older one).
             if ($waitedForApple && (int) $registration->device->registrations()->max('id') === $registration->id) {
                 $this->notifyReady($registration->device);

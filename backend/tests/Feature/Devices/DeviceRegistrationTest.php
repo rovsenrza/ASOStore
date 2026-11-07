@@ -5,15 +5,21 @@ use App\Enums\DeviceFamily;
 use App\Enums\DeviceRegistrationStatus as Status;
 use App\Jobs\RegisterDeviceJob;
 use App\Jobs\SyncDeviceRegistrationsJob;
+use App\Models\ActivationCode;
 use App\Models\AuditLog;
 use App\Models\Device;
 use App\Models\DeviceRegistration;
+use App\Models\TelegramStoreOrder;
 use App\Notifications\DeviceReadyNotification;
 use App\Services\Apple\AppleDevice;
 use App\Services\Apple\AppleException;
 use App\Services\Apple\AppleRetryableException;
 use App\Services\Devices\DeviceRegistrationService;
+use App\Services\TelegramStore\Bot\Messenger;
+use App\Services\TelegramStore\Bot\Screen;
+use App\Services\TelegramStore\OrderService;
 use Illuminate\Support\Facades\Notification;
+use Illuminate\Support\Str;
 use Tests\Support\ScriptedApple;
 
 beforeEach(function () {
@@ -166,6 +172,46 @@ it('waits while Apple processes the device and finishes on the next sync', funct
     });
     app()->call([new SyncDeviceRegistrationsJob, 'handle']);
     Notification::assertSentToTimes($owner, DeviceReadyNotification::class, 1);
+});
+
+it('tells the admins in Telegram, with the bot buyer, when a long-waiting device is enabled', function () {
+    Notification::fake();
+    $alerts = [];
+    $messenger = Mockery::mock(Messenger::class);
+    $messenger->shouldReceive('notifyAdmins')->andReturnUsing(function (Screen $screen) use (&$alerts) {
+        $alerts[] = $screen->text;
+    });
+    app()->instance(Messenger::class, $messenger);
+
+    $this->apple->onRegister = fn ($udid) => new AppleDevice('APPLE-NEW', $udid, AppleDeviceStatus::Processing);
+    $registration = ($this->enrol)(TEST_UDID);
+    ($this->register)($registration);
+    $owner = $registration->device->user;
+    $order = TelegramStoreOrder::create([
+        'public_id' => strtolower((string) Str::ulid()), 'telegram_user_id' => 555, 'chat_id' => 555, 'username' => 'buyer_tg',
+        'plan' => 'standard', 'plan_key' => 'standard', 'duration_days' => 30, 'price_rub' => 299, 'amount_due_rub' => 299,
+        'status' => TelegramStoreOrder::PAID, 'paid_at' => now(), 'expires_at' => now()->addDay(),
+    ]);
+    ActivationCode::query()->forceCreate([
+        'batch_id' => strtolower((string) Str::ulid()), 'created_by' => $owner->id, 'code_hash' => str_repeat('c', 64), 'code_hint' => 'ABCD', 'status' => 'REDEEMED', 'plan' => 'standard', 'duration_days' => 30,
+        'note' => OrderService::codeNote($order), 'redeemed_by' => $owner->id, 'redeemed_at' => now(),
+    ]);
+
+    // A normal three-day wait stays quiet.
+    $this->apple->onGet = fn ($id) => new AppleDevice($id, TEST_UDID, AppleDeviceStatus::Processing);
+    $this->travel(3)->days();
+    app()->call([new SyncDeviceRegistrationsJob, 'handle']);
+    expect($alerts)->toBe([]);
+
+    $this->apple->onGet = fn ($id) => new AppleDevice($id, TEST_UDID, AppleDeviceStatus::Enabled);
+    $this->travel(14)->days();
+    app()->call([new SyncDeviceRegistrationsJob, 'handle']);
+    app()->call([new SyncDeviceRegistrationsJob, 'handle']);
+
+    expect($registration->fresh()->status)->toBe(Status::Eligible)
+        ->and($alerts)->toHaveCount(1)
+        ->and($alerts[0])->toContain('Аккаунт открыт')->toContain($owner->email)->toContain('@buyer_tg')->toContain('17.0 дн.')
+        ->and($alerts[0])->not->toContain(TEST_UDID);
 });
 
 it('sends no email when Apple enables the device at once', function () {
