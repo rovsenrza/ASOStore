@@ -20,6 +20,7 @@ use App\Http\Controllers\Api\V1\Admin\OverviewController;
 use App\Http\Controllers\Api\V1\Admin\QuickPublishController;
 use App\Http\Controllers\Api\V1\Admin\RunnerController;
 use App\Http\Controllers\Api\V1\Admin\StoreController;
+use App\Http\Controllers\Api\V1\Admin\SubscriptionMonitorController;
 use App\Http\Controllers\Api\V1\Admin\TaxonomyController;
 use App\Http\Controllers\Api\V1\Admin\TeamAssignmentController;
 use App\Http\Controllers\Api\V1\Admin\TeamEligibilityController;
@@ -262,6 +263,7 @@ Route::prefix('admin')->name('api.admin.')->group(function () {
 
         // Operator overview and the customer card (2026-11-08).
         Route::get('/overview', [OverviewController::class, 'show'])->can('devices.view')->name('overview');
+        Route::get('/subscriptions', [SubscriptionMonitorController::class, 'index'])->can('users.view')->name('subscriptions.index');
         Route::get('/users/{user}/profile', [CustomerController::class, 'profile'])->can('users.view')->name('users.profile');
         Route::post('/users/{user}/subscription', [CustomerController::class, 'adjustSubscription'])->can('users.manage')->middleware('idempotent')->name('users.subscription');
         Route::post('/users/{user}/telegram-message', [CustomerController::class, 'messageTelegram'])->can('users.manage')->middleware('throttle:30,1')->name('users.telegram-message');
