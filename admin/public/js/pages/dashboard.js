@@ -1,7 +1,9 @@
-import { boot } from '../app.js';
+import { boot, el, errorNotice, formatDateTime } from '../app.js';
+import { hoursText, openCustomerCard, rub } from '../components/customer-card.js';
 import { statusBadge } from '../components/status-badge.js';
 
 const { api, t, can } = await boot();
+const ctx = { api, t, can };
 const health = document.querySelector('#widget-health');
 
 async function loadHealth() {
@@ -96,6 +98,67 @@ async function loadStorage() {
   }
 }
 
+// Operator overview: Apple waits, team load, subscriptions running out, sales.
+async function loadOverview() {
+  if (!can('devices.view')) return;
+  const box = document.querySelector('#overview');
+  box.hidden = false;
+  box.replaceChildren(el('p', { className: 'muted' }, 'Загрузка обзора…'));
+  try {
+    const { data } = await api.get('/admin/overview');
+    const d = data.devices;
+    const w = data.waiting;
+    const s = data.subscriptions;
+    const sales = data.sales;
+    const stat = (label, value, hint, href) => el(href ? 'a' : 'div', { className: 'stat-card', ...(href ? { href } : {}) },
+      el('span', { className: 'stat-label' }, label), el('strong', { className: 'stat-value' }, String(value)), el('span', { className: 'muted' }, hint ?? ''));
+
+    const buckets = [['under_1d', '< 1 дня'], ['1_3d', '1–3 дня'], ['3_7d', '3–7 дней'], ['7_14d', '7–14 дней'], ['over_14d', '> 14 дней']];
+    const longest = el('div', { className: 'simple-table' }, el('table', {},
+      el('thead', {}, el('tr', {}, ['Клиент', 'Устройство', 'Команда', 'Ждёт', 'С', ''].map((h) => el('th', { scope: 'col' }, h)))),
+      el('tbody', {}, w.longest.map((row) => el('tr', { className: row.hours >= 72 ? 'row--late' : '' },
+        el('td', {}, row.user ? `${row.user.email} · №${row.user.number}` : '—'),
+        el('td', {}, row.device ?? '—'),
+        el('td', { className: 'mono' }, row.team ?? '—'),
+        el('td', {}, hoursText(row.hours)),
+        el('td', {}, formatDateTime(row.since)),
+        el('td', {}, row.user ? el('button', { type: 'button', className: 'button', onclick: () => openCustomerCard(ctx, row.user.id, { onChange: loadOverview }) }, 'Карточка') : ''))))));
+
+    const teams = el('div', { className: 'simple-table' }, el('table', {},
+      el('thead', {}, el('tr', {}, ['Команда', 'Статус', 'Мест в Apple', 'Работают', 'Ждут Apple', 'Отключены'].map((h) => el('th', { scope: 'col' }, h)))),
+      el('tbody', {}, data.teams.map((team) => el('tr', {},
+        el('td', {}, el('span', { className: 'mono' }, team.apple_team_id), ` ${team.name ?? ''}${team.is_primary ? ' · основная' : ''}`),
+        el('td', {}, statusBadge(team.status, team.status)),
+        el('td', {}, `${team.slots_used} / 100`),
+        el('td', {}, String(team.eligible)),
+        el('td', {}, team.pending ? el('a', { href: `devices.html` }, String(team.pending)) : '0'),
+        el('td', {}, String(team.disabled)))))));
+
+    box.replaceChildren(
+      el('div', { className: 'section-head' }, el('h2', {}, 'Обзор'), el('span', { className: 'muted' }, `обновлено ${formatDateTime(data.generated_at)}`),
+        el('button', { type: 'button', className: 'button button--ghost', onclick: loadOverview }, 'Обновить')),
+      el('div', { className: 'stat-grid' },
+        stat('Устройств', d.total, `работают: ${d.by_status.ELIGIBLE ?? 0} · отключены: ${d.by_status.DISABLED ?? 0}`, 'devices.html'),
+        stat('Ждут Apple', w.total, `дольше 3 дней: ${w.buckets['3_7d'] + w.buckets['7_14d'] + w.buckets.over_14d}`, 'devices.html'),
+        stat('Клиентов с доступом', s.active, `всего с подпиской: ${s.customers}`, 'users.html'),
+        stat('Кончается за 7 дней', s.ending_7d, `за 24 ч: ${s.ending_24h} · за 3 дня: ${s.ending_3d}`, 'users.html'),
+        stat('Закончилась за 7 дней', s.ended_7d, `всего закончились: ${s.ended_total}`, 'users.html'),
+        stat('Продажи сегодня', sales.today.orders, rub(sales.today.revenue_rub), 'store.html'),
+        stat('Продажи за 7 дней', sales.last_7d.orders, rub(sales.last_7d.revenue_rub), 'store.html'),
+        stat('Продажи за 30 дней', sales.last_30d.orders, rub(sales.last_30d.revenue_rub), 'sales.html'),
+        stat('Заказы на проверке', sales.awaiting_review, sales.awaiting_review ? 'подтвердите в «Магазин»' : 'нет', 'store.html'),
+        stat('Открытые обращения', data.tickets_open, '', 'users.html')),
+      el('section', { className: 'card' }, el('h2', {}, 'Ожидание Apple'),
+        el('p', {}, ...buckets.map(([key, label], i) => [i ? ' · ' : '', `${label}: `, el('strong', {}, String(w.buckets[key]))]).flat()),
+        w.longest.length ? [el('h3', {}, 'Дольше всех ждут'), longest] : el('p', { className: 'muted' }, 'Никто не ждёт.')),
+      el('section', { className: 'card' }, el('h2', {}, 'Команды Apple (текущий год)'), teams),
+    );
+  } catch (error) {
+    box.replaceChildren(errorNotice(t, error, loadOverview));
+  }
+}
+
+loadOverview();
 loadHealth();
 loadQuota();
 loadStorage();

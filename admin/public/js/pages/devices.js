@@ -4,6 +4,7 @@ import { createDataTable } from '../components/data-table.js';
 import { openDialog } from '../components/dialog.js';
 import { statusBadge } from '../components/status-badge.js';
 import { toast } from '../components/toast.js';
+import { hoursText, openCustomerCard } from '../components/customer-card.js';
 
 const { api, t, can } = await boot();
 const STATUSES = ['ENROLLED', 'APPLE_PENDING', 'ELIGIBLE', 'APPLE_FAILED', 'QUOTA_BLOCKED', 'NO_ELIGIBLE_TEAM', 'DISABLED'];
@@ -20,14 +21,17 @@ const table = createDataTable({
   searchLabel: t('devices.search'),
   filters: [
     { name: 'status', label: t('devices.registration'), type: 'select', options: [['', t('devices.allStatuses')], ...STATUSES.map((s) => [s, t(`devices.status.${s}`)])] },
+    { name: 'team', label: 'Команда (ID Apple)', type: 'text' },
     { name: 'family', label: t('devices.family'), type: 'select', options: [['', t('devices.allFamilies')], ['IPHONE', 'iPhone'], ['IPAD', 'iPad']] },
   ],
   columns: [
     { key: 'udid_hint', label: t('devices.identifier'), className: 'mono' },
-    { key: 'owner', label: t('devices.owner'), render: (device) => device.user.email },
+    { key: 'owner', label: t('devices.owner'), render: (device) => el('a', { href: '#', onclick: (event) => { event.preventDefault(); openCustomerCard({ api, t, can }, device.user.id, { onChange: () => table.reload() }); } }, `${device.user.email} · №${device.user.number}`) },
     { key: 'product', label: t('devices.model'), className: 'mono' },
     { key: 'os_version', label: t('devices.ios') },
     { key: 'registration', label: t('devices.registration'), render: (device) => registrationBadge(device.registration) },
+    { key: 'team', label: 'Команда', className: 'mono', render: (device) => device.registration?.team ?? '' },
+    { key: 'waited', label: 'Ожидание Apple', render: (device) => (device.registration ? hoursText(device.registration.waited_hours) : '') },
     { key: 'reason', label: t('devices.reason'), className: 'mono', render: (device) => device.registration?.reason ?? '' },
     { key: 'enrolled_at', label: t('devices.enrolled'), sortable: true, render: (device) => formatDateTime(device.enrolled_at) },
     { key: 'actions', label: '', render: (device) => el('button', { type: 'button', className: 'button', onclick: () => openDevice(device.id) }, t('common.open')) },
@@ -66,6 +70,8 @@ function detail(device, panel) {
   ];
 
   const actions = el('div', { className: 'button-row' });
+  actions.append(el('button', { type: 'button', className: 'button button--primary', onclick: () => { panel.close(); openCustomerCard({ api, t, can }, device.user.id, { onChange: () => table.reload() }); } },
+    'Карточка клиента (действия с регистрациями)'));
   if (can('devices.manage')) {
     const sync = el('button', { type: 'button', className: 'button' }, t('devices.sync'));
     sync.addEventListener('click', async () => {

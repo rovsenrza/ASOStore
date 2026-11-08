@@ -4,6 +4,7 @@ import { createDataTable } from '../components/data-table.js';
 import { openDialog } from '../components/dialog.js';
 import { statusBadge } from '../components/status-badge.js';
 import { toast } from '../components/toast.js';
+import { openCustomerCard } from '../components/customer-card.js';
 
 const { api, t, can, me } = await boot();
 const ROLES = ['customer', 'support', 'catalog_manager', 'admin'];
@@ -37,12 +38,14 @@ const usersTable = can('users.view') && createDataTable({
   container: document.querySelector('#users-table'),
   t,
   caption: t('codes.usersTab'),
-  searchLabel: t('users.search'),
+  searchLabel: 'Имя, email, №, @telegram или Telegram ID',
   filters: [
     { name: 'role', label: t('users.roles'), type: 'select', options: [['', t('users.allRoles')], ...ROLES.map((role) => [role, t(`roles.${role}`)])] },
     { name: 'status', label: t('users.status'), type: 'select', options: [['', t('users.allStatuses')], ['ACTIVE', t('userStatus.ACTIVE')], ['SUSPENDED', t('userStatus.SUSPENDED')]] },
+    { name: 'access', label: 'Доступ', type: 'select', options: [['', 'Любой доступ'], ['active', 'Доступ есть'], ['ending7', 'Кончается за 7 дней'], ['expired', 'Закончился'], ['none', 'Никогда не было']] },
   ],
   columns: [
+    { key: 'number', label: '№', render: (user) => el('span', { className: 'mono' }, String(user.number ?? '')) },
     { key: 'name', label: t('users.name'), sortable: true },
     { key: 'email', label: t('users.email'), sortable: true },
     { key: 'roles', label: t('users.roles'), render: (user) => roleLabels(user.roles) },
@@ -50,7 +53,9 @@ const usersTable = can('users.view') && createDataTable({
     { key: 'totp_enabled', label: t('users.totp'), render: (user) => (user.totp_enabled ? t('common.yes') : t('common.none')) },
     { key: 'subscription', label: t('users.subscription'), render: (user) => subscriptionText(user.subscription) },
     { key: 'last_login_at', label: t('users.lastLogin'), sortable: true, render: (user) => formatDateTime(user.last_login_at) },
-    { key: 'actions', label: '', render: (user) => el('button', { type: 'button', className: 'button', onclick: () => openUser(user.id) }, t('common.open')) },
+    { key: 'actions', label: '', render: (user) => el('span', { className: 'button-row button-row--tight' },
+      el('button', { type: 'button', className: 'button button--primary', onclick: () => openCustomerCard({ api, t, can }, user.id, { onChange: () => usersTable?.reload() }) }, t('common.open')),
+      el('button', { type: 'button', className: 'button', onclick: () => openUser(user.id) }, 'Учётная запись')) },
   ],
   fetchPage: async ({ page, perPage, query, filters, signal }) => {
     const params = new URLSearchParams({ page, per_page: perPage, ...filters });
@@ -62,7 +67,9 @@ const usersTable = can('users.view') && createDataTable({
 
 function subscriptionText(subscription) {
   if (!subscription) return t('users.noSubscription');
-  return subscription.ends_at ? formatDate(subscription.ends_at) : t('users.unlimited');
+  if (!subscription.ends_at) return t('users.unlimited');
+  const days = (new Date(subscription.ends_at) - Date.now()) / 86400000;
+  return `${formatDate(subscription.ends_at)} · ${days.toFixed(1).replace('.', ',')} дн`;
 }
 
 function definitionList(pairs) {

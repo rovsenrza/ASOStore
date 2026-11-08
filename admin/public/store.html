@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" type="image/png" sizes="32x32" href="assets/brand/ru-app-store-logo-32.png">
+  <link rel="apple-touch-icon" href="assets/brand/ru-app-store-logo-180.png">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Магазин — Ru App Store Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/admin.css">
+  <script type="module" src="js/pages/store.js"></script>
+</head>
+<body>
+  <div class="admin-shell">
+    <aside class="sidebar">
+      <a class="brand" href="index.html"><img src="assets/brand/ru-app-store-logo-64.png" alt="" width="32" height="32">Ru App Store<small>Операторская панель</small></a>
+      <nav aria-label="Разделы">
+        <a href="index.html">Панель</a>
+        <a href="users.html">Пользователи</a>
+        <a href="devices.html">Устройства</a>
+        <a href="home.html">Главная приложения</a>
+        <a href="apps.html">Приложения</a>
+        <a href="publish.html">Быстрая публикация</a>
+        <a href="promo.html">Видео для канала</a>
+        <a href="store.html">Магазин</a>
+        <a href="sales.html">Продажи</a>
+        <a href="bot.html">Контент бота</a>
+        <a href="artifacts.html">Артефакты</a>
+        <a href="teams.html">Команды Apple</a>
+        <a href="jobs.html">Задачи</a>
+        <a href="audit.html">Аудит</a>
+      </nav>
+      <p class="sidebar-foot">Доступ по ролям. Все действия записываются в журнал аудита.</p>
+    </aside>
+    <div class="main">
+      <header class="topbar"><h1>Магазин</h1></header>
+      <main class="content" id="main">
+        <div class="page-actions">
+          <div class="tabs" role="tablist" aria-label="Разделы магазина">
+            <button type="button" role="tab" id="tab-orders" aria-controls="panel-orders" aria-selected="true">Заказы</button>
+            <button type="button" role="tab" id="tab-promos" aria-controls="panel-promos" aria-selected="false" tabindex="-1">Промокоды</button>
+            <button type="button" role="tab" id="tab-customers" aria-controls="panel-customers" aria-selected="false" tabindex="-1">Покупатели бота</button>
+            <button type="button" role="tab" id="tab-prices" aria-controls="panel-prices" aria-selected="false" tabindex="-1">Цены</button>
+            <button type="button" role="tab" id="tab-broadcast" aria-controls="panel-broadcast" aria-selected="false" tabindex="-1">Рассылка</button>
+          </div>
+        </div>
+        <section id="panel-orders" role="tabpanel" aria-labelledby="tab-orders"><div id="orders-table"></div></section>
+        <section id="panel-promos" role="tabpanel" aria-labelledby="tab-promos" hidden><div id="promo-form"></div><div id="promo-list"></div></section>
+        <section id="panel-customers" role="tabpanel" aria-labelledby="tab-customers" hidden><div id="customers-table"></div></section>
+        <section id="panel-prices" role="tabpanel" aria-labelledby="tab-prices" hidden><div id="prices"></div></section>
+        <section id="panel-broadcast" role="tabpanel" aria-labelledby="tab-broadcast" hidden><div id="broadcast"></div></section>
+      </main>
+    </div>
+  </div>
+</body>
+</html>

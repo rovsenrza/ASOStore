@@ -14,6 +14,7 @@ const NAV_PERMISSIONS = {
   'publish.html': ['catalog.manage'],
   'promo.html': ['catalog.view'],
   'sales.html': ['activation-codes.view'],
+  'store.html': ['activation-codes.view'],
   'bot.html': ['activation-codes.view'],
 };
 

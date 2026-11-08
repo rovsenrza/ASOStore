@@ -30,11 +30,12 @@ class DeviceController extends Controller
             'q' => ['nullable', 'string', 'max:100'],
             'status' => ['nullable', Rule::enum(DeviceRegistrationStatus::class)],
             'family' => ['nullable', Rule::enum(DeviceFamily::class)],
+            'team' => ['nullable', 'string', 'max:20'],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
-        $query = Device::query()->with(['user', 'latestRegistration'])->latest('id');
+        $query = Device::query()->with(['user', 'latestRegistration.team'])->latest('id');
 
         if (filled($filters['q'] ?? null)) {
             $term = $filters['q'];
@@ -44,6 +45,9 @@ class DeviceController extends Controller
         }
         if (filled($filters['status'] ?? null)) {
             $query->whereHas('latestRegistration', fn (Builder $registration) => $registration->where('status', $filters['status']));
+        }
+        if (filled($filters['team'] ?? null)) {
+            $query->whereHas('latestRegistration.team', fn (Builder $team) => $team->where('apple_team_id', strtoupper($filters['team'])));
         }
         if (filled($filters['family'] ?? null)) {
             $query->where('device_family', $filters['family']);
@@ -56,7 +60,7 @@ class DeviceController extends Controller
 
     public function show(Request $request, Device $device): JsonResponse
     {
-        $device->load(['user', 'latestRegistration', 'registrations' => fn ($query) => $query->with('team')->latest('id')]);
+        $device->load(['user', 'latestRegistration.team', 'registrations' => fn ($query) => $query->with('team')->latest('id')]);
 
         $history = AuditLog::query()
             ->where('subject_type', 'device')->where('subject_id', $device->public_id)
@@ -116,7 +120,7 @@ class DeviceController extends Controller
 
         return [
             'id' => $device->public_id,
-            'user' => ['id' => $device->user->public_id, 'email' => $device->user->email],
+            'user' => ['id' => $device->user->public_id, 'number' => $device->user->id, 'email' => $device->user->email],
             'udid_hint' => $device->maskedUdid(),
             'product' => $device->product,
             'family' => $device->device_family->value,
@@ -124,8 +128,13 @@ class DeviceController extends Controller
             'enrolled_at' => $device->enrolled_at?->toIso8601ZuluString(),
             'storefront_claimed_at' => $device->storefront_claimed_at?->toIso8601ZuluString(),
             'registration' => $registration ? [
+                'id' => $registration->public_id,
                 'status' => $registration->status->value,
                 'reason' => $registration->status_reason,
+                'team' => $registration->team?->apple_team_id,
+                'created_at' => $registration->created_at?->toIso8601ZuluString(),
+                'eligible_at' => $registration->eligible_at?->toIso8601ZuluString(),
+                'waited_hours' => $registration->created_at ? round($registration->created_at->diffInMinutes($registration->eligible_at ?? now(), true) / 60, 1) : null,
                 'updated_at' => $registration->updated_at?->toIso8601ZuluString(),
             ] : null,
         ];

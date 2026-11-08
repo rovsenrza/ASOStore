@@ -2,10 +2,9 @@
 
 namespace App\Services\Devices;
 
-use App\Models\ActivationCode;
 use App\Models\DeviceRegistration;
-use App\Models\TelegramStoreOrder;
 use App\Models\User;
+use App\Services\TelegramStore\AccountContacts;
 use App\Services\TelegramStore\Bot\Messenger;
 use App\Services\TelegramStore\Bot\Screen;
 use Illuminate\Support\Collection;
@@ -61,21 +60,10 @@ class LongWaitAlert
      */
     private function telegramContacts(User $user): Collection
     {
-        $prefix = 'Telegram Store order ';
-        $orderIds = ActivationCode::query()->where('redeemed_by', $user->id)
-            ->where('note', 'like', $prefix.'%')->pluck('note')
-            ->map(fn (string $note) => strtolower(substr($note, strlen($prefix))));
-
-        return TelegramStoreOrder::query()
-            ->where('status', TelegramStoreOrder::PAID)
-            ->whereNotNull('telegram_user_id')
-            ->where(fn ($query) => $query->where('renew_user_id', $user->id)->orWhereIn('public_id', $orderIds->all()))
-            ->latest('paid_at')
-            ->get(['telegram_user_id', 'username', 'first_name'])
-            ->unique('telegram_user_id')
-            ->map(fn (TelegramStoreOrder $order) => $order->username
-                ? '@'.e($order->username)
-                : '<a href="tg://user?id='.$order->telegram_user_id.'">'.e($order->first_name ?: (string) $order->telegram_user_id).'</a> (ID '.$order->telegram_user_id.')')
+        return app(AccountContacts::class)->telegram($user)
+            ->map(fn (array $contact) => $contact['username']
+                ? '@'.e($contact['username'])
+                : '<a href="tg://user?id='.$contact['telegram_user_id'].'">'.e($contact['first_name'] ?: (string) $contact['telegram_user_id']).'</a> (ID '.$contact['telegram_user_id'].')')
             ->values();
     }
 }

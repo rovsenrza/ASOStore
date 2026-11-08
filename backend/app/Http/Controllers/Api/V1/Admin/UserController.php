@@ -16,6 +16,7 @@ use App\Models\Role;
 use App\Models\User;
 use App\Services\Audit\AuditService;
 use App\Services\Auth\TokenService;
+use App\Services\TelegramStore\AccountContacts;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -37,6 +38,7 @@ class UserController extends Controller
             'q' => ['nullable', 'string', 'max:100'],
             'role' => ['nullable', Rule::enum(RoleSlug::class)],
             'status' => ['nullable', Rule::enum(UserStatus::class)],
+            'access' => ['nullable', 'in:active,ending7,expired,none'],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
@@ -44,9 +46,23 @@ class UserController extends Controller
         $query = User::query()->with(AdminUserResource::RELATIONS)->latest('id');
 
         if (filled($filters['q'] ?? null)) {
-            $term = '%'.addcslashes($filters['q'], '%_\\').'%';
-            $query->where(fn (Builder $where) => $where->where('name', 'like', $term)->orWhere('email', 'like', $term));
+            $q = trim($filters['q']);
+            $term = '%'.addcslashes($q, '%_\\').'%';
+            // Also by account number, and by the Telegram @username or id of a bot buyer.
+            $telegramUsers = str_starts_with($q, '@') || ctype_digit($q) ? app(AccountContacts::class)->usersForTelegram($q)->all() : [];
+            $query->where(fn (Builder $where) => $where->where('name', 'like', $term)->orWhere('email', 'like', $term)
+                ->when(ctype_digit($q), fn (Builder $id) => $id->orWhere('id', (int) $q))
+                ->when($telegramUsers !== [], fn (Builder $tg) => $tg->orWhereIn('id', $telegramUsers)));
         }
+        $now = now();
+        match ($filters['access'] ?? null) {
+            'active' => $query->whereHas('subscriptions', fn (Builder $s) => $s->where('status', 'ACTIVE')->where(fn (Builder $e) => $e->whereNull('ends_at')->orWhere('ends_at', '>', $now))),
+            'ending7' => $query->whereHas('subscriptions', fn (Builder $s) => $s->where('status', 'ACTIVE')->whereBetween('ends_at', [$now, $now->copy()->addDays(7)]))
+                ->whereDoesntHave('subscriptions', fn (Builder $s) => $s->where('status', 'ACTIVE')->where(fn (Builder $e) => $e->whereNull('ends_at')->orWhere('ends_at', '>', $now->copy()->addDays(7)))),
+            'expired' => $query->whereHas('subscriptions')->whereDoesntHave('subscriptions', fn (Builder $s) => $s->where('status', 'ACTIVE')->where(fn (Builder $e) => $e->whereNull('ends_at')->orWhere('ends_at', '>', $now))),
+            'none' => $query->whereDoesntHave('subscriptions'),
+            default => null,
+        };
         if (filled($filters['role'] ?? null)) {
             $query->whereHas('roles', fn (Builder $roles) => $roles->where('slug', $filters['role']));
         }

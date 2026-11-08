@@ -52,6 +52,10 @@ function concrete(string $uri): string
         '{eligibility}' => 'x',
         '{assignment}' => 'x',
         '{ticket}' => 'x',
+        '{registration}' => 'x',
+        '{reference}' => 'x',
+        '{promo}' => '1',
+        '{customer}' => '1',
         '{number}' => '0',
     ]);
 }

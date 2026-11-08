@@ -9,12 +9,16 @@ use App\Http\Controllers\Api\V1\Admin\AppVersionController;
 use App\Http\Controllers\Api\V1\Admin\ArtifactController;
 use App\Http\Controllers\Api\V1\Admin\AuditLogController;
 use App\Http\Controllers\Api\V1\Admin\BotContentController;
+use App\Http\Controllers\Api\V1\Admin\CustomerController;
 use App\Http\Controllers\Api\V1\Admin\DeviceController as AdminDeviceController;
+use App\Http\Controllers\Api\V1\Admin\DeviceRegistrationController;
 use App\Http\Controllers\Api\V1\Admin\InstallationController as AdminInstallationController;
 use App\Http\Controllers\Api\V1\Admin\JobController;
 use App\Http\Controllers\Api\V1\Admin\OperationsController;
+use App\Http\Controllers\Api\V1\Admin\OverviewController;
 use App\Http\Controllers\Api\V1\Admin\QuickPublishController;
 use App\Http\Controllers\Api\V1\Admin\RunnerController;
+use App\Http\Controllers\Api\V1\Admin\StoreController;
 use App\Http\Controllers\Api\V1\Admin\TaxonomyController;
 use App\Http\Controllers\Api\V1\Admin\TeamAssignmentController;
 use App\Http\Controllers\Api\V1\Admin\TeamEligibilityController;
@@ -254,5 +258,28 @@ Route::prefix('admin')->name('api.admin.')->group(function () {
         Route::get('/devices/{device}', [AdminDeviceController::class, 'show'])->can('devices.view')->name('devices.show');
         Route::post('/devices/{device}/sync', [AdminDeviceController::class, 'sync'])->can('devices.manage')->name('devices.sync');
         Route::post('/devices/{device}/reveal-udid', [AdminDeviceController::class, 'revealUdid'])->can('devices.reveal-udid')->name('devices.reveal-udid');
+
+        // Operator overview and the customer card (2026-11-08).
+        Route::get('/overview', [OverviewController::class, 'show'])->can('devices.view')->name('overview');
+        Route::get('/users/{user}/profile', [CustomerController::class, 'profile'])->can('users.view')->name('users.profile');
+        Route::post('/users/{user}/subscription', [CustomerController::class, 'adjustSubscription'])->can('users.manage')->middleware('idempotent')->name('users.subscription');
+        Route::post('/users/{user}/telegram-message', [CustomerController::class, 'messageTelegram'])->can('users.manage')->middleware('throttle:30,1')->name('users.telegram-message');
+        Route::post('/device-registrations/{registration}/enable', [DeviceRegistrationController::class, 'enable'])->can('devices.manage')->name('device-registrations.enable');
+        Route::post('/device-registrations/{registration}/disable', [DeviceRegistrationController::class, 'disable'])->can('devices.manage')->name('device-registrations.disable');
+        Route::post('/device-registrations/{registration}/retry', [DeviceRegistrationController::class, 'retry'])->can('devices.manage')->name('device-registrations.retry');
+
+        // The Telegram store, as in the bot's /admin.
+        Route::get('/store/orders', [StoreController::class, 'orders'])->can('activation-codes.view')->name('store.orders');
+        Route::post('/store/orders/{reference}/confirm', [StoreController::class, 'confirmOrder'])->can('activation-codes.manage')->middleware('idempotent')->name('store.orders.confirm');
+        Route::post('/store/orders/{reference}/reject', [StoreController::class, 'rejectOrder'])->can('activation-codes.manage')->name('store.orders.reject');
+        Route::get('/store/promo-codes', [StoreController::class, 'promoCodes'])->can('activation-codes.view')->name('store.promo-codes');
+        Route::post('/store/promo-codes', [StoreController::class, 'storePromoCode'])->can('activation-codes.manage')->name('store.promo-codes.store');
+        Route::post('/store/promo-codes/{promo}/toggle', [StoreController::class, 'togglePromoCode'])->can('activation-codes.manage')->whereNumber('promo')->name('store.promo-codes.toggle');
+        Route::get('/store/customers', [StoreController::class, 'customers'])->can('activation-codes.view')->name('store.customers');
+        Route::post('/store/customers/{customer}/balance', [StoreController::class, 'adjustBalance'])->can('activation-codes.manage')->whereNumber('customer')->middleware('idempotent')->name('store.customers.balance');
+        Route::get('/store/settings', [StoreController::class, 'settings'])->can('activation-codes.view')->name('store.settings');
+        Route::put('/store/settings', [StoreController::class, 'updateSettings'])->can('activation-codes.manage')->name('store.settings.update');
+        Route::get('/store/broadcasts', [StoreController::class, 'broadcasts'])->can('activation-codes.view')->name('store.broadcasts');
+        Route::post('/store/broadcasts', [StoreController::class, 'storeBroadcast'])->can('activation-codes.manage')->middleware('idempotent')->name('store.broadcasts.store');
     });
 });
