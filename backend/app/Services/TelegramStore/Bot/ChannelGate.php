@@ -39,7 +39,7 @@ class ChannelGate
     public function passes(int $userId): bool
     {
         $channel = $this->channel();
-        if ($channel === null || in_array((string) $userId, config('telegram_store.admin_ids', []), true)) {
+        if ($channel === null || app(\App\Services\TelegramStore\StoreSettings::class)->isAdmin($userId)) {
             return true;
         }
         try {

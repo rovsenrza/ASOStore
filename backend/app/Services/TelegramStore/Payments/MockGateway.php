@@ -27,7 +27,7 @@ class MockGateway implements PaymentGateway
 
     public static function isTester(int $telegramUserId): bool
     {
-        $ids = array_merge(config('telegram_store.admin_ids', []), config('telegram_store.tester_ids', []));
+        $ids = array_merge(app(\App\Services\TelegramStore\StoreSettings::class)->adminIds(), config('telegram_store.tester_ids', []));
 
         return in_array((string) $telegramUserId, $ids, true);
     }

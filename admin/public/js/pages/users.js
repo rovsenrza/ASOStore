@@ -186,6 +186,8 @@ async function act(request, successMessage, refresh) {
 
 const createButton = document.querySelector('#create-user');
 createButton.hidden = !can('users.manage');
+// «+ Добавить сотрудника» on the bot page links here with ?new=staff.
+if (can('users.manage') && new URLSearchParams(location.search).get('new') === 'staff') queueMicrotask(() => createButton.click());
 createButton.addEventListener('click', () => {
   const status = el('div');
   const form = el('form', { className: 'stack', noValidate: true },

@@ -12,6 +12,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/admin.css">
   <script type="module" src="js/pages/bot.js"></script>
+  <script type="module" src="js/pages/bot-builder.js"></script>
 </head>
 <body>
   <div class="admin-shell">
@@ -27,7 +28,7 @@
         <a href="promo.html">Видео для канала</a>
         <a href="store.html">Магазин</a>
         <a href="sales.html">Продажи</a>
-        <a href="bot.html">Контент бота</a>
+        <a href="bot.html">Telegram-бот</a>
         <a href="artifacts.html">Артефакты</a>
         <a href="teams.html">Команды Apple</a>
         <a href="jobs.html">Задачи</a>
@@ -36,8 +37,19 @@
       <p class="sidebar-foot">Доступ по ролям. Все действия записываются в журнал аудита.</p>
     </aside>
     <div class="main">
-      <header class="topbar"><h1>Контент бота</h1></header>
-      <main class="content stack" id="main"><div id="bot"></div></main>
+      <header class="topbar"><h1>Telegram-бот</h1></header>
+      <main class="content stack" id="main">
+        <div class="page-actions">
+          <div class="tabs" role="tablist" aria-label="Разделы бота">
+            <button type="button" role="tab" id="tab-builder" aria-controls="panel-builder" aria-selected="true">Свои разделы и кнопки</button>
+            <button type="button" role="tab" id="tab-content" aria-controls="panel-content" aria-selected="false" tabindex="-1">Приветствие и баннер</button>
+            <button type="button" role="tab" id="tab-admins" aria-controls="panel-admins" aria-selected="false" tabindex="-1">Администраторы</button>
+          </div>
+        </div>
+        <section id="panel-builder" role="tabpanel" aria-labelledby="tab-builder"><div id="bot-builder"></div></section>
+        <section id="panel-content" role="tabpanel" aria-labelledby="tab-content" hidden><div id="bot"></div></section>
+        <section id="panel-admins" role="tabpanel" aria-labelledby="tab-admins" hidden><div id="bot-admins"></div></section>
+      </main>
     </div>
   </div>
 </body>

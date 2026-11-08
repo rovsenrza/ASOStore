@@ -126,6 +126,95 @@ class StoreSettings
         return max(0, (int) round((1 - $plan['price'] / $full) * 100));
     }
 
+    /* ---------- Bot admins (2026-11-08) ---------- */
+
+    /**
+     * Telegram ids allowed into the bot's /admin: the ones in .env (cannot be removed here)
+     * plus the ones added from the web panel.
+     *
+     * @return list<string>
+     */
+    public function adminIds(): array
+    {
+        $extra = $this->fresh('admin_ids');
+
+        return array_values(array_unique(array_merge(
+            array_map('strval', config('telegram_store.admin_ids', [])),
+            is_array($extra) ? array_map('strval', $extra) : [],
+        )));
+    }
+
+    /** @return list<string> */
+    public function panelAdminIds(): array
+    {
+        $extra = $this->fresh('admin_ids');
+
+        return is_array($extra) ? array_values(array_map('strval', $extra)) : [];
+    }
+
+    public function isAdmin(int|string $telegramUserId): bool
+    {
+        return in_array((string) $telegramUserId, $this->adminIds(), true);
+    }
+
+    public function firstAdminId(): int
+    {
+        return (int) ($this->adminIds()[0] ?? 0);
+    }
+
+    /** @param list<string> $ids */
+    public function setPanelAdminIds(array $ids): void
+    {
+        $this->set('admin_ids', array_values(array_unique(array_map('strval', $ids))));
+    }
+
+    /* ---------- Admin-made bot features (2026-11-08) ---------- */
+
+    /**
+     * Pages the admin adds to the bot: a menu button and/or a /command and/or keywords that
+     * answer with the page's text (and an optional link button).
+     *
+     * @return list<array{id: string, label: string, text: string, url: ?string, url_label: ?string, command: ?string, keywords: list<string>, in_menu: bool, enabled: bool}>
+     */
+    public function botBlocks(): array
+    {
+        $blocks = $this->get('bot_blocks');
+
+        return is_array($blocks) ? array_values($blocks) : [];
+    }
+
+    /** @param list<array<string, mixed>> $blocks */
+    public function setBotBlocks(array $blocks): void
+    {
+        $this->set('bot_blocks', array_values($blocks));
+    }
+
+    /** @return array<string, mixed>|null */
+    public function botBlock(string $id): ?array
+    {
+        foreach ($this->botBlocks() as $block) {
+            if ($block['id'] === $id && ($block['enabled'] ?? true)) {
+                return $block;
+            }
+        }
+
+        return null;
+    }
+
+    /** Standard menu buttons the admin chose to hide (invite, help, news, support, profile). */
+    public function hiddenMenuItems(): array
+    {
+        $hidden = $this->get('hidden_menu_items');
+
+        return is_array($hidden) ? array_values($hidden) : [];
+    }
+
+    /** @param list<string> $keys */
+    public function setHiddenMenuItems(array $keys): void
+    {
+        $this->set('hidden_menu_items', array_values(array_unique($keys)));
+    }
+
     public function flush(): void
     {
         $this->cache = null;
@@ -138,6 +227,14 @@ class StoreSettings
             ->all();
 
         return $this->cache[$key] ?? null;
+    }
+
+    /** Read past the per-process cache: queue workers live for hours and must see new admins. */
+    private function fresh(string $key): mixed
+    {
+        $value = DB::table('telegram_store_settings')->where('key', $key)->value('value');
+
+        return $value === null ? null : json_decode((string) $value, true);
     }
 
     private function set(string $key, mixed $value): void

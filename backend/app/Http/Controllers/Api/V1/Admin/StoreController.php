@@ -87,7 +87,7 @@ class StoreController extends Controller
             throw new ApiException(ErrorCode::Conflict, 'Магазин в тестовом режиме (mock): оплату подтверждает покупатель.');
         }
         $order = $orders->find($reference) ?? throw new ApiException(ErrorCode::NotFound, 'Заказ не найден.');
-        $admin = (int) (config('telegram_store.admin_ids')[0] ?? 0);
+        $admin = app(StoreSettings::class)->firstAdminId();
         $completed = $orders->complete($order, $order->payment_provider ?? 'manual', $admin);
         if ($completed === null) {
             throw new ApiException(ErrorCode::Conflict, 'Заказ уже обработан или не ждёт оплаты.');
@@ -145,7 +145,7 @@ class StoreController extends Controller
             'expires_at' => isset($data['expires_at']) ? Carbon::parse($data['expires_at'])->utc() : null,
             'plan_keys' => ! empty($data['plan_keys']) ? array_values(array_unique($data['plan_keys'])) : null,
             'note' => $data['note'] ?? null,
-        ], fn ($value) => $value !== null), (int) (config('telegram_store.admin_ids')[0] ?? 0));
+        ], fn ($value) => $value !== null), app(StoreSettings::class)->firstAdminId());
         $this->audit->record('store.promo_created', null, after: ['code' => $promo->code, 'label' => $promo->label()]);
 
         return ApiResponse::ok(self::promo($promo, $promos), 201);
@@ -277,7 +277,7 @@ class StoreController extends Controller
     public function storeBroadcast(Request $request, TelegramApi $api): JsonResponse
     {
         $data = $request->validate(['text' => ['required', 'string', 'max:3500']]);
-        $adminChat = (int) (config('telegram_store.admin_ids')[0] ?? 0);
+        $adminChat = app(StoreSettings::class)->firstAdminId();
         if ($adminChat === 0) {
             throw new ApiException(ErrorCode::Conflict, 'Не настроены администраторы бота (TELEGRAM_STORE_ADMIN_IDS).');
         }

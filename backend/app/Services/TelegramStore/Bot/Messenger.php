@@ -105,7 +105,7 @@ class Messenger
     /** Sends the screen to every admin of the store. */
     public function notifyAdmins(Screen $screen): void
     {
-        foreach (config('telegram_store.admin_ids', []) as $adminId) {
+        foreach (app(\App\Services\TelegramStore\StoreSettings::class)->adminIds() as $adminId) {
             $this->notify((int) $adminId, $screen);
         }
     }

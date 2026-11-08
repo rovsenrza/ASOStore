@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\V1\Admin\AppMediaController;
 use App\Http\Controllers\Api\V1\Admin\AppVersionController;
 use App\Http\Controllers\Api\V1\Admin\ArtifactController;
 use App\Http\Controllers\Api\V1\Admin\AuditLogController;
+use App\Http\Controllers\Api\V1\Admin\BotBuilderController;
 use App\Http\Controllers\Api\V1\Admin\BotContentController;
 use App\Http\Controllers\Api\V1\Admin\CustomerController;
 use App\Http\Controllers\Api\V1\Admin\DeviceController as AdminDeviceController;
@@ -267,6 +268,14 @@ Route::prefix('admin')->name('api.admin.')->group(function () {
         Route::post('/device-registrations/{registration}/enable', [DeviceRegistrationController::class, 'enable'])->can('devices.manage')->name('device-registrations.enable');
         Route::post('/device-registrations/{registration}/disable', [DeviceRegistrationController::class, 'disable'])->can('devices.manage')->name('device-registrations.disable');
         Route::post('/device-registrations/{registration}/retry', [DeviceRegistrationController::class, 'retry'])->can('devices.manage')->name('device-registrations.retry');
+
+        // Bot builder: admin-made pages/commands/keywords, hidden menu buttons, bot admins.
+        Route::get('/bot-builder', [BotBuilderController::class, 'show'])->can('activation-codes.view')->name('bot-builder.show');
+        Route::put('/bot-builder', [BotBuilderController::class, 'update'])->can('activation-codes.manage')->name('bot-builder.update');
+        Route::post('/bot-builder/preview', [BotBuilderController::class, 'preview'])->can('activation-codes.manage')->middleware('throttle:30,1')->name('bot-builder.preview');
+        Route::get('/bot-admins', [BotBuilderController::class, 'admins'])->can('activation-codes.view')->name('bot-admins.index');
+        Route::post('/bot-admins', [BotBuilderController::class, 'addAdmin'])->can('users.manage')->name('bot-admins.store');
+        Route::delete('/bot-admins/{telegramUserId}', [BotBuilderController::class, 'removeAdmin'])->can('users.manage')->whereNumber('telegramUserId')->name('bot-admins.destroy');
 
         // The Telegram store, as in the bot's /admin.
         Route::get('/store/orders', [StoreController::class, 'orders'])->can('activation-codes.view')->name('store.orders');

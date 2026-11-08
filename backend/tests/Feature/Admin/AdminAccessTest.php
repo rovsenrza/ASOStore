@@ -56,6 +56,7 @@ function concrete(string $uri): string
         '{reference}' => 'x',
         '{promo}' => '1',
         '{customer}' => '1',
+        '{telegramUserId}' => '1',
         '{number}' => '0',
     ]);
 }

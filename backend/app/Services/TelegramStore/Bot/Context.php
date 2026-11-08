@@ -24,6 +24,6 @@ final class Context
 
     public function isAdmin(): bool
     {
-        return in_array((string) $this->userId(), config('telegram_store.admin_ids', []), true);
+        return app(\App\Services\TelegramStore\StoreSettings::class)->isAdmin($this->userId());
     }
 }

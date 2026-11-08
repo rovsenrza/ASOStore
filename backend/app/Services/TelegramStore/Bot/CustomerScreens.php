@@ -51,22 +51,59 @@ class CustomerScreens
     /** @return list<list<array<string, string>>> */
     public function menuRows(): array
     {
+        $hidden = $this->settings->hiddenMenuItems();
+        $shown = fn (string $key) => ! in_array($key, $hidden, true);
+
         $rows = [
             [Screen::button('🛍 Купить подписку', 'buy')],
             [Screen::button('🔄 Продлить подписку', 'renew')],
-            [Screen::button('👤 Профиль', 'profile'), Screen::button('👥 Пригласить друга', 'invite')],
         ];
-        $info = [Screen::button('📖 Инструкция', 'help')];
-        if ($news = config('telegram_store.news_url')) {
+        $account = array_values(array_filter([
+            $shown('profile') ? Screen::button('👤 Профиль', 'profile') : null,
+            $shown('invite') ? Screen::button('👥 Пригласить друга', 'invite') : null,
+        ]));
+        if ($account !== []) {
+            $rows[] = $account;
+        }
+
+        // Buttons the admin added from the web panel, two per row.
+        $custom = [];
+        foreach ($this->settings->botBlocks() as $block) {
+            if (($block['enabled'] ?? true) && ($block['in_menu'] ?? true)) {
+                $custom[] = Screen::button((string) $block['label'], 'cb:'.$block['id']);
+            }
+        }
+        foreach (array_chunk($custom, 2) as $pair) {
+            $rows[] = $pair;
+        }
+
+        $info = $shown('help') ? [Screen::button('📖 Инструкция', 'help')] : [];
+        if ($shown('news') && ($news = config('telegram_store.news_url'))) {
             $info[] = Screen::link('📰 Новости', $news);
         }
-        $rows[] = $info;
-        if ($support = $this->supportRow()) {
+        if ($info !== []) {
+            $rows[] = $info;
+        }
+        if ($shown('support') && ($support = $this->supportRow())) {
             $rows[] = $support;
         }
-        $rows[] = $this->legalRow();
+        if ($shown('legal')) {
+            $rows[] = $this->legalRow();
+        }
 
         return $rows;
+    }
+
+    /** A page the admin added: its text, its link button if any, and the way back. */
+    public function block(array $block): Screen
+    {
+        $rows = [];
+        if (! empty($block['url'])) {
+            $rows[] = [Screen::link((string) ($block['url_label'] ?: 'Открыть'), (string) $block['url'])];
+        }
+        $rows[] = [Screen::button('‹ Меню', 'menu')];
+
+        return new Screen((string) $block['text'], $rows);
     }
 
     public function plans(TelegramStoreCustomer $customer, ?TelegramStorePromoCode $promo = null): Screen

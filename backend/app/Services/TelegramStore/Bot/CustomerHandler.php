@@ -12,6 +12,7 @@ use App\Services\TelegramStore\Payments\PlategaException;
 use App\Services\TelegramStore\Payments\PlategaPayments;
 use App\Services\TelegramStore\PromoService;
 use App\Services\TelegramStore\RenewalAccounts;
+use App\Services\TelegramStore\StoreSettings;
 use Illuminate\Support\Facades\Cache;
 
 class CustomerHandler
@@ -28,7 +29,29 @@ class CustomerHandler
         private readonly ChannelGate $gate,
         private readonly PlategaPayments $platega,
         private readonly RenewalAccounts $accounts,
+        private readonly StoreSettings $settings,
     ) {}
+
+    /** @return array<string, mixed>|null */
+    private function matchBlock(string $command, string $lower): ?array
+    {
+        foreach ($this->settings->botBlocks() as $block) {
+            if (! ($block['enabled'] ?? true)) {
+                continue;
+            }
+            if ($command !== '' && ! empty($block['command']) && $command === '/'.ltrim(mb_strtolower((string) $block['command']), '/')) {
+                return $block;
+            }
+            foreach ($block['keywords'] ?? [] as $keyword) {
+                $keyword = mb_strtolower(trim((string) $keyword));
+                if ($keyword !== '' && str_contains($lower, $keyword)) {
+                    return $block;
+                }
+            }
+        }
+
+        return null;
+    }
 
     public function message(Context $ctx, string $text): void
     {
@@ -74,6 +97,13 @@ class CustomerHandler
             return;
         }
 
+        // A /command or keyword of a page the admin added in the web panel.
+        if (! in_array($command, ['/start', '/menu', '/buy', '/profile', '/invite', '/help'], true) && ($block = $this->matchBlock($command, $lower)) !== null) {
+            $this->messenger->show($ctx, $this->screens->block($block));
+
+            return;
+        }
+
         match (true) {
             in_array($command, ['/start', '/menu'], true), $lower === 'меню' => $this->messenger->welcome($ctx->chatId),
             $command === '/buy', str_contains($lower, 'купить') => $this->messenger->show($ctx, $this->screens->plans($ctx->customer)),
@@ -103,6 +133,14 @@ class CustomerHandler
 
         // Buying and paying need a subscription to the news channel.
         if (preg_match('/^(buy|renew|plan:\w+|rna:\w+|rnw:\w+:\w+|(order|bal|pay:\w+|paid|mockpay|promo):[0-9a-z]{26})$/', $data) === 1 && $this->held($ctx, $data)) {
+            return;
+        }
+
+        if (preg_match('/^cb:([a-z0-9_-]{1,40})$/', $data, $match)) {
+            $block = $this->settings->botBlock($match[1]);
+            $this->messenger->answer($ctx, $block ? null : 'Этот раздел больше недоступен.', $block === null);
+            $this->messenger->show($ctx, $block ? $this->screens->block($block) : $this->screens->menu());
+
             return;
         }
 

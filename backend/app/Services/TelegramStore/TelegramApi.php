@@ -163,13 +163,21 @@ class TelegramApi
 
     public function setCommands(): void
     {
-        $this->call('setMyCommands', ['commands' => [
+        $commands = [
             ['command' => 'start', 'description' => 'Главное меню'],
             ['command' => 'buy', 'description' => 'Купить подписку'],
             ['command' => 'profile', 'description' => 'Мой профиль и заказы'],
             ['command' => 'invite', 'description' => 'Пригласить друга'],
             ['command' => 'help', 'description' => 'Инструкция и поддержка'],
-        ]]);
+        ];
+        // Commands of pages the admin added in the web panel.
+        foreach (app(StoreSettings::class)->botBlocks() as $block) {
+            $command = ltrim(mb_strtolower((string) ($block['command'] ?? '')), '/');
+            if (($block['enabled'] ?? true) && preg_match('/^[a-z0-9_]{1,32}$/', $command) && count($commands) < 100) {
+                $commands[] = ['command' => $command, 'description' => mb_substr(strip_tags((string) $block['label']), 0, 256) ?: $command];
+            }
+        }
+        $this->call('setMyCommands', ['commands' => $commands]);
     }
 
     private function url(string $method): string
