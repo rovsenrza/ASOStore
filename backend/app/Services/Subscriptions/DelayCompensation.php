@@ -15,7 +15,8 @@ use Illuminate\Support\Facades\DB;
  * Makes up for a slow device registration. When a customer waits longer than the threshold
  * (config storefront.delay_compensation) for Apple to enable their device (or for a team with a
  * free slot), their subscription gets
- *   - the gift (default 7 days), as soon as the wait passes the threshold, and
+ *   - the gift (default 3 days), as soon as the wait passes the threshold, once per customer
+ *     (a device moved to another team does not earn it again), and
  *   - the time they actually waited, once the device is enabled.
  * Each registration is handled once: delay_gift_at and delay_assessed_at remember what was given,
  * so the scheduled run (every few minutes) can be repeated safely.
@@ -87,13 +88,19 @@ class DelayCompensation
 
         $waited = intdiv(max(0, ($enabled ? $registration->eligible_at : $now)->getTimestamp() - $registration->created_at->getTimestamp()), 60);
         $delayed = $waited > $this->thresholdMinutes();
-        $giftDays = $delayed && $registration->delay_gift_at === null ? $this->giftDays() : 0;
+        $userId = $registration->device?->user_id;
+        $giftDays = $delayed && $registration->delay_gift_at === null && ! $this->userWasGifted($userId, $registration->id)
+            ? $this->giftDays() : 0;
         $waitMinutes = $enabled && $delayed ? $waited : 0;
 
         if ($giftDays === 0 && $waitMinutes === 0) {
             // Enabled in time (or already paid for): nothing is owed, do not look at it again.
             if ($enabled && ! $dryRun) {
                 $registration->forceFill(['delay_assessed_at' => $now, 'delay_compensation_minutes' => 0])->save();
+            } elseif ($delayed && $registration->delay_gift_at === null && ! $dryRun) {
+                // Still waiting, but the customer already had the gift on another registration:
+                // mark it handled so the waiting query stops picking it up.
+                $registration->forceFill(['delay_gift_at' => $now])->save();
             }
             $stats['assessed'] += $enabled ? 1 : 0;
 
@@ -102,7 +109,6 @@ class DelayCompensation
 
         // Same lock as ActivationCodeService::redeem, so a code redeemed meanwhile extends the
         // ends_at this run writes (and the other way round) instead of overwriting it.
-        $userId = $registration->device?->user_id;
         if ($userId !== null) {
             User::query()->whereKey($userId)->lockForUpdate()->first();
         }
@@ -140,5 +146,15 @@ class DelayCompensation
                 $waitMinutes > 0 ? "{$waitMinutes} minutes waited" : null,
             ])).'.',
             actor: Actor::system('delay-compensation'));
+    }
+
+    /** The gift is given once per customer, whichever of their registrations earned it first. */
+    private function userWasGifted(?int $userId, int $exceptRegistrationId): bool
+    {
+        return $userId !== null && DeviceRegistration::query()
+            ->whereKeyNot($exceptRegistrationId)
+            ->whereNotNull('delay_gift_at')
+            ->whereHas('device', fn ($query) => $query->where('user_id', $userId))
+            ->exists();
     }
 }

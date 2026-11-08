@@ -13,7 +13,7 @@ use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
-// A customer whose device registration took more than 30 minutes gets the wait and a week added.
+// A customer whose device registration took more than 30 minutes gets the wait and a 3-day gift added.
 
 beforeEach(function () {
     $this->team = connectFakeAppleTeam();
@@ -52,36 +52,36 @@ it('leaves a registration that was ready within 30 minutes alone and does not lo
         ->and(AuditLog::where('action', 'subscription.extended')->count())->toBe(0);
 });
 
-it('adds the time waited and a week once the device is ready after more than 30 minutes', function () {
+it('adds the time waited and 3 days once the device is ready after more than 30 minutes', function () {
     $registration = ($this->register)(900, 300); // waited 5 hours
 
     ($this->compensation)()->run(now: $this->now);
 
-    expect(($this->ends)()->equalTo($this->endsAt->copy()->addDays(7)->addMinutes(300)))->toBeTrue()
+    expect(($this->ends)()->equalTo($this->endsAt->copy()->addDays(3)->addMinutes(300)))->toBeTrue()
         ->and($registration->refresh()->delay_compensation_minutes)->toBe(300)
         ->and($registration->delay_gift_at)->not->toBeNull();
     $audit = AuditLog::where('action', 'subscription.extended')->sole();
-    expect($audit->after)->toMatchArray(['days' => 7, 'delay_minutes' => 300])
-        ->and($audit->reason)->toContain('7 days gift')->toContain('300 minutes waited');
+    expect($audit->after)->toMatchArray(['days' => 3, 'delay_minutes' => 300])
+        ->and($audit->reason)->toContain('3 days gift')->toContain('300 minutes waited');
 
     // Running again changes nothing.
     ($this->compensation)()->run(now: $this->now);
-    expect(($this->ends)()->equalTo($this->endsAt->copy()->addDays(7)->addMinutes(300)))->toBeTrue();
+    expect(($this->ends)()->equalTo($this->endsAt->copy()->addDays(3)->addMinutes(300)))->toBeTrue();
 });
 
-it('gives the week as soon as the wait passes 30 minutes and the waited time when the device is ready', function () {
+it('gives the 3-day gift as soon as the wait passes 30 minutes and the waited time when the device is ready', function () {
     $registration = ($this->register)(45); // still pending after 45 minutes
 
     ($this->compensation)()->run(now: $this->now);
-    expect(($this->ends)()->equalTo($this->endsAt->copy()->addDays(7)))->toBeTrue()
+    expect(($this->ends)()->equalTo($this->endsAt->copy()->addDays(3)))->toBeTrue()
         ->and($registration->refresh()->delay_gift_at)->not->toBeNull()
         ->and($registration->delay_assessed_at)->toBeNull();
 
-    // Apple enables it 10 hours after the request: only the waited time is added now, no second week.
+    // Apple enables it 10 hours after the request: only the waited time is added now, no second gift.
     $registration->forceFill(['status' => Status::Eligible, 'eligible_at' => $registration->created_at->copy()->addHours(10)])->save();
     ($this->compensation)()->run(now: $this->now);
 
-    expect(($this->ends)()->equalTo($this->endsAt->copy()->addDays(7)->addHours(10)))->toBeTrue()
+    expect(($this->ends)()->equalTo($this->endsAt->copy()->addDays(3)->addHours(10)))->toBeTrue()
         ->and($registration->refresh()->delay_compensation_minutes)->toBe(600);
 });
 
@@ -107,7 +107,7 @@ it('counts a dry run without changing anything', function () {
 
     $stats = ($this->compensation)()->run(dryRun: true, now: $this->now);
 
-    expect($stats)->toMatchArray(['gifts' => 1, 'waits' => 1, 'gift_days' => 7, 'wait_minutes' => 300])
+    expect($stats)->toMatchArray(['gifts' => 1, 'waits' => 1, 'gift_days' => 3, 'wait_minutes' => 300])
         ->and(($this->ends)()->equalTo($this->endsAt))->toBeTrue()
         ->and($registration->refresh()->delay_assessed_at)->toBeNull();
 });
@@ -153,4 +153,21 @@ it('locks the customer row before reading the subscription it extends', function
     $lock = collect($queries)->search(fn (string $sql) => str_contains($sql, 'from `users`') && str_contains($sql, 'for update'));
     $read = collect($queries)->search(fn (string $sql) => str_contains($sql, 'from `subscriptions`'));
     expect($lock)->not->toBeFalse()->and($lock)->toBeLessThan($read);
+});
+
+it('gives the gift once per customer, not again for a second registration', function () {
+    ($this->register)(2000, 300); // first device: waited 5 h, gets gift + wait
+    ($this->compensation)()->run(now: $this->now);
+    expect(($this->ends)()->equalTo($this->endsAt->copy()->addDays(3)->addMinutes(300)))->toBeTrue();
+
+    // The customer is moved to another team and waits again: only the waited time, no second gift.
+    $second = ($this->register)(600); // still pending after 10 h
+    ($this->compensation)()->run(now: $this->now);
+    expect(($this->ends)()->equalTo($this->endsAt->copy()->addDays(3)->addMinutes(300)))->toBeTrue()
+        ->and($second->refresh()->delay_gift_at)->not->toBeNull();
+
+    $second->forceFill(['status' => Status::Eligible, 'eligible_at' => $second->created_at->copy()->addMinutes(120)])->save();
+    ($this->compensation)()->run(now: $this->now);
+    expect(($this->ends)()->equalTo($this->endsAt->copy()->addDays(3)->addMinutes(420)))->toBeTrue()
+        ->and(AuditLog::where('action', 'subscription.extended')->get()->sum(fn ($a) => $a->after['days']))->toBe(3);
 });

@@ -149,7 +149,7 @@ return [
     'delay_compensation' => [
         'enabled' => (bool) env('STOREFRONT_DELAY_COMPENSATION_ENABLED', true),
         'threshold_minutes' => (int) env('STOREFRONT_DELAY_COMPENSATION_THRESHOLD_MINUTES', 30),
-        'gift_days' => (int) env('STOREFRONT_DELAY_COMPENSATION_GIFT_DAYS', 7),
+        'gift_days' => (int) env('STOREFRONT_DELAY_COMPENSATION_GIFT_DAYS', 3),
     ],
 
     // Telegram message to the admins when Apple finally enables a device that waited this long
