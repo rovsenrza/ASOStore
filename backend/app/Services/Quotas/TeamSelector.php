@@ -7,8 +7,10 @@ use App\Enums\DeviceRegistrationStatus as Status;
 use App\Jobs\RegisterDeviceJob;
 use App\Models\AppleTeam;
 use App\Models\CatalogApp;
+use App\Models\Device;
 use App\Models\DeviceRegistration;
 use App\Models\QuotaReservation;
+use App\Models\Subscription;
 use App\Models\TeamAppEligibility;
 use App\Models\TeamAssignment;
 use App\Models\TeamQuota;
@@ -159,11 +161,12 @@ class TeamSelector
      * The team for a new device: of every active, connected team with free slots
      * for the family, the one with the fewest devices this membership year (the
      * primary first on a tie, then the oldest team). Null when no team has a free
-     * slot; the caller then uses the primary team.
+     * slot; the caller then uses the primary team. Warm-up teams (routing_rule) are offered
+     * only for $device when it qualifies; with no free warm-up slot routing is unchanged.
      */
-    public function instantTeam(string $family, ?int $exclude = null): ?AppleTeam
+    public function instantTeam(string $family, ?int $exclude = null, ?Device $device = null): ?AppleTeam
     {
-        $candidates = $this->automaticTeams($family, exclude: $exclude ?? 0);
+        $candidates = $this->automaticTeams($family, exclude: $exclude ?? 0, for: $device);
 
         // The primary team counts too, even without its own Ru App Store variant.
         $primary = AppleTeam::primary();
@@ -212,8 +215,9 @@ class TeamSelector
      *
      * @return list<AppleTeam>
      */
-    private function automaticTeams(string $family, int $exclude): array
+    private function automaticTeams(string $family, int $exclude, ?Device $for = null): array
     {
+        $newMonthly = null;
         $teams = AppleTeam::query()
             ->whereIn('status', [AppleTeamStatus::Active->value, AppleTeamStatus::Expiring->value])
             ->whereKeyNot($exclude)
@@ -223,6 +227,10 @@ class TeamSelector
             ->get();
         $ready = [];
         foreach ($teams as $team) {
+            if ($team->routing_rule === AppleTeam::RULE_NEW_MONTHLY
+                && ! ($newMonthly ??= $for !== null && self::isNewMonthlyCustomer($for))) {
+                continue;
+            }
             $year = $team->currentMembershipYear();
             $artifact = $team->storefrontApp?->publishedArtifact;
             if ($year === null || $artifact === null || ! $this->apple->isConfigured($team)
@@ -264,6 +272,7 @@ class TeamSelector
 
         $teams = AppleTeam::query()
             ->whereIn('status', [AppleTeamStatus::Active->value, AppleTeamStatus::Expiring->value])
+            ->whereNull('routing_rule')
             ->when($exclude !== null, fn ($query) => $query->whereKeyNot($exclude))
             ->with('activeCredential')
             ->orderBy('id')
@@ -292,6 +301,31 @@ class TeamSelector
         usort($candidates, fn (array $a, array $b) => $b[1] <=> $a[1]);
 
         return $candidates;
+    }
+
+    /**
+     * A new customer on a one-month plan: this is the first device of the account (no other
+     * device was ever registered with Apple) and the active access spans at most 35 days.
+     */
+    public static function isNewMonthlyCustomer(Device $device): bool
+    {
+        if ($device->user_id === null) {
+            return false;
+        }
+        $otherDevice = DeviceRegistration::query()
+            ->where('udid_hash', '!=', $device->udid_hash)
+            ->whereHas('device', fn ($query) => $query->where('user_id', $device->user_id))
+            ->exists();
+        if ($otherDevice) {
+            return false;
+        }
+        $subscriptions = Subscription::query()->where('user_id', $device->user_id)->where('status', 'ACTIVE')->get(['starts_at', 'ends_at']);
+        if ($subscriptions->isEmpty() || $subscriptions->contains(fn (Subscription $s) => $s->ends_at === null)) {
+            return false;
+        }
+        $end = $subscriptions->max('ends_at');
+
+        return $end->isFuture() && $subscriptions->min('starts_at')->diffInDays($end) <= 35;
     }
 
     private function move(DeviceRegistration $registration, Status $to, string $reason, string $message): void

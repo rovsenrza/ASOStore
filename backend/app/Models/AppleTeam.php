@@ -29,7 +29,13 @@ class AppleTeam extends Model
         'is_primary' => false,
     ];
 
-    protected $fillable = ['apple_team_id', 'name', 'status', 'is_primary', 'membership_expires_at', 'storefront_app_id'];
+    /**
+     * Warm-up team: only the first device of a new customer on a one-month plan is routed here,
+     * and only while its quota (limit_count, e.g. 1) has room. Null = takes everyone.
+     */
+    public const RULE_NEW_MONTHLY = 'NEW_MONTHLY';
+
+    protected $fillable = ['apple_team_id', 'name', 'status', 'is_primary', 'routing_rule', 'membership_expires_at', 'storefront_app_id'];
 
     protected $hidden = ['id'];
 

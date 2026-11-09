@@ -85,7 +85,8 @@ function deviceSummary(devices) {
 
 function teamCard(team) {
   const card = el('article', { className: 'card team-card' },
-    el('h2', {}, `${teamName(team)} · ${team.apple_team_id} `, statusBadge(team.status, t(`teams.status.${team.status}`)), ` ${t(`teams.role.${team.role}`)}`),
+    el('h2', {}, `${teamName(team)} · ${team.apple_team_id} `, statusBadge(team.status, t(`teams.status.${team.status}`)), ` ${t(`teams.role.${team.role}`)}`,
+      team.routing_rule === 'NEW_MONTHLY' ? el('span', { className: 'badge badge--warn', title: 'Сюда идёт только первое устройство нового клиента с подпиской на 1 месяц, пока есть место по лимиту' }, 'Прогрев: только новые на 1 мес') : ''),
     el('p', {}, team.credential ? t('teams.credential', { key: team.credential.key_id }) : t('teams.noCredential')),
     el('p', { className: 'muted' }, team.last_verified_at ? t('teams.verified', { time: formatDateTime(team.last_verified_at) }) : t('teams.notVerified')),
     el('p', {}, team.membership_year

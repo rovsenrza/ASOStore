@@ -204,6 +204,7 @@ class AppleTeamController extends Controller
             'name' => $team->name,
             'status' => $team->status->value,
             'is_primary' => (bool) $team->is_primary,
+            'routing_rule' => $team->routing_rule,
             'storefront_app_id' => $team->storefrontApp?->public_id,
             'storefront_bundle_id' => $team->storefrontApp?->publishedArtifact?->bundle_identifier,
             'membership_expires_at' => $team->membership_expires_at?->toIso8601ZuluString(),

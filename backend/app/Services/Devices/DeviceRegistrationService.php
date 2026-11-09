@@ -87,7 +87,7 @@ class DeviceRegistrationService
             $forced = $primary;
         }
 
-        $team = $forced ?? $this->selector->instantTeam($device->device_family->value) ?? AppleTeam::primary();
+        $team = $forced ?? $this->selector->instantTeam($device->device_family->value, device: $device) ?? AppleTeam::primary();
         $year = $team?->currentMembershipYear();
         if ($team === null || $year === null) {
             if ($forced !== null) {
