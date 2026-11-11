@@ -3665,6 +3665,7 @@ components:
         - SERVICE_UNAVAILABLE
         - INTERNAL
         - DELTA_CORE_MISSING
+        - SUBSCRIPTION_REQUIRED
 
     Error:
       type: object

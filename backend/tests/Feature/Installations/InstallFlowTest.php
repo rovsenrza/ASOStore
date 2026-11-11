@@ -490,6 +490,43 @@ it('never hands out a manifest or IPA for tampered links, other devices or withd
         ->and(Installation::sole()->status)->toBe(InstallationStatus::Failed);
 });
 
+it('stops installs, links and downloads once the subscription has ended, except for staff', function () {
+    runnerHeartbeat();
+    Sanctum::actingAs($this->customer);
+    $installation = $this->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")->json('data');
+    runnerSigns($this);
+    $link = $this->postJson("/api/v1/installations/{$installation['id']}/authorize")->assertOk()->json('data');
+
+    // The subscription ends (its row stays ACTIVE: only ends_at has passed).
+    $this->customer->subscriptions()->update(['ends_at' => now()->subMinute()]);
+
+    // A link handed out before the end yields no manifest...
+    forgetGuards();
+    $this->get($link['manifest_url'])->assertForbidden()->assertJsonPath('error.code', 'SUBSCRIPTION_REQUIRED');
+
+    // ...and no new link, no new install and no reinstall of the same build.
+    Sanctum::actingAs($this->customer->fresh());
+    $this->postJson("/api/v1/installations/{$installation['id']}/authorize")->assertForbidden()->assertJsonPath('error.code', 'SUBSCRIPTION_REQUIRED');
+    $this->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")->assertForbidden()->assertJsonPath('error.code', 'SUBSCRIPTION_REQUIRED');
+
+    // An IPA URL obtained while subscribed stops working too.
+    $this->customer->subscriptions()->update(['ends_at' => now()->addDay()]);
+    forgetGuards();
+    Sanctum::actingAs($this->customer->fresh());
+    $link = $this->postJson("/api/v1/installations/{$installation['id']}/authorize")->assertOk()->json('data');
+    forgetGuards();
+    $manifest = $this->get($link['manifest_url'])->assertOk()->getContent();
+    preg_match('#<string>(http[^<]+/downloads/installations/[^<]+)</string>#', $manifest, $match);
+    $this->customer->subscriptions()->update(['ends_at' => now()->subMinute()]);
+    $this->get(html_entity_decode($match[1]))->assertForbidden()->assertJsonPath('error.code', 'SUBSCRIPTION_REQUIRED');
+
+    // Staff test installs without a subscription of their own.
+    $this->customer->roles()->attach(\App\Models\Role::where('slug', RoleSlug::Support->value)->sole());
+    forgetGuards();
+    Sanctum::actingAs($this->customer->fresh());
+    $this->postJson("/api/v1/apps/{$this->catalogApp->public_id}/prepare")->assertSuccessful();
+});
+
 it('refuses preparation for devices that are not eligible or not compatible', function () {
     $other = subscribedCustomer();
     Sanctum::actingAs($other);
