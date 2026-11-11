@@ -161,7 +161,11 @@ class SignatureVerifier
         }
 
         $applicationId = $result->report['entitlements']['application-identifier'] ?? null;
-        if ($applicationId !== null && $applicationId !== $expected->team->apple_team_id.'.'.$bundleIdentifier) {
+        // An instant-certificate profile keeps its own explicit App ID for every bundle (ExternalSigning).
+        $grantedId = $expected->team->isExternal()
+            ? (ProvisioningProfile::parse((string) base64_decode((string) $expected->content_encrypted, true))['entitlements']['application-identifier'] ?? null)
+            : $expected->team->apple_team_id.'.'.$bundleIdentifier;
+        if ($applicationId !== null && $applicationId !== $grantedId) {
             return 'ENTITLEMENTS_MISMATCH';
         }
 

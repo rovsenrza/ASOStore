@@ -655,6 +655,30 @@ describe('renewal', function () {
         expect(App\Models\Subscription::query()->where('user_id', $account->id)->count())->toBe(2);
     });
 
+    it('asks a buyer with an account whether to extend it before opening a new order', function () {
+        $account = userWithRoles(RoleSlug::Customer);
+        redeemedOnAccount($this, $account);
+        $count = TelegramStoreOrder::query()->count();
+
+        ($this->press)(BUYER_ID, 'buy');
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Покупка подписки')->toContain('другого</b> iPhone');
+
+        // A plan from the plans list or a website link is not an order yet: extend or new account?
+        ($this->press)(BUYER_ID, 'plan:month12');
+        expect(TelegramStoreOrder::query()->count())->toBe($count)
+            ->and(($this->sentTo)(BUYER_ID)->last())->toContain('Продлить ваш аккаунт');
+
+        ($this->press)(BUYER_ID, 'rnw:month12:'.$account->public_id);
+        expect(TelegramStoreOrder::query()->latest('id')->first()->renew_user_id)->toBe($account->id);
+
+        // A new account for another iPhone, chosen on purpose.
+        ($this->press)(BUYER_ID, 'buynew');
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Новый аккаунт');
+        ($this->press)(BUYER_ID, 'pln:month1');
+        $order = TelegramStoreOrder::query()->latest('id')->first();
+        expect($order->renew_user_id)->toBeNull()->and($order->duration_days)->toBe(30);
+    });
+
     it('starts from today for an expired subscription', function () {
         $account = userWithRoles(RoleSlug::Customer);
         redeemedOnAccount($this, $account);
@@ -699,5 +723,54 @@ describe('renewal', function () {
         $completed = app(OrderService::class)->complete($order, 'mock');
 
         expect($completed->renewed)->toBeNull()->and($completed->code)->toBe('AAAA-BBBB-CCCC-DDDD');
+    });
+});
+
+describe('registration method', function () {
+    beforeEach(fn () => config(['instant_certs.enabled' => true, 'instant_certs.api_key' => 'test-key', 'instant_certs.sell' => true]));
+
+    it('lets a new buyer pick the instant certificate and switches the account on redemption', function () {
+        ($this->text)(BUYER_ID, '/start');
+        ($this->press)(BUYER_ID, 'plan:month1');
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Как зарегистрировать iPhone')
+            ->and(($this->buttons)(BUYER_ID))->toContain('reg:ins:month1', 'reg:std:month1')
+            ->and(TelegramStoreOrder::query()->count())->toBe(0);
+
+        ($this->press)(BUYER_ID, 'reg:ins:month1');
+        $order = TelegramStoreOrder::query()->latest('id')->first();
+        expect($order->plan)->toBe(OrderService::INSTANT)
+            ->and(($this->sentTo)(BUYER_ID)->last())->toContain('мгновенная');
+
+        $completed = app(OrderService::class)->complete($order, 'mock');
+        expect(ActivationCode::query()->where('note', OrderService::codeNote($order))->value('plan'))->toBe('instant');
+
+        $account = userWithRoles(RoleSlug::Customer);
+        app(App\Services\Activation\ActivationCodeService::class)->redeem($account, $completed->code);
+        expect($account->refresh()->registration_method)->toBe('INSTANT');
+    });
+
+    it('keeps the standard path for reg:std and for an account whose iPhone is registered already', function () {
+        ($this->text)(BUYER_ID, '/start');
+        ($this->press)(BUYER_ID, 'reg:std:month1');
+        expect(TelegramStoreOrder::query()->latest('id')->first()->plan)->toBe('standard');
+
+        $orders = app(OrderService::class);
+        $completed = $orders->complete($orders->create(customer(BUYER_ID), 'month1', null, OrderService::INSTANT), 'mock');
+        $account = userWithRoles(RoleSlug::Customer);
+        $device = App\Models\Device::factory()->make(['user_id' => $account->id]);
+        $device->setUdid('00008030-0000000000000099');
+        $device->save();
+        app(App\Services\Activation\ActivationCodeService::class)->redeem($account, $completed->code);
+        expect($account->refresh()->registration_method)->toBeNull();
+    });
+
+    it('asks nothing when instant registration is not on sale', function () {
+        config(['instant_certs.sell' => false]);
+        ($this->text)(BUYER_ID, '/start');
+        ($this->press)(BUYER_ID, 'plan:month1');
+        expect(TelegramStoreOrder::query()->latest('id')->first()->plan)->toBe('standard');
+
+        ($this->press)(BUYER_ID, 'reg:ins:month1');
+        expect(TelegramStoreOrder::query()->where('plan', 'instant')->count())->toBe(0);
     });
 });

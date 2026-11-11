@@ -56,6 +56,18 @@ class DeviceRegistrationService
      */
     public function request(Device $device): ?DeviceRegistration
     {
+        // Second registration method: an instant certificate from the reseller, never our teams.
+        // The purchase is an outside HTTP call, so it runs in a job after the caller's transaction.
+        $instant = app(\App\Services\InstantCerts\InstantCertificates::class);
+        if ($instant->wantedFor($device)) {
+            $current = $instant->current($device);
+            if ($current === null) {
+                \App\Jobs\ProvisionInstantCertificateJob::dispatch($device->id)->afterCommit();
+            }
+
+            return $current;
+        }
+
         // Re-enrollment and SyncDeviceRegistrationsJob can ask at the same moment, and the
         // firstOrCreate key below includes the team, so two callers could each pick a different
         // team. Locking every device row of this UDID serialises them: the second one finds the

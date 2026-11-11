@@ -302,6 +302,13 @@ button.text-link:disabled { color: var(--ink-2); cursor: default; }
 .plan-option strong { grid-row: 1 / span 2; grid-column: 2; font: 700 clamp(1.25rem, 1rem + 1vw, 2.1rem)/1 var(--font-display); letter-spacing: -.03em; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .plan-option__tag { padding: 2px 10px; border-radius: var(--r-pill); background: #fff; color: var(--deep); font: 700 var(--text-xs)/1.6 var(--font-text); letter-spacing: 0; vertical-align: 2px; }
 
+/* Registration method (new accounts): same cards, text wraps, no price column. */
+.reg-list { margin-top: var(--s5); }
+.reg-list[hidden] { display: none; }
+.reg-list__title { margin-bottom: var(--s2); padding: 0; color: var(--on-blue-2); font: 600 var(--text-sm)/1.4 var(--font-text); }
+.plan-option--reg { grid-template-columns: 1fr; min-height: 0; }
+.plan-option--reg small { white-space: normal; line-height: 1.45; }
+
 @media (width <= 900px) {
   .packages { grid-template-columns: minmax(0, 1fr); }
 }

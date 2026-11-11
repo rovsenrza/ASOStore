@@ -19,13 +19,13 @@ use Illuminate\Support\Facades\Cache;
 /** Starts bounded, speculative builds without recording a customer installation. */
 final class BuildWarmup
 {
-    public function forDevice(Device $device): void
+    public function forDevice(Device $device, ?int $limit = null): void
     {
         if (! $this->enabled($device)) {
             return;
         }
 
-        $limit = max(0, min(10, (int) config('storefront.signing.warmup_popular_limit', 3)));
+        $limit = max(0, min(30, $limit ?? (int) config('storefront.signing.warmup_popular_limit', 3)));
 
         foreach ($this->popularApps($limit) as $app) {
             $this->forApp($device, $app);
@@ -50,6 +50,8 @@ final class BuildWarmup
         $newest = DeviceRegistration::query()
             ->where('status', DeviceRegistrationStatus::Eligible->value)
             ->whereNotNull('apple_device_id')
+            // Instant-certificate teams are signed per device, never as a team.
+            ->whereHas('team', fn ($team) => $team->where('status', '!=', 'EXTERNAL'))
             ->whereIn('id', DeviceRegistration::query()->selectRaw('MAX(id)')->groupBy('device_id'))
             ->orderByDesc('eligible_at')->orderByDesc('id')
             ->with('device.latestRegistration')

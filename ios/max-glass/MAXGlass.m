@@ -67,7 +67,20 @@ static BOOL IsStockBar(id v) {
     return [v class] == [UITabBar class]
         && [NSStringFromClass([[v superview] class]) containsString:@"TabBarContainer"];
 }
-static BOOL IsMAXBar(id v) { return [NSStringFromClass([v class]) isEqualToString:@"OMUIKit.TabBar"]; }
+// The attach/compose picker's Gallery/File/Poll/Location/Contact tabs are an OMUIKit.TabBar living
+// inside a modally-PRESENTED sheet; MAX's MAIN navigation OMUIKit.TabBar is owned by the root
+// TabBarController and is never presented. We hide only the main one (so the iOS-26 stock glass bar
+// shows through) and leave the picker's tab bar visible.
+static BOOL InPresentedContext(UIView *v) {
+    for (UIResponder *r = [v nextResponder]; r; r = [r nextResponder])
+        if ([r isKindOfClass:[UIViewController class]] && [(UIViewController *)r presentingViewController])
+            return YES;
+    return NO;
+}
+static BOOL IsMAXBar(id v) {
+    return [NSStringFromClass([v class]) isEqualToString:@"OMUIKit.TabBar"]
+        && !InPresentedContext((UIView *)v);
+}
 
 static void (*o_setAlpha)(id, SEL, CGFloat);
 static void h_setAlpha(id self, SEL _cmd, CGFloat a) { o_setAlpha(self, _cmd, IsStockBar(self) ? 1.0 : a); }
@@ -346,6 +359,9 @@ static void InstallControlHooks(void) {
 
 __attribute__((constructor))
 static void MAXGlassInit(void) {
+    // Main-app only: zsign -P also injects this into the NSE (so the CompatShim reaches it); this
+    // cosmetic tab-bar hook must not run in an app extension.
+    if ([[NSBundle mainBundle].bundlePath hasSuffix:@".appex"]) return;
     if (@available(iOS 26.0, *)) {} else return;
     Class c = objc_getClass("UITabBar");
     if (!c) return;

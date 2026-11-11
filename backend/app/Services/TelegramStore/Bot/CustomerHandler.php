@@ -4,6 +4,7 @@ namespace App\Services\TelegramStore\Bot;
 
 use App\Models\TelegramStoreOrder;
 use App\Models\User;
+use App\Services\InstantCerts\InstantCertificates;
 use App\Services\TelegramStore\CompletedOrder;
 use App\Services\TelegramStore\OrderService;
 use App\Services\TelegramStore\Payments\GatewayResolver;
@@ -30,6 +31,7 @@ class CustomerHandler
         private readonly PlategaPayments $platega,
         private readonly RenewalAccounts $accounts,
         private readonly StoreSettings $settings,
+        private readonly InstantCertificates $instant,
     ) {}
 
     /** @return array<string, mixed>|null */
@@ -78,7 +80,7 @@ class CustomerHandler
             if ($this->held($ctx, isset($match[1]) ? 'plan:'.$match[1] : 'buy')) {
                 return;
             }
-            isset($match[1]) ? $this->startOrder($ctx, $match[1]) : $this->messenger->show($ctx, $this->screens->plans($ctx->customer, $this->promos->remembered($ctx->userId())));
+            isset($match[1]) ? $this->orderPlan($ctx, $match[1]) : $this->messenger->show($ctx, $this->screens->buy($ctx->customer, $this->promos->remembered($ctx->userId())));
 
             return;
         }
@@ -106,7 +108,7 @@ class CustomerHandler
 
         match (true) {
             in_array($command, ['/start', '/menu'], true), $lower === 'меню' => $this->messenger->welcome($ctx->chatId),
-            $command === '/buy', str_contains($lower, 'купить') => $this->messenger->show($ctx, $this->screens->plans($ctx->customer)),
+            $command === '/buy', str_contains($lower, 'купить') => $this->messenger->show($ctx, $this->screens->buy($ctx->customer)),
             $command === '/profile', str_contains($lower, 'профиль') => $this->messenger->show($ctx, $this->screens->profile($ctx->customer)),
             $command === '/invite', str_contains($lower, 'пригласить'), str_contains($lower, 'реферал') => $this->messenger->show($ctx, $this->screens->invite($ctx->customer)),
             $command === '/help', str_contains($lower, 'инструкция'), str_contains($lower, 'поддержк') => $this->messenger->show($ctx, $this->screens->help()),
@@ -132,7 +134,7 @@ class CustomerHandler
         }
 
         // Buying and paying need a subscription to the news channel.
-        if (preg_match('/^(buy|renew|plan:\w+|rna:\w+|rnw:\w+:\w+|(order|bal|pay:\w+|paid|mockpay|promo):[0-9a-z]{26})$/', $data) === 1 && $this->held($ctx, $data)) {
+        if (preg_match('/^(buy|buynew|renew|plan:\w+|pln:\w+|reg:\w+:\w+|rna:\w+|rnw:\w+:\w+|(order|bal|pay:\w+|paid|mockpay|promo):[0-9a-z]{26})$/', $data) === 1 && $this->held($ctx, $data)) {
             return;
         }
 
@@ -144,11 +146,12 @@ class CustomerHandler
             return;
         }
 
-        if (in_array($data, ['menu', 'buy', 'renew', 'profile', 'orders', 'invite', 'help'], true)) {
+        if (in_array($data, ['menu', 'buy', 'buynew', 'renew', 'profile', 'orders', 'invite', 'help'], true)) {
             $this->messenger->answer($ctx);
             $this->messenger->show($ctx, match ($data) {
                 'menu' => $this->screens->menu(),
-                'buy' => $this->screens->plans($customer, $this->promos->remembered($customer->telegram_user_id)),
+                'buy' => $this->screens->buy($customer, $this->promos->remembered($customer->telegram_user_id)),
+                'buynew' => $this->screens->plans($customer, $this->promos->remembered($customer->telegram_user_id), true),
                 'renew' => $this->screens->renew($customer),
                 'profile' => $this->screens->profile($customer),
                 'orders' => $this->screens->orders($customer),
@@ -182,15 +185,30 @@ class CustomerHandler
             return;
         }
 
-        if (preg_match('/^plan:(\w+)$/', $data, $match)) {
-            if ($this->planMissing($match[1])) {
+        // plan: may still be a renewal (the buyer has an account); pln: is a new account chosen on purpose.
+        if (preg_match('/^(plan|pln):(\w+)$/', $data, $match)) {
+            if ($this->planMissing($match[2])) {
                 $this->messenger->answer($ctx, 'Этот тариф больше недоступен.', true);
-                $this->messenger->show($ctx, $this->screens->plans($customer));
+                $this->messenger->show($ctx, $this->screens->buy($customer));
 
                 return;
             }
             $this->messenger->answer($ctx);
-            $this->startOrder($ctx, $match[1]);
+            $match[1] === 'pln' ? $this->askRegistration($ctx, $match[2]) : $this->orderPlan($ctx, $match[2]);
+
+            return;
+        }
+
+        // How the new account's iPhone gets registered: reg:ins (instant certificate) or reg:std (our teams).
+        if (preg_match('/^reg:(ins|std):(\w+)$/', $data, $match)) {
+            if ($this->planMissing($match[2]) || ($match[1] === 'ins' && ! $this->instant->offered())) {
+                $this->messenger->answer($ctx, 'Этот вариант больше недоступен.', true);
+                $this->messenger->show($ctx, $this->screens->buy($customer));
+
+                return;
+            }
+            $this->messenger->answer($ctx);
+            $this->startOrder($ctx, $match[2], null, $match[1] === 'ins' ? OrderService::INSTANT : OrderService::STANDARD);
 
             return;
         }
@@ -222,15 +240,40 @@ class CustomerHandler
         };
     }
 
+    /**
+     * A plan picked without saying for which account. A buyer who already has an account is asked
+     * first: many bought a new code when they meant to extend, and then ran two accounts.
+     */
+    private function orderPlan(Context $ctx, string $planKey): void
+    {
+        if (! $this->planMissing($planKey) && $this->accounts->for($ctx->customer)->isNotEmpty()) {
+            $this->messenger->show($ctx, $this->screens->planFor($ctx->customer, $planKey));
+
+            return;
+        }
+        $this->askRegistration($ctx, $planKey);
+    }
+
+    /** A new account: instant certificate or our developer teams, when both are on sale. */
+    private function askRegistration(Context $ctx, string $planKey): void
+    {
+        if (! $this->planMissing($planKey) && $this->instant->offered()) {
+            $this->messenger->show($ctx, $this->screens->registration($planKey));
+
+            return;
+        }
+        $this->startOrder($ctx, $planKey);
+    }
+
     /** Opens an order for the plan (a remembered promo code applies) and shows how to pay it. */
-    private function startOrder(Context $ctx, string $planKey, ?User $renewFor = null): void
+    private function startOrder(Context $ctx, string $planKey, ?User $renewFor = null, string $registration = OrderService::STANDARD): void
     {
         if ($this->planMissing($planKey)) {
             $this->messenger->show($ctx, $this->screens->plans($ctx->customer, $this->promos->remembered($ctx->userId())));
 
             return;
         }
-        $order = $this->orders->create($ctx->customer, $planKey, $renewFor);
+        $order = $this->orders->create($ctx->customer, $planKey, $renewFor, $registration);
         if ($completed = $this->promos->applyRemembered($order)) {
             $this->finish($ctx, $completed);
 

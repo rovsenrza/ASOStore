@@ -1884,6 +1884,9 @@ static id h_ctxActions(id self, SEL _cmd, id message, id ctx, id ma, id txt) {
 
 __attribute__((constructor))
 static void MAXFeaturesInit(void) {
+    // Main-app only: zsign -P also injects this into the NSE (so the CompatShim reaches it), but these
+    // UI/feature hooks must not run in an app extension.
+    if ([[NSBundle mainBundle].bundlePath hasSuffix:@".appex"]) return;
     @autoreleasepool {
         @try {
             SEL ca = sel_registerName("historyDidRequestContextMenuActionsForMessage:context:mediaActions:mediaMessageTranscribedText:");

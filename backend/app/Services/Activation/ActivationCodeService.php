@@ -117,6 +117,8 @@ class ActivationCodeService
                 'starts_at' => now(),
                 'ends_at' => $endsAt,
             ]);
+            // A code bought with the instant method sends the account's first iPhone that way.
+            app(\App\Services\InstantCerts\InstantCertificates::class)->applyCodePlan($user, $record->plan);
 
             $this->audit->record('activation_code.redeemed', $record, after: [
                 'subscription_id' => $subscription->public_id,

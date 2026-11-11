@@ -3906,6 +3906,25 @@ components:
             screenshots:
               type: array
               items: { $ref: "#/components/schemas/Screenshot" }
+            # App page extras (2026-11-11). Additive: clients older than build 15 ignore them.
+            downloads:
+              type: integer
+              description: Devices that received this app at least once.
+            share_url:
+              type: [string, "null"]
+              description: The listing's public web page; null when it has none (web-hidden, private import).
+            versions:
+              type: array
+              description: The five newest versions, newest first.
+              items: { $ref: "#/components/schemas/Version" }
+            related:
+              type: array
+              description: Other apps of the same category, most downloaded first (up to 12).
+              items: { $ref: "#/components/schemas/AppSummary" }
+            more_from_publisher:
+              type: array
+              description: Other apps of the same publisher (up to 12); empty when the developer is not known.
+              items: { $ref: "#/components/schemas/AppSummary" }
 
     Version:
       type: object

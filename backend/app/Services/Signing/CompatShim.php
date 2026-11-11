@@ -419,7 +419,12 @@ class CompatShim
     public function injectsIntoExtensions(AppArtifact $artifact): bool
     {
         $names = array_column($this->dylibsFor($artifact), 'name');
-        if (! in_array(self::NAME, $names, true) || array_diff($names, [self::NAME, self::VK_RELAY_NAME]) !== []) {
+        // Dylibs that no-op in an extension (their constructor returns early when the main bundle is an
+        // .appex): the shim, VKRelay, and the MAX hooks (MAXRelay/MAXFeatures/MAXGlass). MAX needs this
+        // so its notification-service NSE gets the App-Group remap (else okm_appGroupContainer is nil and
+        // the NSE crashes on a message push). TG/VTB are NOT guarded, so they keep the app out of here.
+        $extensionSafe = [self::NAME, self::VK_RELAY_NAME, self::RELAY_NAME, self::FEATURES_NAME, self::GLASS_NAME];
+        if (! in_array(self::NAME, $names, true) || array_diff($names, $extensionSafe) !== []) {
             return false;
         }
         foreach ($artifact->inspection['nested_bundles'] ?? [] as $nested) {

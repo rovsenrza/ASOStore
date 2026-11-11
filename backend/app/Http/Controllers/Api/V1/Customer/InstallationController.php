@@ -45,6 +45,10 @@ class InstallationController extends Controller
         if ($storefront === null && $team?->is_primary && CatalogApp::query()->where('is_storefront', true)->count() === 1) {
             $storefront = CatalogApp::query()->where('is_storefront', true)->latest('id')->first();
         }
+        // Instant-certificate teams have no storefront listing of their own: the primary team's one.
+        if ($storefront === null && $team?->isExternal()) {
+            $storefront = \App\Models\AppleTeam::primary()?->storefrontApp;
+        }
         $storefront ??= throw new ApiException(ErrorCode::ArtifactNotInstallable);
 
         return $this->start($request, $storefront);

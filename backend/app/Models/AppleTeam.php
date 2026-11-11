@@ -35,7 +35,13 @@ class AppleTeam extends Model
      */
     public const RULE_NEW_MONTHLY = 'NEW_MONTHLY';
 
-    protected $fillable = ['apple_team_id', 'name', 'status', 'is_primary', 'routing_rule', 'membership_expires_at', 'storefront_app_id'];
+    protected $fillable = ['apple_team_id', 'name', 'status', 'is_primary', 'routing_rule', 'membership_expires_at', 'storefront_app_id', 'external_bundle_base'];
+
+    /** An instant-certificate team (InstantCertificates): one reseller profile per device, no ASC. */
+    public function isExternal(): bool
+    {
+        return $this->status === AppleTeamStatus::External;
+    }
 
     protected $hidden = ['id'];
 

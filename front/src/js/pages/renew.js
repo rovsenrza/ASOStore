@@ -11,7 +11,7 @@ const { api } = boot();
 const state = document.querySelector('#renew-state');
 const dateFormat = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'long' });
 
-const packages = setupPackages(document, { api, returnTo: '/renew.html', authPage: '/login.html', payVerb: 'Продлить за' });
+const packages = setupPackages(document, { api, returnTo: '/renew.html', authPage: '/login.html', payVerb: 'Продлить за', chooseRegistration: false });
 
 /** The Telegram button of the block opens the bot's renewal instead of a new purchase. */
 function pointCtaAtRenewal() {

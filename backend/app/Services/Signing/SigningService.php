@@ -150,6 +150,10 @@ class SigningService
             return null;
         }
         $registration = $device->latestRegistration()->first();
+        // Instant-certificate devices: one profile per device (each may hold its own certificate).
+        if ($registration?->team?->isExternal()) {
+            return null;
+        }
 
         return $registration?->status === DeviceRegistrationStatus::Eligible && $registration->apple_device_id !== null
             ? $registration->apple_team_id
@@ -224,6 +228,17 @@ class SigningService
     public function lease(Runner $runner): ?array
     {
         $identities = array_map('strtoupper', array_column($runner->identities ?? [], 'sha1'));
+
+        // Runners poll several times a second and nearly every poll finds nothing. Answer those
+        // from one index lookup, without the transaction and the runner row lock below.
+        $waiting = PipelineJob::query()
+            ->where('type', self::RUNNER_JOB_TYPE)
+            ->where('status', PipelineJobStatus::Queued->value)
+            ->where('available_at', '<=', now())
+            ->exists();
+        if (! $waiting) {
+            return null;
+        }
 
         return DB::transaction(function () use ($runner, $identities) {
             // The runner's parallel lease loops share this row. A speculative job only starts
@@ -322,6 +337,8 @@ class SigningService
             // Also inject the (shim-only) dylib into app extensions, e.g. a VPN packet-tunnel that
             // shares its config with the app through an App Group (CompatShim::injectsIntoExtensions).
             'inject_into_extensions' => app(CompatShim::class)->injectsIntoExtensions($artifact),
+            // Instant certificate: one reseller profile for every bundle (only the external runner leases these).
+            'single_profile' => $profile->team->isExternal(),
             'source' => $source,
             // The runner may upload a pack of the changed entries instead of the whole IPA (docs/adr/DELTA_BUILDS.md,
             // and with delta v3 a team patch against the artifact's shared core, docs/adr/DELTA_V3.md).
@@ -385,7 +402,9 @@ class SigningService
      */
     public function deltaAllowed(SignedBuild $build, AppArtifact $artifact): bool
     {
-        if (! config('storefront.signing.delta_builds.enabled') || ! $build->isShared() || $build->bootstrap_claim_encrypted !== null) {
+        // Per-device builds of an instant-certificate team also go as packs: one small patch per device.
+        $external = ! $build->isShared() && $build->profile?->team?->isExternal() === true;
+        if (! config('storefront.signing.delta_builds.enabled') || (! $build->isShared() && ! $external) || $build->bootstrap_claim_encrypted !== null) {
             return false;
         }
         if (! (self::deltaV2() ? self::deltaFits($artifact) : self::deltaSized($artifact))) {

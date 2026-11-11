@@ -137,7 +137,8 @@ class AuthController extends Controller
         }
 
         $device = $this->currentDevice->resolve($request);
-        $artifact = $device?->latestRegistration?->team?->storefrontApp?->publishedArtifact;
+        $team = $device?->latestRegistration?->team;
+        $artifact = ($team?->isExternal() ? \App\Models\AppleTeam::primary() : $team)?->storefrontApp?->publishedArtifact;
         $latestBuild = (int) ($artifact->build_number ?? 0);
         if ($latestBuild <= $clientBuild) {
             return null;

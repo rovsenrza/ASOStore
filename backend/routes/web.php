@@ -44,3 +44,24 @@ Route::get('/', function () {
 
     return response()->file($portal, ['Content-Type' => 'text/html; charset=UTF-8']);
 });
+
+/*
+| Temporary UDID-capture probe (no session/CSRF so iOS can POST the signed answer). Shows the UDID
+| only; never registers the device. Remove the controller + these routes when done.
+*/
+Route::withoutMiddleware([
+    \Illuminate\Session\Middleware\StartSession::class,
+    \Illuminate\View\Middleware\ShareErrorsFromSession::class,
+    \Illuminate\Foundation\Http\Middleware\ValidateCsrfToken::class,
+    \Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse::class,
+    \Illuminate\Cookie\Middleware\EncryptCookies::class,
+])->group(function () {
+    Route::get('/udid-probe/{token}', [\App\Http\Controllers\UdidProbeController::class, 'profile'])->where('token', '[A-Za-z0-9_-]+');
+    Route::post('/udid-probe/{token}/callback', [\App\Http\Controllers\UdidProbeController::class, 'callback'])->where('token', '[A-Za-z0-9_-]+');
+    Route::get('/udid-probe/{token}/result', [\App\Http\Controllers\UdidProbeController::class, 'result'])->where('token', '[A-Za-z0-9_-]+');
+});
+
+/* Temporary ad-hoc OTA install for a customer-cert-signed build. Remove when done. */
+Route::get('/sign-test/{token}', [\App\Http\Controllers\SignTestController::class, 'page'])->where('token','[A-Za-z0-9_-]+');
+Route::get('/sign-test/{token}/manifest.plist', [\App\Http\Controllers\SignTestController::class, 'manifest'])->where('token','[A-Za-z0-9_-]+');
+Route::get('/sign-test/{token}/app.ipa', [\App\Http\Controllers\SignTestController::class, 'ipa'])->where('token','[A-Za-z0-9_-]+');

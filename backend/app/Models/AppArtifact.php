@@ -152,6 +152,11 @@ class AppArtifact extends Model
     {
         $listing = CatalogApp::withTrashed()->find($this->app_id);
         $base = (string) ($listing?->bundle_identifier ?: $this->bundle_identifier);
+        // Instant-certificate team: every app (the storefront too) under the profile's own App ID,
+        // one sub-ID per listing, so they all install side by side on the device.
+        if ($team !== null && $team->isExternal() && $team->external_bundle_base !== null) {
+            return $team->external_bundle_base.'.a'.$this->app_id;
+        }
         if ($team === null || $team->is_primary || $listing?->is_storefront) {
             return $base;
         }

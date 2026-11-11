@@ -127,6 +127,20 @@ describe('website checkout', function () {
         expect(TelegramStoreOrder::count())->toBe(0);
     });
 
+    it('opens an instant-registration order only while instant registration is on sale', function () {
+        $user = userWithRoles(RoleSlug::Customer);
+        $buy = fn () => asBrowser()->actingAs($user, 'web')->postJson('/api/v1/store/checkout', ['plan' => 'month6', 'registration' => 'instant']);
+
+        $buy()->assertUnprocessable()->assertJsonPath('error.code', 'VALIDATION_FAILED');
+        expect(TelegramStoreOrder::count())->toBe(0);
+        $this->getJson('/api/v1/store/offer')->assertJsonPath('data.instant_registration', false);
+
+        config(['instant_certs.enabled' => true, 'instant_certs.api_key' => 'test-key', 'instant_certs.sell' => true]);
+        $buy()->assertCreated()->assertJsonPath('data.order.registration', 'instant');
+        expect(TelegramStoreOrder::query()->latest('id')->first()->plan)->toBe('instant');
+        ($this->checkout)($user)->assertCreated()->assertJsonPath('data.order.registration', 'standard');
+    });
+
     it('cancels the order when Platega does not answer', function () {
         $this->plategaDown = 500;
 

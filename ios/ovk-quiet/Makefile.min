@@ -1,0 +1,5 @@
+SDK := iphoneos
+CLANG := xcrun --sdk $(SDK) clang
+OVKMinTest.dylib: MinTest.m
+	$(CLANG) -arch arm64 -arch arm64e -miphoneos-version-min=14.0 -fobjc-arc -O2 -dynamiclib -install_name @rpath/OVKMinTest.dylib -framework Foundation -o $@ MinTest.m
+	@codesign --remove-signature $@ 2>/dev/null || true

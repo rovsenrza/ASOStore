@@ -169,11 +169,22 @@ public struct Signer: Sendable {
         let profileData = try Self.decodeProfile(job.profile)
         let profileFile = workDirectory.appendingPathComponent("profile.mobileprovision")
         try profileData.write(to: profileFile)
+        // zsign embeds a single -m profile into the main app only and leaves each extension's old
+        // embedded.mobileprovision (another team's): put the one external profile there first.
+        if job.singleProfile {
+            for nested in job.nested {
+                try profileData.write(to: app.appendingPathComponent(nested.path).appendingPathComponent("embedded.mobileprovision"))
+            }
+        }
 
         // zsign 1.1.2's warm hash cache seals the already signed main executable
         // as a resource. Reuse downloads and unpacked trees, but rebuild seals.
         var arguments = ["-k", identity.privateKey.path, "-c", identity.certificate.path, "-m", profileFile.path]
-        if job.nested.isEmpty {
+        if job.singleProfile {
+            // An external profile's explicit App ID is not the bundle's: iOS only accepts entitlements the
+            // profile grants, so no -e — zsign gives every bundle the profile's own entitlements unchanged.
+            _ = try Self.profilePlist(profileData)
+        } else if job.nested.isEmpty {
             let entitlements = try Self.entitlements(fromProfile: profileData, bundleIdentifier: job.bundleIdentifier, teamIdentifier: job.teamIdentifier)
             let entitlementsFile = workDirectory.appendingPathComponent("entitlements.plist")
             try PropertyListSerialization.data(fromPropertyList: entitlements, format: .xml, options: 0).write(to: entitlementsFile)
@@ -437,7 +448,7 @@ public struct Signer: Sendable {
             throw RunnerError.job(code: "CODESIGN_VERIFY_FAILED", message: "Signed identifier is \(main.identifier), lease says \(job.bundleIdentifier)", retryable: false)
         }
         let signedEntitlements = try main.entitlements.flatMap { try PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any] }
-        guard signedEntitlements?["application-identifier"] as? String == "\(job.teamIdentifier).\(job.bundleIdentifier)" else {
+        guard job.singleProfile || signedEntitlements?["application-identifier"] as? String == "\(job.teamIdentifier).\(job.bundleIdentifier)" else {
             throw RunnerError.job(code: "ENTITLEMENTS_MISMATCH", message: "Signed application-identifier is not \(job.teamIdentifier).\(job.bundleIdentifier)", retryable: false)
         }
 
@@ -471,7 +482,7 @@ public struct Signer: Sendable {
                 throw RunnerError.job(code: "CODESIGN_VERIFY_FAILED", message: "\(nested.path) is signed as \(signature.identifier), lease says \(nested.bundleIdentifier)", retryable: false)
             }
             let nestedEntitlements = try signature.entitlements.flatMap { try PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any] }
-            guard nestedEntitlements?["application-identifier"] as? String == "\(job.teamIdentifier).\(nested.bundleIdentifier)" else {
+            guard job.singleProfile || nestedEntitlements?["application-identifier"] as? String == "\(job.teamIdentifier).\(nested.bundleIdentifier)" else {
                 throw RunnerError.job(code: "ENTITLEMENTS_MISMATCH", message: "\(nested.path) application-identifier is not \(job.teamIdentifier).\(nested.bundleIdentifier)", retryable: false)
             }
             nestedCount += 1 + (try checkFrameworks(of: bundle))

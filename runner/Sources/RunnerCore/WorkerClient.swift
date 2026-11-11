@@ -166,6 +166,10 @@ public struct SigningJob: Codable, Sendable {
     /// start with it (e.g. a KeychainAccessGroup the app uses as-is) are re-prefixed with the
     /// signing team's ID, so they fall under its `<TEAM>.*` keychain access.
     public var originalTeamIdentifier: String?
+    /// Signed with one supplied profile for every bundle (an external, instant certificate): its
+    /// explicit App ID cannot match each bundle ID, so the app and its extensions all take the
+    /// profile's entitlements (-e) and the per-bundle profile checks are skipped.
+    public var singleProfile: Bool = false
     public var source: Source
     public var uploadPath: String
     public var resultPath: String
@@ -205,6 +209,7 @@ public struct SigningJob: Codable, Sendable {
         bootstrapClaim = try container.decodeIfPresent(String.self, forKey: .bootstrapClaim)
         originalBundleIdentifier = try container.decodeIfPresent(String.self, forKey: .originalBundleIdentifier)
         originalTeamIdentifier = try container.decodeIfPresent(String.self, forKey: .originalTeamIdentifier)
+        singleProfile = try container.decodeIfPresent(Bool.self, forKey: .singleProfile) ?? false
         source = try container.decode(Source.self, forKey: .source)
         uploadPath = try container.decode(String.self, forKey: .uploadPath)
         resultPath = try container.decode(String.self, forKey: .resultPath)
@@ -218,6 +223,7 @@ public struct SigningJob: Codable, Sendable {
         case bootstrapClaim = "bootstrap_claim"
         case originalBundleIdentifier = "original_bundle_identifier"
         case originalTeamIdentifier = "original_team_identifier"
+        case singleProfile = "single_profile"
         case uploadPath = "upload_path", resultPath = "result_path"
     }
 }

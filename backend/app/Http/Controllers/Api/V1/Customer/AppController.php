@@ -14,9 +14,16 @@ use App\Services\Signing\BuildWarmup;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 class AppController extends Controller
 {
+    /** Apps per shelf on the app page («Похожие приложения», «Ещё от издателя»). */
+    private const SHELF_LIMIT = 12;
+
+    /** The placeholder publisher of listings whose developer is not known. */
+    private const UNKNOWN_PUBLISHER = 'Разработчик не указан';
+
     public function index(Request $request): JsonResponse
     {
         $validated = $request->validate([
@@ -68,7 +75,54 @@ class AppController extends Controller
         $model = $this->findVisible($app)->load([...AppSummaryResource::RELATIONS, 'screenshots']);
         $this->warmBuild($model, $request);
 
-        return ApiResponse::ok((new AppDetailResource($model))->resolve($request));
+        return ApiResponse::ok([
+            ...(new AppDetailResource($model))->resolve($request),
+            ...$this->pageExtras($model, $request),
+        ]);
+    }
+
+    /**
+     * What the app page shows around the listing itself: how many devices installed it, its
+     * public web page, recent versions, and other apps to look at. All additive: older app
+     * builds ignore these keys.
+     *
+     * @return array<string, mixed>
+     */
+    private function pageExtras(CatalogApp $app, Request $request): array
+    {
+        $summaries = fn (array $ids): array => $ids === [] ? [] : AppSummaryResource::collection(
+            CatalogApp::query()->visibleToCustomers()->whereIn('id', $ids)->with(AppSummaryResource::RELATIONS)->get()
+                ->sortBy(fn (CatalogApp $other) => array_search($other->id, $ids, true))->values()
+        )->resolve($request);
+
+        // Ranked by downloads; the ranking is the same for everyone, so only the IDs are cached.
+        $ranked = fn (string $key, Builder $query): array => Cache::remember(
+            "catalog:app-page:{$key}:{$app->id}",
+            now()->addMinutes(15),
+            fn () => $query->where('id', '!=', $app->id)->publiclyBrowsable()->withDownloads()
+                ->orderByDesc('downloads')->orderBy('name')->limit(self::SHELF_LIMIT)->pluck('id')->all(),
+        );
+
+        $related = $ranked('related', CatalogApp::query()->where('category_id', $app->category_id));
+        $fromPublisher = $app->publisher->name === self::UNKNOWN_PUBLISHER ? [] : $ranked(
+            'publisher',
+            CatalogApp::query()->where('publisher_id', $app->publisher_id),
+        );
+
+        return [
+            'downloads' => Cache::remember(
+                "catalog:app-page:downloads:{$app->id}",
+                now()->addMinutes(15),
+                fn () => (int) $app->installations()->whereNotNull('delivered_at')->distinct()->count('device_id'),
+            ),
+            // Only listings with a public page; a web-hidden listing has nothing to share.
+            'share_url' => $app->isPubliclyListed() ? $app->seoUrl() : null,
+            'versions' => VersionResource::collection(
+                $app->versions()->orderByDesc('released_at')->orderByDesc('id')->limit(5)->get()
+            )->resolve($request),
+            'related' => $summaries($related),
+            'more_from_publisher' => $summaries($fromPublisher),
+        ];
     }
 
     /**

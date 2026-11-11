@@ -214,7 +214,7 @@ static NSString *ReadProvisionedUDID(void) {
 // TopicDisallowed (no cert, wrong topic) and kills every push and call. The entitlement is not
 // swizzled, so it still carries our real identity. (RealBundleId is defined once near the top.)
 
-static void Register(void) {
+static void Register(BOOL active) {
     dispatch_async(gQueue, ^{
         @autoreleasepool {
             @try {
@@ -247,10 +247,15 @@ static void Register(void) {
                 NSString *udid = ReadProvisionedUDID();
                 if (udid) body[@"udid"] = udid;            // ties the mirror to a subscription
                 body[@"bundleId"] = RealBundleId();
+                // active=YES marks a foreground (didBecomeActive) register: the relay resets this
+                // user's unread icon-badge counter to 0 (the user is reading).
+                body[@"active"] = @(active);
 
-                // Nothing changed since the last successful POST → skip (foreground churn).
+                // Nothing changed since the last successful POST → skip (foreground churn). But an
+                // active register must ALWAYS reach the relay (it carries the badge-reset signal), so
+                // the dedup is bypassed when active.
                 NSString *fingerprint = [NSString stringWithFormat:@"%@|%@|%@", access, gApns ?: @"", gVoip ?: @""];
-                if (gLastToken && [gLastToken isEqualToString:fingerprint]) return;
+                if (!active && gLastToken && [gLastToken isEqualToString:fingerprint]) return;
 
                 NSData *payload = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
                 if (!payload) return;
@@ -277,7 +282,8 @@ static ApnsIMP gOrigApns;
 static void MyDidRegisterApns(id self, SEL _cmd, id application, NSData *token) {
     gApns = HexFromData(token);
     if (gOrigApns) gOrigApns(self, _cmd, application, token);
-    Register();
+    Register(NO);
+
 }
 
 static void HookDelegateApns(void) {
@@ -305,11 +311,12 @@ static void MyDidUpdateVoip(id self, SEL _cmd, id registry, PKPushCredentials *c
     if ([type isEqualToString:PKPushTypeVoIP] && [creds.token isKindOfClass:NSData.class]) {
         gVoip = HexFromData(creds.token);
         RSDiag([NSString stringWithFormat:@"vk-voiptoken %@", gVoip.length >= 12 ? [gVoip substringToIndex:12] : gVoip]);
-        Register();   // push the VoIP token to the relay the instant VK obtains it (so incoming
+        Register(NO);   // push the VoIP token to the relay the instant VK obtains it (so incoming
                       // calls can ring right after launch, not only after the next foreground/APNs)
     }
     if (gOrigVoip) gOrigVoip(self, _cmd, registry, creds, type);
-    Register();
+    Register(NO);
+
 }
 
 // ---- CallKit: present the incoming call ourselves ---------------------------------------------
@@ -322,36 +329,70 @@ static void MyDidUpdateVoip(id self, SEL _cmd, id registry, PKPushCredentials *c
 //
 // ANSWER->AUDIO handoff: our CallKit ring carries no media, so answering it cannot by itself make
 // audio flow. When the user answers we must get VK's OWN call stack to join the still-live call.
-// The relay now hands us call_id (+ conversation_params, the okcdn WebRTC join blob) in the push;
-// we stash it per CallKit UUID and, on answer, prepare the audio session and invoke VKJoinCall().
-// The one remaining unknown is VK's callable join/accept entry point (a vk:// call-join deep link
-// or an internal call-controller method) — RE-gated; see VKJoinCall.
+// The relay sends VK's own VoIP payload, so VK normally reports the call itself and handles answer,
+// end and audio through its own CXProvider. gProvider below only rings if VK did not report in time,
+// so iOS does not kill the app. That ring cannot be answered: CallKit gives its actions to VK's
+// provider, which looks up a session by the call's UUID and finds none.
 static CXProvider *gProvider;
 @class VKRCallDelegate;
 static VKRCallDelegate *gCallDelegate;
 static NSMutableDictionary *gCalls;  // CallKit uuidString -> {call_id, conversation_params, caller, video}
 
-// RE-gated: make VK join the live call so audio flows. Everything upstream (detect -> VoIP push ->
-// CallKit ring -> answer) is device-confirmed; this is the final hop. We hold call_id and, when it
-// fit the push, conversation_params (wss://videowebrtc.okcdn.ru/ws2 + stun/turn + call id + expiry).
-// Until VK's join entry point is RE'd this logs what we hold and, once, the URL schemes VK itself
-// registers (read from our own bundle — not a guess) so the call-join deep link can be identified.
-static void VKJoinCall(NSDictionary *ctx) {
+// 1-to-1 calls: -[VKCCallSession fullName] returns "calls_group_title" until participants load, so
+// CallKit would show "group call" first. Show the caller's name from the push instead.
+static NSString *gCallerDisplayName;
+static void (*gOrigVKReport)(id, SEL, id, id, id, BOOL, id);
+static void MyVKReport(id self, SEL _cmd, id call, id handle, id name, BOOL video, id completion) {
+    if (gCallerDisplayName.length) name = gCallerDisplayName;
+    gOrigVKReport(self, _cmd, call, handle, name, video, completion);
+}
+
+static void (*gOrigSMIncoming)(id, SEL, id, id, id);
+static void MySMIncoming(id self, SEL _cmd, id pl, id cfg, id comp) {
+    gCallerDisplayName = nil;
     @try {
-        NSString *callId = ctx[@"call_id"];
-        BOOL haveParams = [ctx[@"conversation_params"] isKindOfClass:NSString.class];
-        NSLog(@"[VKRelay] answer: call_id=%@ conversation_params=%d (VK join entry point TODO)",
-              callId ?: @"(none)", haveParams);
-        static dispatch_once_t once;
-        dispatch_once(&once, ^{
-            id types = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleURLTypes"];
-            NSLog(@"[VKRelay] app URL types: %@", types);
-        });
-        // TODO(answer-audio): once the entry point is known, invoke it here — e.g.
-        //   [[UIApplication sharedApplication] openURL:joinURL options:@{} completionHandler:nil];
-        // (a vk:// call-join link built from call_id), or an internal accept(call_id, params) call.
-        // Both self-foreground VK; VK's realtime conn already has the call once it is frontmost.
+        id chat = [pl respondsToSelector:@selector(chatInfo)] ? [pl performSelector:@selector(chatInfo)] : nil;
+        id nm = !chat && [pl respondsToSelector:@selector(callerDisplayName)] ? [pl performSelector:@selector(callerDisplayName)] : nil;
+        if ([nm isKindOfClass:NSString.class]) gCallerDisplayName = nm;
     } @catch (__unused id e) {}
+    gOrigSMIncoming(self, _cmd, pl, cfg, comp);
+}
+
+// VK's own call queue (-[VKCallsService onQueueEvent:], source 0, only while the app runs) delivers the
+// call we already rang from the VoIP push (source 2) seconds later. Handing it on creates a second session
+// for the same call_id, so a declined or answered call rings again for a second. Queue events are not
+// bound by PushKit's report rule, so dropping the repeat is safe.
+static void (*gOrigHandleVoIP)(id, SEL, id, id, long, id, id);
+static NSMutableSet *gVoipCallIds;
+static void MyHandleVoIP(id self, SEL _cmd, id payload, id toId, long source, id session, id comp) {
+    id callId = [payload isKindOfClass:NSDictionary.class] ? payload[@"call_id"] : nil;
+    if ([callId isKindOfClass:NSString.class]) {
+        @synchronized(self) {
+            if (!gVoipCallIds) gVoipCallIds = [NSMutableSet set];
+            if (source == 2) [gVoipCallIds addObject:callId];
+            else if ([gVoipCallIds containsObject:callId]) {
+                NSLog(@"[VKRelay] queue repeat dropped");
+                if (comp) ((void (^)(id))comp)(nil);
+                return;
+            }
+        }
+    }
+    gOrigHandleVoIP(self, _cmd, payload, toId, source, session, comp);
+}
+
+static void HookVKCallEntryPoints(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Class svc = objc_getClass("VKCallsService");
+        Method hv = svc ? class_getClassMethod(svc, @selector(handleVoIPPushPayload:toUserId:source:session:completion:)) : NULL;
+        if (hv) { gOrigHandleVoIP = (void (*)(id, SEL, id, id, long, id, id))method_getImplementation(hv); method_setImplementation(hv, (IMP)MyHandleVoIP); }
+        Class sm = objc_getClass("VKCCallSessionManager");
+        Method in = sm ? class_getInstanceMethod(sm, @selector(incomingCallWithPayload:config:completion:)) : NULL;
+        if (in) { gOrigSMIncoming = (void (*)(id, SEL, id, id, id))method_getImplementation(in); method_setImplementation(in, (IMP)MySMIncoming); }
+        Class ck = objc_getClass("VKCCallKitController");
+        Method rp = ck ? class_getInstanceMethod(ck, @selector(reportIncomingCall:handle:displayName:video:completion:)) : NULL;
+        if (rp) { gOrigVKReport = (void (*)(id, SEL, id, id, id, BOOL, id))method_getImplementation(rp); method_setImplementation(rp, (IMP)MyVKReport); }
+    });
 }
 
 static CXCallObserver *gCallObserver;
@@ -407,7 +448,8 @@ static void VKForceCallAudioActive(void) {
         gVoip = HexFromData(credentials.token);
         NSLog(@"[VKRelay] own PKPushRegistry got VoIP token; registering with relay");
         RSDiag(@"own-voiptoken");
-        Register();
+        Register(NO);
+
     }
 }
 - (void)pushRegistry:(PKPushRegistry *)registry didReceiveIncomingPushWithPayload:(PKPushPayload *)payload forType:(PKPushType)type withCompletionHandler:(void (^)(void))completion {
@@ -433,7 +475,6 @@ static void VKForceCallAudioActive(void) {
             [s setCategory:AVAudioSessionCategoryPlayAndRecord mode:AVAudioSessionModeVoiceChat
                options:0 error:nil];
         } @catch (__unused id e) {}
-        VKJoinCall(ctx ?: @{});
     } @catch (__unused id e) {}
     [action fulfill];
 }
@@ -566,6 +607,7 @@ static void MyDidReceiveIncoming(id self, SEL _cmd, id registry, PKPushPayload *
         // Hand the original payload to VK (may ring + join + audio). Give it a no-op completion; we
         // own releasing the push once a call is actually reported.
         NSLog(@"[VKRelay] VoIP push -> VK handler, watching for CallKit report (call_id=%@)", callId);
+        HookVKCallEntryPoints();
         @try { gOrigIncoming(self, _cmd, registry, payload, type, ^{}); }
         @catch (__unused id e) {}
         // Poll for VK's reported call; release as soon as one appears, else fall back to our own ring
@@ -575,12 +617,12 @@ static void MyDidReceiveIncoming(id self, SEL _cmd, id registry, PKPushPayload *
         poll = ^{
             if (released) return;
             if (AnyIncomingCallActive()) { NSLog(@"[VKRelay] VK reported the call (audio path)"); release(); return; }
-            if (++tries >= 5) {
+            if (++tries >= 17) {   // ~0.4 + 17*0.25 = 4.6 s, under iOS's ~5 s deadline
                 NSLog(@"[VKRelay] VK did not report in time -> fail-safe CallKit ring (ring only)");
                 ReportIncomingCall(caller, video, callId, convParams, release);
                 return;
             }
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), poll);
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), poll);
         };
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.4 * NSEC_PER_SEC)), dispatch_get_main_queue(), poll);
         return;
@@ -621,15 +663,10 @@ static void MySetRegistryDelegate(id self, SEL _cmd, id delegate) {
                 class_addMethod(cls, inSel, (IMP)MyDidReceiveIncoming, "v@:@@q@?");
             }
         }
-        // Force the VoIP push type on VK's own registry as soon as it gets a delegate, so iOS hands
-        // us the VoIP token at launch instead of only when VK lazily enables calls. Same registry VK
-        // uses, so incoming pushes still reach VK's handler. Async to avoid reentering setDelegate:.
-        id registry = self;
-        if ([registry respondsToSelector:@selector(setDesiredPushTypes:)]) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                @try { [registry setDesiredPushTypes:[NSSet setWithObject:PKPushTypeVoIP]]; } @catch (__unused id e) {}
-            });
-        }
+        // Do NOT call setDesiredPushTypes: on VK's registry here. VK's PKPushManager already sets it.
+        // Forcing it again made SpringBoard lose the app's remote-notification registration on most
+        // launches ("without push registration"), so alert pushes never reached the device and the
+        // APNs token kept rotating. Toggled on device 2026-11-06: 1/6 delivered with it, 22/22 without.
     } @catch (__unused id e) {}
 }
 
@@ -756,6 +793,30 @@ static id VKRealScopedCenter(void) {
         } @catch (__unused id e) {}
     }
     return def;
+}
+
+// Clear the app-icon unread badge + delivered banners when VK comes to the foreground. The re-signed
+// VK no longer drives its own icon badge (its notification pipeline is broken by re-signing — the
+// badge froze on whatever it last set, observed stuck on "1" and never changing), so the relay owns
+// it: pushes carry aps.badge to raise the number and this clears it on open. Scoped to the REAL
+// signed bundle (keep-bundle-id builds answer CFBundleIdentifier with the vendor id, so the default
+// center would clear the wrong bundle and leave the installed app's icon frozen). iOS 16+ path with
+// a UIApplication fallback for older systems.
+static void VKClearBadge(void) {
+    @try {
+        id center = VKRealScopedCenter();
+        if (center) {
+            ((void (*)(id, SEL))objc_msgSend)(center, sel_registerName("removeAllDeliveredNotifications"));
+            SEL setBadge = sel_registerName("setBadgeCount:withCompletionHandler:");  // iOS 16+, no UIKit
+            if ([center respondsToSelector:setBadge])
+                ((void (*)(id, SEL, long, id))objc_msgSend)(center, setBadge, 0, (id)nil);
+        }
+        Class ua = objc_getClass("UIApplication");  // older-iOS badge reset
+        if (ua) {
+            id app = ((id (*)(id, SEL))objc_msgSend)((id)ua, sel_registerName("sharedApplication"));
+            if (app) ((void (*)(id, SEL, long))objc_msgSend)(app, sel_registerName("setApplicationIconBadgeNumber:"), 0);
+        }
+    } @catch (__unused id e) {}
 }
 
 // VK reads its own notification authorization through the DEFAULT center (vendor-bound) and so always
@@ -953,6 +1014,7 @@ static void VKRelayInit(void) {
                                                       object:nil queue:[NSOperationQueue mainQueue]
                                                   usingBlock:^(__unused NSNotification *n) {
         RequestNotificationAuthorization();
+        VKClearBadge();  // opening VK clears our relay's unread icon badge + delivered banners
     }];
     // Also try shortly after launch in case the app is already active (cold launch into foreground).
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)),
@@ -982,11 +1044,13 @@ static void VKRelayInit(void) {
     // APNs delegate once active, then register; re-register on background/return and token rotation.
     __block BOOL hooked = NO;
     for (NSString *name in @[@"UIApplicationDidBecomeActiveNotification", @"UIApplicationDidEnterBackgroundNotification"]) {
+        BOOL isActive = [name isEqualToString:@"UIApplicationDidBecomeActiveNotification"];
         [[NSNotificationCenter defaultCenter] addObserverForName:name object:nil queue:[NSOperationQueue mainQueue]
                                                       usingBlock:^(__unused NSNotification *n) {
             if (!hooked) { HookDelegateApns(); hooked = YES; }
-            // Give VK a moment to settle the session into the keychain after a cold launch.
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), gQueue, ^{ Register(); });
+            // Give VK a moment to settle the session into the keychain after a cold launch. A
+            // foreground register carries active=YES so the relay clears this user's unread badge.
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), gQueue, ^{ Register(isActive); });
         }];
     }
 #endif

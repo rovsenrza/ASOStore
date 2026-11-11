@@ -38,6 +38,8 @@ class StoreOfferController extends Controller
         return ApiResponse::ok([
             'currency' => 'RUB',
             'online_payment' => PlategaClient::configured(),
+            // A new account may pick the instant certificate (same price) instead of our teams.
+            'instant_registration' => app(\App\Services\InstantCerts\InstantCertificates::class)->offered(),
             'plans' => $plans,
             'referral_percent' => $settings->referralPercent(),
             'telegram' => [

@@ -13,6 +13,8 @@ enum AppleTeamStatus: string
     case Suspended = 'SUSPENDED';
     case Revoked = 'REVOKED';
     case Disconnected = 'DISCONNECTED';
+    // An instant (reseller) certificate's team: signs its own devices, never routed to, no ASC key.
+    case External = 'EXTERNAL';
 
     public function canRegisterDevices(): bool
     {

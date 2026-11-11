@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Responses\ApiResponse;
 use App\Models\Subscription;
 use App\Models\TelegramStoreOrder;
+use App\Services\InstantCerts\InstantCertificates;
 use App\Services\TelegramStore\Bot\Format;
 use App\Services\TelegramStore\OrderService;
 use App\Services\TelegramStore\Payments\PlategaClient;
@@ -36,7 +37,15 @@ class StoreOrderController extends Controller
     /** Opens an order for the signed-in account and returns Platega's payment page. */
     public function checkout(Request $request, StoreSettings $settings): JsonResponse
     {
-        $data = $request->validate(['plan' => ['required', 'string', 'max:16']]);
+        $data = $request->validate([
+            'plan' => ['required', 'string', 'max:16'],
+            // How the account's iPhone gets registered (a renewal of a registered iPhone ignores it).
+            'registration' => ['nullable', 'string', 'in:standard,instant'],
+        ]);
+        $registration = $data['registration'] ?? OrderService::STANDARD;
+        if ($registration === OrderService::INSTANT && ! app(InstantCertificates::class)->offered()) {
+            throw new ApiException(ErrorCode::ValidationFailed, 'Мгновенная регистрация сейчас недоступна.', ['fields' => ['registration' => ['Мгновенная регистрация сейчас недоступна.']]]);
+        }
         if ($settings->plan($data['plan']) === null) {
             throw new ApiException(ErrorCode::ValidationFailed, 'Этот тариф больше недоступен.', ['fields' => ['plan' => ['Этот тариф больше недоступен.']]]);
         }
@@ -44,7 +53,7 @@ class StoreOrderController extends Controller
             throw new ApiException(ErrorCode::ServiceUnavailable, 'Оплата на сайте временно недоступна.');
         }
 
-        $order = $this->orders->createForUser($request->user(), $data['plan']);
+        $order = $this->orders->createForUser($request->user(), $data['plan'], $registration);
         try {
             $url = $this->payments->paymentUrl($order, $request->ip());
         } catch (PlategaException $exception) {
@@ -126,6 +135,7 @@ class StoreOrderController extends Controller
             'status' => $order->status,
             'channel' => $order->isWeb() ? 'web' : 'telegram',
             'plan' => $order->plan_key,
+            'registration' => OrderService::isInstant($order) ? 'instant' : 'standard',
             'term' => Format::days($order->duration_days),
             'duration_days' => $order->duration_days,
             'amount' => $order->amount_due_rub,

@@ -12,6 +12,7 @@
 # Validated path (2026-10-17): messages.getLongPollServer(need_pts=1,lp_version=3) -> {server,key,
 # ts}; GET https://{server}?act=a_check&key&ts&wait=25&mode=2&version=3 -> {ts,updates:[[code,..]]};
 # code 4 = new message [4,msg_id,flags,peer_id,ts,text,{extra},{attachments}] (flags&2 = outgoing).
+import base64
 import os, json, time, threading, subprocess
 from urllib.parse import urlencode, urlparse, parse_qs
 from urllib.request import Request, urlopen
@@ -57,6 +58,28 @@ _entitlement_cache = {}  # udid -> (active, checked_at)
 _lock = threading.Lock()
 _register_lock = threading.Lock()
 _mirrors = {}  # userId -> Mirror
+
+# App-icon unread badge counter. The re-signed VK can no longer drive its own icon badge (its
+# notification pipeline is broken by re-signing — the badge froze on whatever it last set, observed
+# stuck on "1"), so the relay owns it: every pushed alert bumps the count and the push carries
+# aps.badge so iOS sets the icon number; opening VK resets it (the foreground register sends
+# active=YES). Keyed by userId (VK fans one user's alerts out across several rotating APNs tokens,
+# so the user is the stable key, and all fan-out pushes carry the same badge number).
+_badge = {}  # userId -> unread count
+_badge_lock = threading.Lock()
+
+def badge_next(uid):
+    uid = str(uid or "")
+    if not uid: return None
+    with _badge_lock:
+        _badge[uid] = _badge.get(uid, 0) + 1
+        return _badge[uid]
+
+def badge_reset(uid):
+    uid = str(uid or "")
+    if not uid: return
+    with _badge_lock:
+        _badge.pop(uid, None)
 
 
 def certs_for(bundle, voip=False):
@@ -361,7 +384,12 @@ def _attachment_label(attach, extra):
     types = [v for k, v in attach.items() if k.endswith("_type")]
     if not types:
         return ""
-    emoji, label = _ATTACH_LABELS.get(types[0], ("📎", "Вложение"))
+    first = types[0]
+    # LongPoll reports voice messages and graffiti as attach1_type=doc + attach1_kind=audiomsg/graffiti.
+    if first == "doc":
+        kind = attach.get("attach1_kind")
+        first = {"audiomsg": "audio_message", "graffiti": "graffiti"}.get(kind, first)
+    emoji, label = _ATTACH_LABELS.get(first, ("📎", "Вложение"))
     out = f"{emoji} {label}".strip() if emoji else label
     if len(types) > 1:
         out += f" (+{len(types) - 1})"
@@ -463,8 +491,12 @@ class NotificationsPoller(threading.Thread):
             title, body = format_notification(it)
             if not body:
                 continue
-            payload = {"aps": {"alert": {"title": title, "body": body}, "sound": "default",
-                               "thread-id": "vk-notif"}}
+            aps = {"alert": {"title": title, "body": body}, "sound": "default", "thread-id": "vk-notif"}
+            if u.get("badge_ok"):               # only badge-capable dylibs (they reset on open)
+                n = badge_next(uid)             # app-icon unread badge (absolute count)
+                if n is not None:
+                    aps["badge"] = n
+            payload = {"aps": aps}
             tap = notif_tap_data(it, uid)       # native tap target (post/photo/comment/profile)
             if tap:
                 payload["data"] = tap
@@ -523,6 +555,10 @@ class Mirror(threading.Thread):
         # handler opens vk://vk.com/im?sel=<peer> directly in the native conversation instead.
         aps = {"alert": {"title": title, "body": text or "📷"}, "sound": "default",
                "thread-id": f"vk-{peer_id}"}
+        if self.user.get("badge_ok"):  # only badge-capable dylibs (they reset on open); see do_POST
+            n = badge_next(self.user.get("userId"))  # app-icon unread badge (absolute count)
+            if n is not None:
+                aps["badge"] = n
         payload = {"aps": aps, "data": {"url": f"vk://vk.com/im?sel={int(peer_id)}"}}
         send_alert_all(str(self.user.get("userId")), bundle, json.dumps(payload, ensure_ascii=False), self.user)
 
@@ -634,6 +670,61 @@ def _decode_conv_params(conv):
         return "hex", raw[:384].hex(), len(raw)
 
 
+def _lz4_block(src, size):
+    """Decode one LZ4 block (stdlib only). Raises on malformed input."""
+    out = bytearray()
+    i = 0
+    while i < len(src):
+        token = src[i]
+        i += 1
+        lit = token >> 4
+        if lit == 15:
+            while True:
+                x = src[i]
+                i += 1
+                lit += x
+                if x != 255:
+                    break
+        out += src[i:i + lit]
+        i += lit
+        if i >= len(src):
+            break
+        off = src[i] | (src[i + 1] << 8)
+        i += 2
+        if off == 0 or off > len(out):
+            raise ValueError("bad offset")
+        n = token & 15
+        if n == 15:
+            while True:
+                x = src[i]
+                i += 1
+                n += x
+                if x != 255:
+                    break
+        for _ in range(n + 4):
+            out.append(out[-off])
+    if len(out) != size:
+        raise ValueError("bad size")
+    return bytes(out)
+
+
+def _plain_conversation_params(conv):
+    """The calls queue delivers conversation_params as "<size>:<base64 LZ4>", while VK's push path hands
+    the field straight to its call SDK, which rejects that form ("Conversation params for incoming call
+    are invalid"). Return plain JSON text; anything that does not decode is returned unchanged."""
+    if not isinstance(conv, str) or ":" not in conv[:12]:
+        return conv
+    size, _, body = conv.partition(":")
+    if not size.isdigit():
+        return conv
+    try:
+        text = _lz4_block(base64.b64decode(body + "=" * (-len(body) % 4)), int(size)).decode("utf-8")
+        json.loads(text)
+        return text
+    except Exception:
+        return conv
+
+
 def vk_push_call(uid, bundle, voip_token, value):
     """Send VK's OWN native VoIP push so VK presents CallKit and joins the real call itself (ring +
     audio), no reimplementation. VKRelay.dylib leaves a `data`-shaped payload for VK's own
@@ -649,35 +740,32 @@ def vk_push_call(uid, bundle, voip_token, value):
     We used to send these flat under `data` (no `context`), so VK read context=nil -> callerInfo=nil
     -> `[NSSet setWithObjects: callerInfo]` crashed (NSPlaceholderSet nil object). Now wrapped in
     `context` with to_id alongside, and answer_from as a string."""
-    ci = value.get("caller_info", {}) or {}
+    ci_full = value.get("caller_info", {}) or {}
+    # Keep caller_info SMALL: VK only needs id + name for the CallKit screen, and the VoIP payload is
+    # capped at ~5 KB. photo_base is a base64 blob and photo_*/the whole field duplicated used to blow
+    # past the cap, so conversation_params (the WebRTC join token VK REQUIRES) was being dropped and
+    # every incoming call failed with OVCCallsError 8 "Conversation params ... invalid".
+    ci = {k: ci_full[k] for k in ("user_id", "first_name", "last_name", "photo_400") if ci_full.get(k) is not None}
     context = {
         "call_id": value.get("call_id"),
         "caller_info": ci,
-        "answer_from": str(value.get("from_id") or value.get("answer_from") or ci.get("user_id") or ""),
+        "answer_from": str(value.get("from_id") or value.get("answer_from") or ci_full.get("user_id") or ""),
         "p2p_forbidden": bool(value.get("p2p_forbidden", False)),
     }
     if value.get("payload") is not None:
         context["payload"] = value["payload"]          # "{\"is_video\":false,...}" (JSON string)
     if value.get("chat_info") is not None:
         context["chat_info"] = value["chat_info"]
-    conv = value.get("conversation_params")
-    # Static RE of VKClient 8.183 (2026-11-05): +[VKCPushPayload payloadFromDictionary:] reads
-    # call_id/caller_info/conversation_params/chat_info/answer_from/p2p_forbidden DIRECTLY from the
-    # dict it is given; -[PKPushManager pushRegistry:didReceiveIncomingPush] passes `data` straight
-    # to the delegate and reads no "context" key anywhere in the handle chain, and there is no
-    # AppSessionManager receivedVoipPushPayload symbol. So VK reads these FLAT under `data`. We send
-    # them flat AND keep a `context` copy so an older/other reader still finds non-nil fields (no
-    # [NSSet setWithObjects: nil] crash) — whichever level VK reads, the call is well-formed.
-    data = {"to_id": int(uid)}
-    data.update(context)                 # flat: call_id, caller_info, answer_from, p2p_forbidden, (payload, chat_info)
-    data["context"] = dict(context)      # backward-compat copy (small fields only; conv added below)
+    conv = value.get("conversation_params")  # raw compressed "NNN:<base64 lz4>" — VK wants this exact form, not decoded
     if conv:
-        data["conversation_params"] = conv
-    payload = {"data": data}
-    # VoIP pushes cap at ~5 KB; conversation_params is the big field. If over, drop it (VK re-fetches
-    # the call by call_id once it is awake). It lives only at the flat level, so one delete suffices.
+        context["conversation_params"] = conv
+    # -[AppSessionManager receivedVoipPushPayload:...] hands ONLY data["context"] to +[VKCPushPayload
+    # payloadFromDictionary:]; without it every field is nil and VK throws on [NSSet setWithObject:nil]
+    # before it creates a session or reports the call.
+    payload = {"data": {"to_id": int(uid), "context": context}}
+    # VoIP pushes cap at ~5 KB; conversation_params is the big field. If over, drop it.
     if conv and len(json.dumps(payload, ensure_ascii=False).encode()) > VOIP_MAX_BYTES:
-        data.pop("conversation_params", None)
+        context.pop("conversation_params", None)
         print(f"[call] {uid} conv_params dropped (payload > {VOIP_MAX_BYTES}B); call_id only", flush=True)
     vc, vk = certs_for(bundle, voip=True)
     apns_curl(uid, vc, vk, bundle + ".voip", "voip", voip_token, json.dumps(payload, ensure_ascii=False))
@@ -786,6 +874,8 @@ def _stop(threads):
 TEST_ONLY_UDIDS = {
     "00008140-00145D163C69801C",  # rovsen.rzayev.2009@gmail.com (iPhone17,1) — USB test device
     "00008130-00125D492130001C",  # dmitriy@mail.ru (iPhone16,1) — 2nd test device
+    "00008150-000A28EA0C38401C",  # kopeykin-sashulya@mail.ru — 3rd test device
+    "00008140-001434660160801C",  # zfedcenkov@gmail.com — 4th test device
 }
 
 
@@ -867,6 +957,10 @@ class Handler(BaseHTTPRequestHandler):
         if not uid:
             self.send_response(422); self.end_headers(); return
         user["userId"] = uid
+        # A foreground (didBecomeActive) register means the user opened VK and is reading -> clear this
+        # user's unread icon-badge counter so the next push starts from 1 again.
+        if user.get("active"):
+            badge_reset(uid)
         # Concurrent APNs and PushKit callbacks can arrive in either order. Serialize the
         # read/update/restart so a partial registration cannot erase the other push token.
         with _register_lock:
@@ -876,7 +970,13 @@ class Handler(BaseHTTPRequestHandler):
             if not bundle_has_cert(user.get("bundleId")) and bundle_has_cert(prev_b):
                 print(f"[relay] keep real bundle {prev_b} over {user.get('bundleId')} for {uid}", flush=True)
                 user["bundleId"] = prev_b
+            # Sticky flag: a register carrying the `active` key proves this device runs the
+            # badge-capable dylib, so the relay may drive its icon badge. Old-dylib re-registers lack
+            # it, so their badge is never touched (it would otherwise climb with nothing to clear it).
+            badge_ok = state.get(uid, {}).get("badge_ok") or ("active" in user)
             state[uid] = {**user, "updatedAt": time.time()}
+            if badge_ok:
+                state[uid]["badge_ok"] = True
             save_state(state)
             start_or_update(state[uid])
         print(f"[relay] registered user {uid} bundle={user.get('bundleId')} "

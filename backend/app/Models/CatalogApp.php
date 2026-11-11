@@ -49,7 +49,7 @@ class CatalogApp extends Model
 
     protected $fillable = [
         'slug', 'name', 'subtitle', 'description', 'seo_about', 'bundle_identifier', 'app_store_id', 'category_id', 'publisher_id',
-        'source_type', 'visibility', 'age_rating', 'icon_path', 'banner_path', 'is_storefront', 'featured_rank',
+        'source_type', 'visibility', 'age_rating', 'icon_path', 'banner_path', 'is_storefront', 'web_hidden', 'featured_rank',
         'support_url', 'privacy_url', 'imported_by_user_id', 'delta_builds_at',
     ];
 
@@ -59,6 +59,7 @@ class CatalogApp extends Model
             'source_type' => SourceType::class,
             'visibility' => AppVisibility::class,
             'is_storefront' => 'boolean',
+            'web_hidden' => 'boolean',
             'delta_builds_at' => 'datetime',
             'featured_rank' => 'integer',
         ];
@@ -220,9 +221,36 @@ class CatalogApp extends Model
     {
         $query->visibleToCustomers()
             ->where('is_storefront', false)
+            ->where('web_hidden', false)
             ->whereNull('imported_by_user_id')
             ->whereNotNull('seo_slug')
             ->whereHas('category', fn (Builder $category) => $category->where('slug', '!=', 'imported'));
+    }
+
+    /**
+     * Listings a customer may be pointed to from another app's page: published catalog apps,
+     * not the storefront itself and not customers' private imports. Unlike `publiclyListed`,
+     * web-hidden listings count: they are hidden from the site, not from the app.
+     *
+     * @param  Builder<CatalogApp>  $query
+     */
+    public function scopePubliclyBrowsable(Builder $query): void
+    {
+        $query->visibleToCustomers()
+            ->where('is_storefront', false)
+            ->whereNull('imported_by_user_id')
+            ->whereHas('category', fn (Builder $category) => $category->where('slug', '!=', 'imported'));
+    }
+
+    /** Whether this listing has a public web page (the instance form of `publiclyListed`). */
+    public function isPubliclyListed(): bool
+    {
+        return $this->visibility === AppVisibility::Published
+            && ! $this->is_storefront
+            && ! $this->web_hidden
+            && $this->imported_by_user_id === null
+            && $this->seo_slug !== null
+            && $this->category?->slug !== 'imported';
     }
 
     /**

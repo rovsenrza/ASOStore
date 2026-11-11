@@ -217,7 +217,7 @@ static NSArray *ReadMutedChats(void) {
     return out;
 }
 
-static void Register(id messengerClient) {
+static void Register(id messengerClient, BOOL active) {
     dispatch_async(gQueue, ^{
         @autoreleasepool {
             @try {
@@ -242,6 +242,10 @@ static void Register(id messengerClient) {
                 // Use the real code-signed id (not the spoofed NSBundle one) so the relay selects the
                 // matching APNs push certificate; fall back to mainBundle only if the profile is unreadable.
                 body[@"bundleId"] = ReadRealBundleId() ?: ([[NSBundle mainBundle] bundleIdentifier] ?: @"");
+                // active=YES marks a foreground (didBecomeActive) register: the relay resets this
+                // device's unread badge counter to 0 (the user is reading). Carried in _reg_sig so it
+                // is never dropped as an idempotent re-register, so every app-open resets the count.
+                body[@"active"] = @(active);
                 if (gFrame6) body[@"frame6"] = [gFrame6 base64EncodedStringWithOptions:0];
                 if (gFrame19) body[@"frame19"] = [gFrame19 base64EncodedStringWithOptions:0];
 
@@ -292,7 +296,7 @@ ORIG(o_voip, void, id);
 static void h_voip(id self, SEL _cmd, id token) { if ([token isKindOfClass:NSData.class]) gVoip = HexFromData(token); o_voip(self, _cmd, token); }
 
 ORIG(o_loginResp, void, id);
-static void h_loginResp(id self, SEL _cmd, id resp) { o_loginResp(self, _cmd, resp); gClient = self; Register(self); }
+static void h_loginResp(id self, SEL _cmd, id resp) { o_loginResp(self, _cmd, resp); gClient = self; Register(self, NO); }
 
 // Diagnostic: log when MAX's own notification-response handler fires, with the action id, the chat id
 // (userInfo["mc"]) and any typed reply text, so we can tell whether a reply reaches MAX's send path.
@@ -433,17 +437,36 @@ static id   h_isPushEnabled(__unused id self, __unused SEL _cmd) { return @YES; 
 static BOOL h_notifsEnabled(__unused id self, __unused SEL _cmd) { return YES; }
 static IMP  o_isPushEnabled, o_notifsEnabled;  // unused; Swizzle needs a slot
 
+// --- Feature gates (compose attach button, polls, web-apps) --------------------------------------
+// The shipped MAX build hides features that EXIST in the binary and that its oneme.ru backend already
+// supports, behind client-side gate getters. Statically (base 26.35.0/7127):
+//   -[OKMOneChatRouter isAttachButtonEnabled]        = CONST `mov w0,#0;ret`  -> attach "+" sheet hidden
+//   -[OKMChatHandler canCreatePolls]                 = logic (chat-type/config) -> poll item hidden
+//   -[OMComposeContainerViewModel isWebAppEnabled]   = logic (config)           -> web-app button hidden
+// All three return a C BOOL (value in a w-register, not an object), so returning a raw YES is safe here
+// (unlike isPushEnabled above, which is a boxed NSNumber). -[OMChatSendoutViewModel canShowDocumentsPicker]
+// is already CONST YES, so once the attach sheet is reachable, file/document sending works unchanged.
+// Forcing these surfaces the real features; the backend is shared with builds that ship them enabled.
+static BOOL h_true(__unused id self, __unused SEL _cmd) { return YES; }
+static IMP  o_attachBtn, o_canPolls, o_webApp;  // unused; Swizzle needs a slot
+
 // MAX's own read->removeDeliveredNotifications cleanup only tracks notifications it posted from its
 // own message store; the banners OUR relay posts are not in that store, so MAX never clears them and
 // they pile up after the user has read the chat (customer complaint: the notification stays after you
 // open it). When the user opens MAX (app becomes active) clear the delivered banners and reset the
 // badge — the unread state still lives in-app. Done via the runtime so we link no extra framework.
 // (This is the one place the hook is not purely read-only; everything else only observes.)
+static id RealScopedCenter(void);  // fwd: badge/delivered state lives under the REAL signed bundle
 static void ClearDeliveredAndBadge(void) {
     @try {
         Class unc = NSClassFromString(@"UNUserNotificationCenter");
         if (unc) {
-            id center = ((id (*)(id, SEL))objc_msgSend)((id)unc, sel_registerName("currentNotificationCenter"));
+            // MUST use the real-bundle-scoped center, not the default one: the diyorde bundle spoof
+            // binds the default currentNotificationCenter to ru.oneme.app, so removeAllDelivered /
+            // setBadgeCount:0 there clear the SPOOFED bundle's state and the real signed app's icon
+            // badge stays frozen at whatever MAX last set (observed stuck on "1"). The real-scoped
+            // center (same SPI as getNotificationSettings hook) actually clears the installed app.
+            id center = RealScopedCenter();
             if (center) {
                 ((void (*)(id, SEL))objc_msgSend)(center, sel_registerName("removeAllDeliveredNotifications"));
                 SEL setBadge = sel_registerName("setBadgeCount:withCompletionHandler:");  // iOS 16+, no UIKit
@@ -475,7 +498,7 @@ static void CaptureApns(NSData *token) {
         BOOL changed = ![hex isEqualToString:gApns];
         gApns = hex;
         NSLog(@"[MAXRelay] apns token captured (%lu bytes)", (unsigned long)hex.length / 2);
-        if (changed && gClient) Register(gClient);  // re-register so the relay stores the real token
+        if (changed && gClient) Register(gClient, NO);  // re-register so the relay stores the real token
     }
 }
 
@@ -671,6 +694,16 @@ static void RegisterReplyCategories(void) {
     } @catch (__unused id e) {}
 }
 
+// Force on the client-side gates that hide the compose attach "+" sheet and the poll item. Both getters
+// return a C BOOL, so h_true is safe. Idempotent: re-running just re-asserts YES. Called from the
+// constructor and again on app-active (the chat-UI class may register lazily).
+static void ForceFeatureGates(void) {
+    Swizzle("OKMOneChatRouter", "isAttachButtonEnabled", (IMP)h_true, &o_attachBtn);
+    Swizzle("OKMChatHandler", "canCreatePolls", (IMP)h_true, &o_canPolls);
+    RLog([NSString stringWithFormat:@"feature gates: OKMOneChatRouter=%d OKMChatHandler=%d",
+          objc_getClass("OKMOneChatRouter") != NULL, objc_getClass("OKMChatHandler") != NULL]);
+}
+
 __attribute__((constructor))
 static void MAXRelayInit(void) {
     gQueue = dispatch_queue_create("mxrelay", DISPATCH_QUEUE_SERIAL);
@@ -693,6 +726,12 @@ static void MAXRelayInit(void) {
     // Belt-and-suspenders: the getters some views read directly (correct return types; a wrong type crashes).
     Swizzle("_TtC16OMPushPermission27PushPermissionBannerService", "isPushEnabled", (IMP)h_isPushEnabled, &o_isPushEnabled);
     Swizzle("OMNotificationsSettings", "areNotificationsEnabled", (IMP)h_notifsEnabled, &o_notifsEnabled);
+    // Unlock features hidden by client-side gates (attach "+" sheet, polls). Applied here AND again on
+    // app-active: in the full re-signed build the chat-UI class (OKMOneChatRouter) can be registered
+    // lazily (after this constructor runs with other injected dylibs), so a one-shot swizzle here may
+    // no-op; re-applying once the UI is up guarantees the gate actually hooks. (isWebAppEnabled is left
+    // alone — its button appears but the web-app UI never loads in this build.)
+    ForceFeatureGates();
     struct rebinding rb = {"nw_connection_send", (void *)my_nw_connection_send, (void **)&orig_nw_connection_send};
     rebind_symbols(&rb, 1);
 
@@ -703,8 +742,9 @@ static void MAXRelayInit(void) {
     for (NSString *name in @[@"UIApplicationDidEnterBackgroundNotification", @"UIApplicationDidBecomeActiveNotification"]) {
         BOOL active = [name isEqualToString:@"UIApplicationDidBecomeActiveNotification"];
         [[NSNotificationCenter defaultCenter] addObserverForName:name object:nil queue:nil usingBlock:^(__unused NSNotification *n) {
-            if (gClient) Register(gClient);
+            if (gClient) Register(gClient, active);
             if (active) {
+                ForceFeatureGates();       // re-assert the attach/poll gate once the chat UI is loaded
                 ClearDeliveredAndBadge();  // opening MAX clears our relay banners + badge
                 // Force a real-bundle remote-notification registration once the UI is up, so iOS issues
                 // an alert token for com.ruappstore... despite the ru.oneme.app bundle spoof.

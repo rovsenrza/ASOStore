@@ -56,6 +56,26 @@ import msgpack
 _lock = threading.Lock()
 _mirrors = {}  # userId -> Mirror
 
+# App-icon unread badge counter. The re-signed MAX can no longer drive its own icon badge (its
+# notification pipeline is broken by the bundle spoof — the badge froze on whatever it last set,
+# observed stuck on "1"), so the relay owns it: every pushed message bumps the count and the push
+# carries aps.badge so iOS sets the icon number; opening MAX resets it (the foreground register
+# sends active=YES). Keyed by APNs token = per physical device (all accounts on one install share
+# the token, so the badge is the device's total unread — which is what the icon should show).
+_badge = {}  # apnsToken -> unread count
+_badge_lock = threading.Lock()
+
+def badge_next(token):
+    if not token: return None
+    with _badge_lock:
+        _badge[token] = _badge.get(token, 0) + 1
+        return _badge[token]
+
+def badge_reset(token):
+    if not token: return
+    with _badge_lock:
+        _badge.pop(token, None)
+
 # Persistent APNs HTTP/2 client pool. Previously every push forked a `curl` process, which meant a
 # new TLS handshake per notification — slow and CPU-heavy under load, so notifications lagged. httpx
 # keeps one HTTP/2 connection per cert open and multiplexes all pushes over it (APNs supports this),
@@ -257,6 +277,37 @@ def claim_call_push(voip_token, window=20.0):
         return True
 
 
+def lz4_block_decompress(src):
+    """Raw LZ4 block decoder (no frame header, no preset dict). MAX compresses the whole packet body
+    with plain LZ4 block when the header compression flag (byte[6]) is set; the relay must decompress
+    it before field extraction, otherwise longer messages read as garbage and get truncated. stdlib only."""
+    out = bytearray(); i = 0; n = len(src)
+    while i < n:
+        token = src[i]; i += 1
+        litlen = token >> 4
+        if litlen == 15:
+            while i < n:
+                b = src[i]; i += 1; litlen += b
+                if b != 255: break
+        out += src[i:i + litlen]; i += litlen
+        if i >= n:
+            break  # final sequence: literals only
+        offset = src[i] | (src[i + 1] << 8); i += 2
+        if offset == 0:
+            raise ValueError("invalid LZ4 offset 0")
+        mlen = (token & 0xf) + 4
+        if (token & 0xf) == 15:
+            while i < n:
+                b = src[i]; i += 1; mlen += b
+                if b != 255: break
+        start = len(out) - offset
+        if start < 0:
+            raise ValueError("backref before start")
+        for k in range(mlen):
+            out.append(out[start + k])
+    return bytes(out)
+
+
 class Mirror(threading.Thread):
     def __init__(self, user):
         super().__init__(daemon=True)
@@ -278,6 +329,14 @@ class Mirror(threading.Thread):
         # category + top-level mc(=chatId) + msgid match MAX's own push format so tapping the banner
         # opens that dialog (MAX reads aps.category, then userInfo["mc"] as chat id via -longLongValue).
         aps = {"alert": {"title": name, "body": text}, "sound": "default"}
+        # app-icon unread badge: absolute count, applied by iOS springboard directly (no NSE needed).
+        # Only for devices whose dylib is badge-capable (it resets the count on open + clears the icon
+        # correctly). Old-dylib devices never send the `active` key, so we skip the badge for them —
+        # otherwise their count would climb forever with nothing to clear it. See badge_ok below.
+        if self.user.get("badge_ok"):
+            n = badge_next(token)
+            if n is not None:
+                aps["badge"] = n
         if chat_id is not None:
             # category must match the chat type for MAX to route the tap: 1:1 dialogs have a
             # positive chatId ("Message"), group chats a negative one ("ChatMessage").
@@ -358,14 +417,24 @@ class Mirror(threading.Thread):
         while not self.stop.is_set():
             try: self._session()
             except Exception as e: print(f"[mirror {self.user.get('userId')}] {e}", flush=True)
-            self.stop.wait(5)
+            # Reconnect fast: every second disconnected is a second of missed inbound messages.
+            self.stop.wait(2)
 
     def _session(self):
         u = self.user
         own = u.get("userId"); apns = u.get("apnsToken"); voip = u.get("voipToken"); bundle = u.get("bundleId")
         f6 = base64.b64decode(u["frame6"]); f19 = base64.b64decode(u["frame19"])
         ctx = ssl.create_default_context(); ctx.check_hostname = False; ctx.verify_mode = ssl.CERT_NONE
-        s = ctx.wrap_socket(socket.create_connection((HOST, PORT), timeout=20), server_hostname=HOST)
+        # RU ISP / TSPU can silently freeze this socket while it still reads as "connected"; without
+        # TCP keepalive the only detector is the 120 s recv timeout below, so up to ~2 min of incoming
+        # messages are lost before we reconnect (= "notifications sometimes don't arrive"). Enable OS
+        # keepalive so a dead peer is detected in ~30+3*10 = ~60 s instead, roughly halving that window.
+        raw = socket.create_connection((HOST, PORT), timeout=20)
+        raw.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        for opt, val in (("TCP_KEEPIDLE", 30), ("TCP_KEEPINTVL", 10), ("TCP_KEEPCNT", 3)):
+            try: raw.setsockopt(socket.IPPROTO_TCP, getattr(socket, opt), val)
+            except (AttributeError, OSError): pass  # option unsupported on this platform
+        s = ctx.wrap_socket(raw, server_hostname=HOST)
         s.sendall(f6); s.sendall(f19)
         print(f"[mirror {own}] connected + auth replayed", flush=True)
 
@@ -384,8 +453,17 @@ class Mirror(threading.Thread):
         while not self.stop.is_set():
             hdr = self._recvn(s, 10)
             opcode = struct.unpack(">H", hdr[4:6])[0]
+            cof = hdr[6]  # OKMPPacket compression flag; set => body is LZ4-block compressed (whole frame)
             length = struct.unpack(">I", b"\x00" + hdr[7:10])[0]
             body = self._recvn(s, length) if length else b""
+            if cof and body:
+                # Decompress + validate; on any mismatch keep the raw body (safe for a mis-set flag).
+                try:
+                    dec = lz4_block_decompress(body)
+                    msgpack.unpackb(dec, raw=True, strict_map_key=False)
+                    body = dec
+                except Exception:
+                    pass
             if opcode == 128:
                 sender = field_int(body, "sender"); text = field_str(body, "text")
                 chat_id = field_int(body, "chatId"); msgid = field_int(body, "id")
@@ -498,11 +576,16 @@ _reg_q = queue.Queue(maxsize=4000)
 _last_reg = {}  # uid -> (sig, ts)
 
 def _reg_sig(user):
-    keys = ("frame6", "frame19", "apnsToken", "voipToken", "bundleId", "udid", "contacts", "muted")
+    keys = ("frame6", "frame19", "apnsToken", "voipToken", "bundleId", "udid", "contacts", "muted", "active")
     blob = json.dumps({k: user.get(k) for k in keys}, sort_keys=True, ensure_ascii=False)
     return hashlib.sha1(blob.encode("utf-8")).hexdigest()
 
 def _process_register(uid, user):
+    # A foreground (didBecomeActive) register means the user opened MAX and is reading -> clear this
+    # device's unread badge counter so the next push starts from 1 again. Done before the idempotency
+    # check (and 'active' is in _reg_sig, so an open is never dropped as a duplicate register).
+    if user.get("active"):
+        badge_reset(user.get("apnsToken"))
     sig = _reg_sig(user); now = time.time(); prev = _last_reg.get(uid)
     with _lock:
         m = _mirrors.get(uid); alive = bool(m and m.is_alive())
@@ -510,7 +593,12 @@ def _process_register(uid, user):
         return  # identical payload, mirror healthy -> nothing to do
     _last_reg[uid] = (sig, now)
     with _lock:
+        # Sticky flag: a register carrying the `active` key proves this device runs the badge-capable
+        # dylib, so the relay may drive its icon badge. Never unset (old-dylib re-registers lack it).
+        badge_ok = _state.get(uid, {}).get("badge_ok") or ("active" in user)
         _state[uid] = {**user, "updatedAt": now}
+        if badge_ok:
+            _state[uid]["badge_ok"] = True
         stored = _state[uid]
     save_state()
     start_or_update(stored)

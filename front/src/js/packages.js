@@ -5,6 +5,8 @@
  * this runs and when the live prices (GET /store/offer) cannot be loaded.
  * With online payment connected (offer.online_payment), «Оплатить» opens Platega's page for
  * the signed-in account (POST /store/checkout); otherwise it shows the «unavailable» notice.
+ * With offer.instant_registration the buyer also picks how the iPhone gets registered:
+ * our developer teams (standard) or an instant certificate, at the same price.
  */
 const reduceMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const rub = (value) => `${value.toLocaleString('ru-RU')} ₽`;
@@ -44,7 +46,7 @@ function monthlyLabel(node, input, saving) {
   }
 }
 
-export function setupPackages(root = document, { api = null, returnTo = '/buy.html', authPage = '/register.html', payVerb = 'Оплатить' } = {}) {
+export function setupPackages(root = document, { api = null, returnTo = '/buy.html', authPage = '/register.html', payVerb = 'Оплатить', chooseRegistration = true } = {}) {
   const block = root.querySelector('[data-packages]');
   if (!block) return null;
   const field = (name) => block.querySelector(`[data-offer-${name}]`);
@@ -79,6 +81,8 @@ export function setupPackages(root = document, { api = null, returnTo = '/buy.ht
   });
 
   const payButton = field('pay');
+  // How a new account's iPhone gets registered; renewals (the renew page) do not ask.
+  const registrationField = chooseRegistration ? block.querySelector('[data-registration]') : null;
   const payNotice = field('pay-notice');
   const unavailableNotice = payNotice?.innerHTML ?? '';
   // null until the offer says: a click before that (slow network) still tries to pay,
@@ -117,10 +121,14 @@ export function setupPackages(root = document, { api = null, returnTo = '/buy.ht
   const checkout = async () => {
     const plan = block.querySelector('input[name="plan"]:checked')?.value;
     if (!plan) return;
-    const back = `${returnTo}?plan=${encodeURIComponent(plan)}#pricing`;
+    // Only sent while the choice is shown (offer.instant_registration); otherwise standard.
+    const registration = registrationField && !registrationField.hidden
+      ? block.querySelector('input[name="registration"]:checked')?.value ?? 'standard'
+      : 'standard';
+    const back = `${returnTo}?plan=${encodeURIComponent(plan)}${registration === 'instant' ? '&registration=instant' : ''}#pricing`;
     setBusy(true);
     try {
-      const { data } = await api.post('/store/checkout', { plan }, {
+      const { data } = await api.post('/store/checkout', { plan, registration }, {
         idempotencyKey: `checkout-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`,
       });
       location.assign(data.payment_url);
@@ -159,12 +167,17 @@ export function setupPackages(root = document, { api = null, returnTo = '/buy.ht
   const wanted = new URLSearchParams(location.search).get('plan');
   const preselected = wanted && block.querySelector(`input[name="plan"][value="${CSS.escape(LEGACY_PLANS[wanted] ?? wanted)}"]`);
   if (preselected) preselected.checked = true;
+  if (new URLSearchParams(location.search).get('registration') === 'instant') {
+    const instant = block.querySelector('input[name="registration"][value="instant"]');
+    if (instant) instant.checked = true;
+  }
   const checked = block.querySelector('input[name="plan"]:checked');
   if (checked) apply(checked);
 
   /** Live prices and links from the store; terms the store no longer sells are hidden. */
   block.applyOffer = (offer) => {
     if (typeof offer?.online_payment === 'boolean') online = offer.online_payment;
+    if (registrationField) registrationField.hidden = offer?.instant_registration !== true;
     if (!offer?.plans?.length) return;
     const plans = new Map(offer.plans.map((plan) => [plan.id, plan]));
     for (const input of block.querySelectorAll('input[name="plan"]')) {

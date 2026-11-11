@@ -106,7 +106,70 @@ class CustomerScreens
         return new Screen((string) $block['text'], $rows);
     }
 
-    public function plans(TelegramStoreCustomer $customer, ?TelegramStorePromoCode $promo = null): Screen
+    /**
+     * «Купить подписку». A buyer who already has an account picks first: extend it, or a new account
+     * for another iPhone. Without this many bought a second code and registered a second account.
+     */
+    public function buy(TelegramStoreCustomer $customer, ?TelegramStorePromoCode $promo = null): Screen
+    {
+        $accounts = $this->accounts->for($customer);
+        if ($accounts->isEmpty()) {
+            return $this->plans($customer, $promo);
+        }
+
+        $rows = $accounts->map(fn (User $user) => [Screen::button(
+            '🔄 Продлить '.RenewalAccounts::maskEmail($user->email).' · '.$this->accessLine($user),
+            'rna:'.$user->public_id,
+        )])->all();
+        $rows[] = [Screen::button('➕ Новый аккаунт — для другого iPhone', 'buynew')];
+        $rows[] = [Screen::button('‹ Меню', 'menu')];
+
+        return new Screen(
+            ($promo ? "🎟 Промокод <b>{$promo->code}</b> активирован: <b>{$promo->label()}</b> — скидка применится к заказу.\n\n" : '')
+            ."<b>🛍 Покупка подписки</b>\n\n"
+            .($accounts->count() === 1 ? 'У вас уже есть аккаунт' : 'У вас уже есть аккаунты').". Чтобы продлить подписку на том же iPhone, выберите аккаунт — новые дни прибавятся к текущему сроку, код вводить не нужно.\n\n"
+            .'Новый аккаунт нужен только для <b>другого</b> iPhone.',
+            $rows,
+        );
+    }
+
+    /** A plan picked by a buyer who has an account: extend which one, or a new account. */
+    public function planFor(TelegramStoreCustomer $customer, string $planKey): Screen
+    {
+        $plan = $this->settings->plans()[$planKey];
+        $rows = $this->accounts->for($customer)->map(fn (User $user) => [Screen::button(
+            '🔄 Продлить '.RenewalAccounts::maskEmail($user->email).' · '.$this->accessLine($user),
+            "rnw:{$planKey}:{$user->public_id}",
+        )])->all();
+        $rows[] = [Screen::button('➕ Новый аккаунт — для другого iPhone', 'pln:'.$planKey)];
+        $rows[] = [Screen::button('‹ Тарифы', 'buy')];
+
+        return new Screen(
+            '<b>'.e($this->planLabel($planKey, $plan))."</b>\n\n"
+            .'Продлить ваш аккаунт или купить подписку для другого iPhone? При продлении новые дни прибавятся к текущему сроку сами, код вводить не нужно.',
+            $rows,
+        );
+    }
+
+    /** The two ways to register a new account's iPhone, at the same price. */
+    public function registration(string $planKey): Screen
+    {
+        $plan = $this->settings->plans()[$planKey];
+
+        return new Screen(
+            '<b>'.e($this->planLabel($planKey, $plan))."</b>\n\n"
+            ."<b>Как зарегистрировать iPhone?</b> Цена одинаковая.\n\n"
+            ."⚡ <b>Мгновенно</b> — приложения можно ставить сразу после установки профиля. Сертификат временный: уведомления MAX и VK не приходят, и Apple может его отозвать — тогда напишите в поддержку.\n\n"
+            .'🛡 <b>Аккаунт разработчика</b> — регистрация в нашем аккаунте, Apple обрабатывает её до 72 часов. Уведомления MAX и VK работают.',
+            [
+                [Screen::button('⚡ Мгновенно', 'reg:ins:'.$planKey)],
+                [Screen::button('🛡 Аккаунт разработчика (до 72 ч)', 'reg:std:'.$planKey)],
+                [Screen::button('‹ Тарифы', 'buy')],
+            ],
+        );
+    }
+
+    public function plans(TelegramStoreCustomer $customer, ?TelegramStorePromoCode $promo = null, bool $newAccount = false): Screen
     {
         $plans = $this->settings->plans();
         $best = collect(array_keys($plans))->sortByDesc(fn ($key) => $this->settings->savingPercent($key))->first();
@@ -114,11 +177,12 @@ class CustomerScreens
 
         $rows = [];
         foreach ($plans as $key => $plan) {
-            $rows[] = [Screen::button(($key === $best && $bestSaving > 0 ? '🔥 ' : '').$this->planLabel($key, $plan), 'plan:'.$key)];
+            $rows[] = [Screen::button(($key === $best && $bestSaving > 0 ? '🔥 ' : '').$this->planLabel($key, $plan), ($newAccount ? 'pln:' : 'plan:').$key)];
         }
-        $rows[] = [Screen::button('‹ Меню', 'menu')];
+        $rows[] = [Screen::button('‹ Меню', $newAccount ? 'buy' : 'menu')];
 
         $text = ($promo ? "🎟 Промокод <b>{$promo->code}</b> активирован: <b>{$promo->label()}</b> — скидка применится к заказу.\n\n" : '')
+            .($newAccount ? "➕ <b>Новый аккаунт</b> — подписка для другого iPhone. Код придёт в этот чат.\n\n" : '')
             ."<b>💎 Подписка {$this->brandHtml()}</b>\n\n"
             ."✅ Каталог приложений и игр для iPhone\n"
             ."✅ Обновления весь срок подписки\n"
@@ -224,6 +288,8 @@ class CustomerScreens
         ];
         if ($order->isRenewal()) {
             array_splice($lines, 2, 0, ['🔄 Продление аккаунта '.e(RenewalAccounts::maskEmail($order->renewUser?->email))]);
+        } elseif (OrderService::isInstant($order)) {
+            array_splice($lines, 3, 0, ['Регистрация: ⚡ мгновенная']);
         }
         if ($order->discount_rub > 0 && $order->promoCode) {
             $lines[] = "Промокод {$order->promoCode->code}: −".Format::rub($order->discount_rub);
@@ -339,6 +405,8 @@ class CustomerScreens
             ."Заказ #{$order->shortReference()} · {$this->planName($order)}\n\n"
             ."🔑 Ваш код активации:\n<code>{$code}</code>\n<i>Нажмите на код, чтобы скопировать.</i>\n\n"
             ."Откройте страницу активации и введите код — подписка на {$order->duration_days} дней включится сразу.\n\n"
+            .(OrderService::isInstant($order) ? "⚡ Регистрация мгновенная: после установки профиля на iPhone приложения можно ставить сразу.\n\n" : '')
+            ."⚠️ Уже есть аккаунт на этом iPhone? Не регистрируйте новый: войдите в свой аккаунт и введите код там — дни прибавятся к текущему сроку.\n\n"
             .'Код всегда можно найти в «Профиль → Мои заказы».',
             $rows,
         );

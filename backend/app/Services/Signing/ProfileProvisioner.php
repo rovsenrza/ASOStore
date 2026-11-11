@@ -55,6 +55,9 @@ class ProfileProvisioner
         }
 
         $team = $registration->team;
+        if ($team->isExternal()) {
+            return app(\App\Services\InstantCerts\ExternalSigning::class)->profileFor($artifact, $device, $team);
+        }
         $this->assertEligible($artifact, $team);
         $bundle = $artifact->signingBundleIdentifier($team);
         $certificate = $this->certificate($team->id);
@@ -71,6 +74,9 @@ class ProfileProvisioner
      */
     public function ensureShared(AppArtifact $artifact, AppleTeam $team): SigningProfile
     {
+        if ($team->isExternal()) {
+            throw new SigningUnavailable('EXTERNAL_TEAM_NOT_SHARED', 'Instant-certificate teams are signed per device.');
+        }
         $this->assertEligible($artifact, $team);
         $bundle = $artifact->signingBundleIdentifier($team);
         $certificate = $this->certificate($team->id);

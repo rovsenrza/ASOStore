@@ -70,6 +70,42 @@ it('returns the app page with its latest version', function () {
         ->assertJsonPath('data.screenshots', []);
 });
 
+it('adds shelves, versions, downloads and the share link to the app page', function () {
+    $category = AppCategory::factory()->create();
+    $publisher = AppPublisher::factory()->create(['name' => 'Orbit Labs']);
+    $app = CatalogApp::factory()->create(['name' => 'Orbit Mail', 'category_id' => $category->id, 'publisher_id' => $publisher->id]);
+    AppVersion::factory()->create(['app_id' => $app->id, 'version' => '1.0', 'released_at' => now()->subMonth()]);
+    AppVersion::factory()->create(['app_id' => $app->id, 'version' => '2.0', 'released_at' => now()->subDay()]);
+
+    CatalogApp::factory()->create(['name' => 'Paper Scan', 'category_id' => $category->id]);
+    CatalogApp::factory()->create(['name' => 'Orbit Notes', 'publisher_id' => $publisher->id]);
+    CatalogApp::factory()->draft()->create(['name' => 'Draft', 'category_id' => $category->id, 'publisher_id' => $publisher->id]);
+    CatalogApp::factory()->create(['name' => 'Private import', 'category_id' => $category->id, 'imported_by_user_id' => User::factory()->create()->id]);
+
+    $page = $this->getJson("/api/v1/apps/{$app->public_id}")->assertOk();
+
+    expect($page->json('data.downloads'))->toBe(0)
+        ->and($page->json('data.share_url'))->toBe($app->fresh()->seoUrl())
+        ->and(array_column($page->json('data.versions'), 'version'))->toBe(['2.0', '1.0'])
+        ->and(array_column($page->json('data.related'), 'name'))->toBe(['Paper Scan'])
+        ->and(array_column($page->json('data.more_from_publisher'), 'name'))->toBe(['Orbit Notes'])
+        ->and($page->json('data.related.0.install_state.status'))->not->toBeNull()
+        // The existing page shape is untouched.
+        ->and($page->json('data.name'))->toBe('Orbit Mail')
+        ->and($page->json('data.id'))->toBe($app->public_id);
+});
+
+it('keeps a web-hidden listing unshareable and skips the unknown publisher shelf', function () {
+    $publisher = AppPublisher::factory()->create(['name' => 'Разработчик не указан']);
+    $app = CatalogApp::factory()->create(['publisher_id' => $publisher->id, 'web_hidden' => true]);
+    CatalogApp::factory()->create(['publisher_id' => $publisher->id]);
+
+    $this->getJson("/api/v1/apps/{$app->public_id}")
+        ->assertOk()
+        ->assertJsonPath('data.share_url', null)
+        ->assertJsonPath('data.more_from_publisher', []);
+});
+
 it('lists versions newest first', function () {
     $app = CatalogApp::factory()->create();
     AppVersion::factory()->for($app, 'app')->create(['version' => '1.0', 'released_at' => now()->subYear()]);

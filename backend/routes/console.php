@@ -95,3 +95,6 @@ if (config('storefront.scheduled_queue_worker')) {
     Schedule::command('queue:work --queue=apple,default,background --stop-when-empty --max-time=50')
         ->name('queue:work-scheduled')->everyMinute()->withoutOverlapping()->runInBackground();
 }
+
+// Instant certificates: revoked/expired ones and a low reseller balance are reported to the bot admins.
+Schedule::command('instant-certs:check')->hourly()->withoutOverlapping();
