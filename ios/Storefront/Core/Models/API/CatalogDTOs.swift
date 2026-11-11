@@ -85,6 +85,72 @@ nonisolated struct AppDetailDTO: Codable, Hashable, Sendable, Identifiable {
     let screenshots: [ScreenshotDTO]
     let supportUrl: String?
     let privacyUrl: String?
+    // Added to `GET /apps/{id}` later: absent from older servers and from responses cached
+    // before the update, so every one is optional and decoded leniently (see the extension).
+    /// Distinct devices that installed the app.
+    var downloads: Int?
+    /// The app's public web page, for sharing. A string, not a URL: an empty or malformed
+    /// value must not fail the whole page.
+    var shareUrl: String?
+    /// Same category, most downloaded first.
+    var related: [AppSummaryDTO]?
+    var moreFromPublisher: [AppSummaryDTO]?
+    /// Newest first, a handful at most.
+    var versions: [VersionDTO]?
+}
+
+nonisolated extension AppDetailDTO {
+    /// The original fields decode strictly, as before. The newer ones are extras: a missing,
+    /// null or malformed value becomes nil instead of failing the page (also when the response
+    /// is re-read from the offline cache).
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        slug = try container.decode(String.self, forKey: .slug)
+        name = try container.decode(String.self, forKey: .name)
+        subtitle = try container.decodeIfPresent(String.self, forKey: .subtitle)
+        category = try container.decode(CategoryRefDTO.self, forKey: .category)
+        publisher = try container.decode(PublisherRefDTO.self, forKey: .publisher)
+        iconUrl = try container.decodeIfPresent(URL.self, forKey: .iconUrl)
+        featureImageUrl = try container.decodeIfPresent(URL.self, forKey: .featureImageUrl)
+        ageRating = try container.decode(String.self, forKey: .ageRating)
+        latestVersion = try container.decodeIfPresent(LatestVersionDTO.self, forKey: .latestVersion)
+        installState = try container.decode(InstallStateDTO.self, forKey: .installState)
+        description = try container.decodeIfPresent(String.self, forKey: .description)
+        releaseNotes = try container.decodeIfPresent(String.self, forKey: .releaseNotes)
+        screenshots = try container.decode([ScreenshotDTO].self, forKey: .screenshots)
+        supportUrl = try container.decodeIfPresent(String.self, forKey: .supportUrl)
+        privacyUrl = try container.decodeIfPresent(String.self, forKey: .privacyUrl)
+
+        downloads = (try? container.decodeIfPresent(Int.self, forKey: .downloads)) ?? nil
+        shareUrl = (try? container.decodeIfPresent(String.self, forKey: .shareUrl)) ?? nil
+        related = ((try? container.decodeIfPresent(LossyList<AppSummaryDTO>.self, forKey: .related)) ?? nil)?.elements
+        moreFromPublisher = ((try? container.decodeIfPresent(LossyList<AppSummaryDTO>.self, forKey: .moreFromPublisher)) ?? nil)?.elements
+        versions = ((try? container.decodeIfPresent(LossyList<VersionDTO>.self, forKey: .versions)) ?? nil)?.elements
+    }
+}
+
+/// An array that keeps the elements it can decode and drops the rest, so one bad entry in an
+/// optional shelf does not take the page down with it.
+nonisolated struct LossyList<Element: Decodable & Sendable>: Decodable, Sendable {
+    let elements: [Element]
+
+    init(from decoder: any Decoder) throws {
+        var container = try decoder.unkeyedContainer()
+        var elements: [Element] = []
+        while !container.isAtEnd {
+            if let element = try? container.decode(Element.self) {
+                elements.append(element)
+            } else if (try? container.decode(SkippedValue.self)) == nil {
+                // A failed decode does not advance the container, so the bad element is stepped
+                // over above; if even that fails, stop instead of spinning.
+                break
+            }
+        }
+        self.elements = elements
+    }
+
+    nonisolated private struct SkippedValue: Decodable {}
 }
 
 nonisolated struct VersionDTO: Codable, Hashable, Sendable, Identifiable {

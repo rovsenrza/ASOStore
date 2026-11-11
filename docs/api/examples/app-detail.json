@@ -31,11 +31,269 @@
       "progress": null,
       "installation_id": null
     },
-    "description": "Собирайте мысли, планы и важные заметки в одном спокойном пространстве. Умные папки, быстрый поиск и фокус-режим помогают не терять главное.",
+    "description": "Собирайте мысли, планы и важные заметки в одном спокойном пространстве. Умные папки, быстрый поиск и фокус-режим помогают не терять главное.\n\nПишите от руки или печатайте, добавляйте фотографии и списки дел, закрепляйте важное на главном экране. Заметки синхронизируются между устройствами и остаются доступными без интернета.\n\nНикакой рекламы и лишних уведомлений: только вы и ваши идеи.",
     "release_notes": "Новый режим дня, быстрые виджеты и более удобная работа с тегами.",
     "screenshots": [],
     "support_url": null,
-    "privacy_url": null
+    "privacy_url": null,
+    "downloads": 1234,
+    "share_url": "https://ruappstore.com/app/focus-notes",
+    "related": [
+      {
+        "id": "01m3d8a1q92df5bd93gb9b5q2p",
+        "slug": "orbit-mail",
+        "name": "Orbit Mail",
+        "subtitle": "Почта, которая не отвлекает",
+        "category": {
+          "id": "01m3d8a1pm389dk3gwedc83pxn",
+          "slug": "business",
+          "title": "Бизнес",
+          "kind": "APPS"
+        },
+        "publisher": {
+          "id": "01m3d8a1q84a39htq9raqevwpp",
+          "name": "Orbit Systems"
+        },
+        "icon_url": null,
+        "feature_image_url": null,
+        "age_rating": "4+",
+        "latest_version": {
+          "version": "6.0",
+          "build_number": "60",
+          "min_ios_version": "17.0",
+          "released_at": "2026-08-11T21:42:26Z",
+          "size_bytes": 102760448
+        },
+        "install_state": {
+          "status": "failed",
+          "reason": "INCOMPATIBLE_DEVICE",
+          "progress": null,
+          "installation_id": "01j9ex4mp1e000000000000004"
+        }
+      },
+      {
+        "id": "01m3d8a1qdcwzpzqqp9mq9061g",
+        "slug": "paper-scan",
+        "name": "Paper Scan",
+        "subtitle": "Сканер всегда под рукой",
+        "category": {
+          "id": "01m3d8a1pndsx43ectk1vaj1e2",
+          "slug": "utilities",
+          "title": "Утилиты",
+          "kind": "APPS"
+        },
+        "publisher": {
+          "id": "01m3d8a1qcrjn09d46n1v2s6hn",
+          "name": "Quiet Tools"
+        },
+        "icon_url": null,
+        "feature_image_url": null,
+        "age_rating": "4+",
+        "latest_version": {
+          "version": "3.7",
+          "build_number": "37",
+          "min_ios_version": "17.0",
+          "released_at": "2026-09-17T21:42:26Z",
+          "size_bytes": null
+        },
+        "install_state": {
+          "status": "unavailable",
+          "reason": "ARTIFACT_NOT_INSTALLABLE",
+          "progress": null,
+          "installation_id": null
+        }
+      },
+      {
+        "id": "01m3d8a1qgqzwk37rtwgcdhfbj",
+        "slug": "lingua",
+        "name": "Lingua",
+        "subtitle": "Язык через живые диалоги",
+        "category": {
+          "id": "01m3d8a1pndsx43ectk1vaj1e3",
+          "slug": "education",
+          "title": "Образование",
+          "kind": "APPS"
+        },
+        "publisher": {
+          "id": "01m3d8a1qf0ne1aw4ax1n1y50a",
+          "name": "Lingua Works"
+        },
+        "icon_url": null,
+        "feature_image_url": null,
+        "age_rating": "4+",
+        "latest_version": {
+          "version": "7.4",
+          "build_number": "74",
+          "min_ios_version": "17.0",
+          "released_at": "2026-07-27T21:42:26Z",
+          "size_bytes": 196083712
+        },
+        "install_state": {
+          "status": "not_eligible",
+          "reason": "UNAUTHENTICATED",
+          "progress": null,
+          "installation_id": null
+        }
+      },
+      {
+        "id": "01m3d8a1q0521g346m7bq9a4yw",
+        "slug": "tempo",
+        "name": "Tempo",
+        "subtitle": "Музыка для концентрации",
+        "category": {
+          "id": "01m3d8a1pm389dk3gwedc83pxm",
+          "slug": "music",
+          "title": "Музыка",
+          "kind": "APPS"
+        },
+        "publisher": {
+          "id": "01m3d8a1q0521g346m7bq9a4yv",
+          "name": "Waveform House"
+        },
+        "icon_url": null,
+        "feature_image_url": null,
+        "age_rating": "4+",
+        "latest_version": {
+          "version": "5.2",
+          "build_number": "52",
+          "min_ios_version": "17.0",
+          "released_at": "2026-09-24T21:42:26Z",
+          "size_bytes": 134217728
+        },
+        "install_state": {
+          "status": "ready_to_install",
+          "reason": null,
+          "progress": null,
+          "installation_id": "01j9ex4mp1e000000000000002"
+        }
+      },
+      {
+        "id": "01m3d8a1q2dp7bnm9mb9byagtv",
+        "slug": "habit-garden",
+        "name": "Habit Garden",
+        "subtitle": "Маленькие привычки каждый день",
+        "category": {
+          "id": "01m3d8a1pj26hbdsqwhmc3x2qt",
+          "slug": "health",
+          "title": "Здоровье",
+          "kind": "APPS"
+        },
+        "publisher": {
+          "id": "01m3d8a1q2dp7bnm9mb9byagtt",
+          "name": "Moss Software"
+        },
+        "icon_url": null,
+        "feature_image_url": null,
+        "age_rating": "4+",
+        "latest_version": {
+          "version": "1.9",
+          "build_number": "19",
+          "min_ios_version": "17.0",
+          "released_at": "2026-09-05T21:42:26Z",
+          "size_bytes": 75497472
+        },
+        "install_state": {
+          "status": "update_available",
+          "reason": null,
+          "progress": null,
+          "installation_id": null
+        }
+      }
+    ],
+    "more_from_publisher": [
+      {
+        "id": "01m3d8a1r2k7c4x9w5t6v8b3nq",
+        "slug": "focus-tasks",
+        "name": "Focus Tasks",
+        "subtitle": "Список дел без суеты",
+        "category": {
+          "id": "01m3d8a1phf2wsqvrrk4h9cwpx",
+          "slug": "productivity",
+          "title": "Продуктивность",
+          "kind": "APPS"
+        },
+        "publisher": {
+          "id": "01m3d8a1prb8djvzwf0q1b1fbr",
+          "name": "North Studio",
+          "website": null
+        },
+        "icon_url": null,
+        "feature_image_url": null,
+        "age_rating": "4+",
+        "latest_version": {
+          "version": "3.7",
+          "build_number": "37",
+          "min_ios_version": "17.0",
+          "released_at": "2026-09-17T21:42:26Z",
+          "size_bytes": null
+        },
+        "install_state": {
+          "status": "get",
+          "reason": null,
+          "progress": null,
+          "installation_id": null
+        }
+      },
+      {
+        "id": "01m3d8a1r4h2m6p8d3f5g7j9ks",
+        "slug": "focus-timer",
+        "name": "Focus Timer",
+        "subtitle": "Помодоро и перерывы",
+        "category": {
+          "id": "01m3d8a1phf2wsqvrrk4h9cwpx",
+          "slug": "productivity",
+          "title": "Продуктивность",
+          "kind": "APPS"
+        },
+        "publisher": {
+          "id": "01m3d8a1prb8djvzwf0q1b1fbr",
+          "name": "North Studio",
+          "website": null
+        },
+        "icon_url": null,
+        "feature_image_url": null,
+        "age_rating": "4+",
+        "latest_version": {
+          "version": "3.7",
+          "build_number": "37",
+          "min_ios_version": "17.0",
+          "released_at": "2026-09-17T21:42:26Z",
+          "size_bytes": null
+        },
+        "install_state": {
+          "status": "get",
+          "reason": null,
+          "progress": null,
+          "installation_id": null
+        }
+      }
+    ],
+    "versions": [
+      {
+        "id": "01m3d8a1px9efqwykn861h6tpb",
+        "version": "3.4.0",
+        "build_number": "340",
+        "release_notes": "Новый режим дня, быстрые виджеты и более удобная работа с тегами.",
+        "min_ios_version": "17.0",
+        "released_at": "2026-09-22T21:42:26Z"
+      },
+      {
+        "id": "01m3d8a1pw5t2c8x4n7b9d6f3g",
+        "version": "3.3.0",
+        "build_number": "330",
+        "release_notes": "Тёмная тема для редактора и экспорт заметок в PDF.",
+        "min_ios_version": "17.0",
+        "released_at": "2026-08-14T09:00:00Z"
+      },
+      {
+        "id": "01m3d8a1pw1h4j7m2q5s8v3z6k",
+        "version": "3.2.1",
+        "build_number": "321",
+        "release_notes": null,
+        "min_ios_version": "16.0",
+        "released_at": "2026-07-02T09:00:00Z"
+      }
+    ]
   },
   "meta": {
     "request_id": "01j0example0request0id0000"
