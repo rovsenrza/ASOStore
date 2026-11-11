@@ -110,10 +110,11 @@ class AppController extends Controller
         );
 
         return [
-            'downloads' => Cache::remember(
+            // Cast on the way out: Redis hands a cached integer back as a string.
+            'downloads' => (int) Cache::remember(
                 "catalog:app-page:downloads:{$app->id}",
                 now()->addMinutes(15),
-                fn () => (int) $app->installations()->whereNotNull('delivered_at')->distinct()->count('device_id'),
+                fn () => $app->installations()->whereNotNull('delivered_at')->distinct()->count('device_id'),
             ),
             // Only listings with a public page; a web-hidden listing has nothing to share.
             'share_url' => $app->isPubliclyListed() ? $app->seoUrl() : null,

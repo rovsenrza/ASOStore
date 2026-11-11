@@ -82,6 +82,8 @@ it('adds shelves, versions, downloads and the share link to the app page', funct
     CatalogApp::factory()->draft()->create(['name' => 'Draft', 'category_id' => $category->id, 'publisher_id' => $publisher->id]);
     CatalogApp::factory()->create(['name' => 'Private import', 'category_id' => $category->id, 'imported_by_user_id' => User::factory()->create()->id]);
 
+    $this->getJson("/api/v1/apps/{$app->public_id}")->assertOk();
+    // The second request is answered from the cache; the types must not change.
     $page = $this->getJson("/api/v1/apps/{$app->public_id}")->assertOk();
 
     expect($page->json('data.downloads'))->toBe(0)

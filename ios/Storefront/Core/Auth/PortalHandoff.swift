@@ -21,8 +21,11 @@ final class PortalHandoff: NSObject, ASWebAuthenticationPresentationContextProvi
     func claimLink(portalURL: URL) async -> URL? {
         await withCheckedContinuation { continuation in
             let url = portalURL.appending(path: "app-signin.html")
+            // A session that fails to start may still call its completion handler (seen when the
+            // app is not active at launch): resuming the continuation twice is a crash.
+            let once = ResumeOnce(continuation)
             let completion: ASWebAuthenticationSession.CompletionHandler = { url, _ in
-                continuation.resume(returning: url)
+                once.resume(url)
             }
             let session: ASWebAuthenticationSession
             if #available(iOS 17.4, *) {
@@ -34,7 +37,7 @@ final class PortalHandoff: NSObject, ASWebAuthenticationPresentationContextProvi
             session.prefersEphemeralWebBrowserSession = false
             authSession = session
             if !session.start() {
-                continuation.resume(returning: nil)
+                once.resume(nil)
             }
         }
     }
@@ -43,5 +46,23 @@ final class PortalHandoff: NSObject, ASWebAuthenticationPresentationContextProvi
         UIApplication.shared.connectedScenes
             .compactMap { ($0 as? UIWindowScene)?.keyWindow }
             .first ?? ASPresentationAnchor()
+    }
+}
+
+/// Resumes a continuation at most once, from whichever thread gets there first.
+private nonisolated final class ResumeOnce: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<URL?, Never>?
+
+    init(_ continuation: CheckedContinuation<URL?, Never>) {
+        self.continuation = continuation
+    }
+
+    func resume(_ link: URL?) {
+        let pending = lock.withLock {
+            defer { continuation = nil }
+            return continuation
+        }
+        pending?.resume(returning: link)
     }
 }
