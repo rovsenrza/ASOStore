@@ -732,7 +732,7 @@ describe('registration method', function () {
     it('lets a new buyer pick the instant certificate and switches the account on redemption', function () {
         ($this->text)(BUYER_ID, '/start');
         ($this->press)(BUYER_ID, 'plan:month1');
-        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Как зарегистрировать iPhone')
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('как зарегистрировать iPhone')
             ->and(($this->buttons)(BUYER_ID))->toContain('reg:ins:month1', 'reg:std:month1')
             ->and(TelegramStoreOrder::query()->count())->toBe(0);
 
@@ -762,6 +762,23 @@ describe('registration method', function () {
         $device->save();
         app(App\Services\Activation\ActivationCodeService::class)->redeem($account, $completed->code);
         expect($account->refresh()->registration_method)->toBeNull();
+    });
+
+    it('never asks someone extending an account the chat does not know', function () {
+        ($this->text)(BUYER_ID, '/start');
+        // «Продлить» with no account known to this chat: the plans lead straight to an order.
+        ($this->press)(BUYER_ID, 'renew');
+        expect(($this->buttons)(BUYER_ID))->toContain('buyext');
+        ($this->press)(BUYER_ID, 'buyext');
+        expect(($this->buttons)(BUYER_ID))->toContain('ext:month1')->not->toContain('plan:month1');
+
+        ($this->press)(BUYER_ID, 'ext:month1');
+        expect(($this->sentTo)(BUYER_ID)->last())->not->toContain('как зарегистрировать iPhone')
+            ->and(TelegramStoreOrder::query()->latest('id')->first()->plan)->toBe(OrderService::STANDARD);
+
+        // The registration question itself offers the way out to a buyer who is extending.
+        ($this->press)(BUYER_ID, 'plan:month1');
+        expect(($this->buttons)(BUYER_ID))->toContain('ext:month1');
     });
 
     it('asks nothing when instant registration is not on sale', function () {

@@ -134,7 +134,7 @@ class CustomerHandler
         }
 
         // Buying and paying need a subscription to the news channel.
-        if (preg_match('/^(buy|buynew|renew|plan:\w+|pln:\w+|reg:\w+:\w+|rna:\w+|rnw:\w+:\w+|(order|bal|pay:\w+|paid|mockpay|promo):[0-9a-z]{26})$/', $data) === 1 && $this->held($ctx, $data)) {
+        if (preg_match('/^(buy|buynew|buyext|renew|plan:\w+|pln:\w+|ext:\w+|reg:\w+:\w+|rna:\w+|rnw:\w+:\w+|(order|bal|pay:\w+|paid|mockpay|promo):[0-9a-z]{26})$/', $data) === 1 && $this->held($ctx, $data)) {
             return;
         }
 
@@ -146,12 +146,13 @@ class CustomerHandler
             return;
         }
 
-        if (in_array($data, ['menu', 'buy', 'buynew', 'renew', 'profile', 'orders', 'invite', 'help'], true)) {
+        if (in_array($data, ['menu', 'buy', 'buynew', 'buyext', 'renew', 'profile', 'orders', 'invite', 'help'], true)) {
             $this->messenger->answer($ctx);
             $this->messenger->show($ctx, match ($data) {
                 'menu' => $this->screens->menu(),
                 'buy' => $this->screens->buy($customer, $this->promos->remembered($customer->telegram_user_id)),
                 'buynew' => $this->screens->plans($customer, $this->promos->remembered($customer->telegram_user_id), true),
+                'buyext' => $this->screens->plans($customer, $this->promos->remembered($customer->telegram_user_id), extend: true),
                 'renew' => $this->screens->renew($customer),
                 'profile' => $this->screens->profile($customer),
                 'orders' => $this->screens->orders($customer),
@@ -195,6 +196,22 @@ class CustomerHandler
             }
             $this->messenger->answer($ctx);
             $match[1] === 'pln' ? $this->askRegistration($ctx, $match[2]) : $this->orderPlan($ctx, $match[2]);
+
+            return;
+        }
+
+        // Extending an account the bot does not know (bought on the site, or a code from an admin):
+        // the code is entered in that account, whose iPhone already has its slot. No registration
+        // question, and never an instant certificate.
+        if (preg_match('/^ext:(\w+)$/', $data, $match)) {
+            if ($this->planMissing($match[1])) {
+                $this->messenger->answer($ctx, 'Этот тариф больше недоступен.', true);
+                $this->messenger->show($ctx, $this->screens->renew($customer));
+
+                return;
+            }
+            $this->messenger->answer($ctx);
+            $this->startOrder($ctx, $match[1]);
 
             return;
         }

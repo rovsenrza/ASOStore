@@ -39,7 +39,9 @@ class StoreOfferController extends Controller
             'currency' => 'RUB',
             'online_payment' => PlategaClient::configured(),
             // A new account may pick the instant certificate (same price) instead of our teams.
-            'instant_registration' => app(\App\Services\InstantCerts\InstantCertificates::class)->offered(),
+            // Not for a signed-in customer whose iPhone is already registered: they are extending.
+            'instant_registration' => app(\App\Services\InstantCerts\InstantCertificates::class)->offered()
+                && ! (request()->user('sanctum')?->devices()->exists() ?? false),
             'plans' => $plans,
             'referral_percent' => $settings->referralPercent(),
             'telegram' => [

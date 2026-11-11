@@ -158,18 +158,21 @@ class CustomerScreens
 
         return new Screen(
             '<b>'.e($this->planLabel($planKey, $plan))."</b>\n\n"
-            ."<b>Как зарегистрировать iPhone?</b> Цена одинаковая.\n\n"
+            ."<b>Новый аккаунт: как зарегистрировать iPhone?</b> Цена одинаковая.\n\n"
+            ."Если вы <b>продлеваете</b> подписку, выбирать не нужно: ваш iPhone уже зарегистрирован — нажмите «У меня уже есть аккаунт».\n\n"
             ."⚡ <b>Мгновенно</b> — приложения можно ставить сразу после установки профиля. Сертификат временный: уведомления MAX и VK не приходят, и Apple может его отозвать — тогда напишите в поддержку.\n\n"
             .'🛡 <b>Аккаунт разработчика</b> — регистрация в нашем аккаунте, Apple обрабатывает её до 72 часов. Уведомления MAX и VK работают.',
             [
                 [Screen::button('⚡ Мгновенно', 'reg:ins:'.$planKey)],
                 [Screen::button('🛡 Аккаунт разработчика (до 72 ч)', 'reg:std:'.$planKey)],
+                // Someone extending an account this chat does not know: no new registration at all.
+                [Screen::button('🔄 У меня уже есть аккаунт — продлить', 'ext:'.$planKey)],
                 [Screen::button('‹ Тарифы', 'buy')],
             ],
         );
     }
 
-    public function plans(TelegramStoreCustomer $customer, ?TelegramStorePromoCode $promo = null, bool $newAccount = false): Screen
+    public function plans(TelegramStoreCustomer $customer, ?TelegramStorePromoCode $promo = null, bool $newAccount = false, bool $extend = false): Screen
     {
         $plans = $this->settings->plans();
         $best = collect(array_keys($plans))->sortByDesc(fn ($key) => $this->settings->savingPercent($key))->first();
@@ -177,12 +180,13 @@ class CustomerScreens
 
         $rows = [];
         foreach ($plans as $key => $plan) {
-            $rows[] = [Screen::button(($key === $best && $bestSaving > 0 ? '🔥 ' : '').$this->planLabel($key, $plan), ($newAccount ? 'pln:' : 'plan:').$key)];
+            $rows[] = [Screen::button(($key === $best && $bestSaving > 0 ? '🔥 ' : '').$this->planLabel($key, $plan), ($extend ? 'ext:' : ($newAccount ? 'pln:' : 'plan:')).$key)];
         }
-        $rows[] = [Screen::button('‹ Меню', $newAccount ? 'buy' : 'menu')];
+        $rows[] = [Screen::button($extend ? '‹ Назад' : '‹ Меню', $extend ? 'renew' : ($newAccount ? 'buy' : 'menu'))];
 
         $text = ($promo ? "🎟 Промокод <b>{$promo->code}</b> активирован: <b>{$promo->label()}</b> — скидка применится к заказу.\n\n" : '')
             .($newAccount ? "➕ <b>Новый аккаунт</b> — подписка для другого iPhone. Код придёт в этот чат.\n\n" : '')
+            .($extend ? "🔄 <b>Продление</b> — код придёт в этот чат. Введите его в своём аккаунте на странице активации: новые дни прибавятся к сроку, iPhone заново регистрировать не нужно.\n\n" : '')
             ."<b>💎 Подписка {$this->brandHtml()}</b>\n\n"
             ."✅ Каталог приложений и игр для iPhone\n"
             ."✅ Обновления весь срок подписки\n"
@@ -215,7 +219,7 @@ class CustomerScreens
 
         if ($accounts->isEmpty()) {
             $rows = [
-                [Screen::button('🛍 Выбрать тариф', 'buy')],
+                [Screen::button('🛍 Выбрать тариф', 'buyext')],
                 [Screen::link('🌐 Продлить на сайте', $this->renewUrl())],
             ];
             if ($support = $this->supportRow()) {

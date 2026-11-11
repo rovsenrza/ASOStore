@@ -43,6 +43,11 @@ class StoreOrderController extends Controller
             'registration' => ['nullable', 'string', 'in:standard,instant'],
         ]);
         $registration = $data['registration'] ?? OrderService::STANDARD;
+        // An account whose iPhone is already registered keeps its slot: buying again extends it,
+        // so the instant method is neither offered nor accepted.
+        if ($request->user()->devices()->exists()) {
+            $registration = OrderService::STANDARD;
+        }
         if ($registration === OrderService::INSTANT && ! app(InstantCertificates::class)->offered()) {
             throw new ApiException(ErrorCode::ValidationFailed, 'Мгновенная регистрация сейчас недоступна.', ['fields' => ['registration' => ['Мгновенная регистрация сейчас недоступна.']]]);
         }
