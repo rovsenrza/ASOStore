@@ -213,8 +213,20 @@ describe('install_state', function () {
             ->assertJsonPath('data.latest_version.size_bytes', 1234);
     });
 
+    it('offers renewal instead of an install to a user whose subscription has ended', function () {
+        $user = subscribedCustomer();
+        $user->subscriptions()->update(['ends_at' => now()->subMinute()]);
+        Sanctum::actingAs($user);
+        $app = CatalogApp::factory()->create();
+        AppArtifact::factory()->for($app, 'app')->status(ArtifactStatus::Published)->create();
+
+        $this->getJson('/api/v1/apps')
+            ->assertJsonPath('data.0.install_state.status', 'not_eligible')
+            ->assertJsonPath('data.0.install_state.reason', 'SUBSCRIPTION_REQUIRED');
+    });
+
     it('never reports a signed-in user as installable before device registration exists', function () {
-        Sanctum::actingAs(User::factory()->create());
+        Sanctum::actingAs(subscribedCustomer());
         $app = CatalogApp::factory()->create();
         AppArtifact::factory()->for($app, 'app')->status(ArtifactStatus::Published)->create();
 

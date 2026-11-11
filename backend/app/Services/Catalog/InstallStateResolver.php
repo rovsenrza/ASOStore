@@ -26,6 +26,9 @@ class InstallStateResolver
     /** @var array<int, Device|null> Per-request cache keyed by user ID. */
     private array $devices = [];
 
+    /** @var array<int, bool> Per-request cache keyed by user ID. */
+    private array $subscribed = [];
+
     public function __construct(private readonly CurrentDevice $currentDevice) {}
 
     /**
@@ -40,6 +43,11 @@ class InstallStateResolver
 
         if ($user === null) {
             return $this->state(InstallStateStatus::NotEligible, ErrorCode::Unauthenticated);
+        }
+        // Installing is refused without a subscription (InstallationService): say so on the
+        // button, where the app (1.7+) turns this reason into «Продлить», not a failed install.
+        if (! $this->subscribed($user)) {
+            return $this->state(InstallStateStatus::NotEligible, ErrorCode::SubscriptionRequired);
         }
 
         $device = $this->device($user);
@@ -78,6 +86,11 @@ class InstallStateResolver
             $latest->status === InstallationStatus::Failed => $this->state(InstallStateStatus::Failed, installation: $latest, rawReason: $latest->status_reason),
             default => $this->state(InstallStateStatus::Get),
         };
+    }
+
+    private function subscribed(User $user): bool
+    {
+        return $this->subscribed[$user->id] ??= $user->isStaff() || $user->activeSubscription()->exists();
     }
 
     private function device(User $user): ?Device
