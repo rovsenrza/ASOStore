@@ -33,7 +33,7 @@ ENT_429_TTL = int(os.environ.get("MXRELAY_ENTITLEMENT_429_TTL", "1800"))
 # Every check leaves the box on ONE IP, and the backend throttles that IP (telemetry 30/min), so a
 # burst of 391 user-checks produced the 45k/day 429s. Staying under budget keeps us off the limit.
 ENT_MAX_PER_MIN = int(os.environ.get("MXRELAY_ENTITLEMENT_MAX_PER_MIN", "20"))
-CHECK_INTERVAL = int(os.environ.get("MXRELAY_CHECK_INTERVAL", "900"))
+CHECK_INTERVAL = int(os.environ.get("MXRELAY_CHECK_INTERVAL", "300"))
 # A register whose meaningful fields are unchanged and that arrived within this window is a no-op
 # (the client re-registers on every foreground / mute change / and in a retry loop when we are slow).
 REG_IDEMPOTENT_WINDOW = int(os.environ.get("MXRELAY_REG_IDEMPOTENT_WINDOW", "300"))
@@ -173,6 +173,38 @@ def check_entitlement(udid):
     if not _ent_budget_ok():
         _entitlement_cache[udid] = (active, now, 30)
         return active
+
+
+# Bulk refresh: one backend call answers every UDID the relay holds. One-at-a-time checks under
+# ENT_MAX_PER_MIN starved: after a restart most users were never asked and kept the fail-open
+# default, so lapsed customers got notifications (and calls) for days. A verdict from the bulk call
+# lives until the next pass plus slack, so the per-user path is only used for brand-new registers.
+ENT_BULK_URL = ENT_URL.rstrip("/") + "s"  # .../mx-relay/entitlement -> .../mx-relay/entitlements
+ENT_BULK_TTL = max(ENT_TTL, CHECK_INTERVAL * 3)
+
+def refresh_entitlements(udids):
+    import urllib.request as _ur
+    udids = sorted({u for u in udids if u})
+    if not udids:
+        return True
+    try:
+        req = _ur.Request(ENT_BULK_URL, data=json.dumps({"udids": udids}).encode(),
+            headers={"Content-Type": "application/json", "Accept": "application/json", "X-MX-Relay-Secret": ENT_SECRET}, method="POST")
+        with _ur.urlopen(req, timeout=30) as r:
+            results = json.loads(r.read()).get("results") or {}
+    except Exception as e:
+        # Keep the last known verdicts (fail open only for users never seen), retry next pass.
+        print(f"[entitle] bulk refresh failed: {e}", flush=True)
+        return False
+    now = time.time(); denied = 0
+    for u in udids:
+        v = results.get(u)
+        if v is None:
+            continue
+        ok = bool(v.get("active")); denied += (not ok)
+        _entitlement_cache[u] = (ok, now, ENT_BULK_TTL)
+    print(f"[entitle] bulk refresh: {len(udids)} udids, {denied} not entitled", flush=True)
+    return True
     ttl = ENT_TTL
     try:
         req = urllib.request.Request(ENT_URL, data=json.dumps({"udid": udid}).encode(),
@@ -314,6 +346,8 @@ class Mirror(threading.Thread):
         self.user = user
         self.stop = threading.Event()
         self.recent_calls = {}  # conversationId -> ts, to send only one VoIP push per call
+        self._cur_sock = None   # the live session socket, closed by run() when the session ends
+        self._cur_dead = None   # per-session Event; set on session end so keepalive exits deterministically
 
     def contacts_name_avatar(self, uid):
         for c in self.user.get("contacts", []):
@@ -417,6 +451,18 @@ class Mirror(threading.Thread):
         while not self.stop.is_set():
             try: self._session()
             except Exception as e: print(f"[mirror {self.user.get('userId')}] {e}", flush=True)
+            finally:
+                # End-of-session cleanup: signal the keepalive thread to exit and close the socket
+                # NOW instead of waiting for keepalive's next sendall to error. A TSPU-frozen socket
+                # does not raise promptly, so without this the keepalive thread (and the fd it holds)
+                # leaked once per reconnect -> thousands of threads/sockets over days.
+                d = self._cur_dead
+                if d is not None: d.set()
+                sk = self._cur_sock
+                if sk is not None:
+                    try: sk.close()
+                    except Exception: pass
+                self._cur_sock = None; self._cur_dead = None
             # Reconnect fast: every second disconnected is a second of missed inbound messages.
             self.stop.wait(2)
 
@@ -435,13 +481,18 @@ class Mirror(threading.Thread):
             try: raw.setsockopt(socket.IPPROTO_TCP, getattr(socket, opt), val)
             except (AttributeError, OSError): pass  # option unsupported on this platform
         s = ctx.wrap_socket(raw, server_hostname=HOST)
+        sess_dead = threading.Event()
+        self._cur_sock = s; self._cur_dead = sess_dead
         s.sendall(f6); s.sendall(f19)
         print(f"[mirror {own}] connected + auth replayed", flush=True)
 
         def keepalive():
             seq = 50000
-            while not self.stop.is_set():
-                self.stop.wait(20)
+            # Wait on this session's own Event: it returns at once when run() marks the session dead,
+            # so the keepalive thread cannot outlive its socket (previously it only exited when a
+            # sendall raised, which a frozen socket never does -> the thread/fd leak).
+            while not sess_dead.wait(20):
+                if self.stop.is_set(): break
                 try:
                     body = msgpack.packb({"interactive": INTERACTIVE}, use_bin_type=True)
                     hdr = bytes([0x0a, 0x00]) + struct.pack(">H", seq) + struct.pack(">H", 1) + b"\x00" + struct.pack(">I", len(body))[1:]
@@ -474,7 +525,9 @@ class Mirror(threading.Thread):
                     if label:
                         nm, av = self.contacts_name_avatar(sender)
                         self.push_alert(apns, bundle, nm or f"Пользователь {sender}", label, av, sender, sender, chat_id, msgid)
-                        print(f"[mirror {own}] msg from {nm or sender} (chat {chat_id}): {label!r} -> push", flush=True)
+                        # Do NOT log sender name or message text: that persists personal content to the
+                        # systemd journal in plaintext. chat id + length only is enough for debugging.
+                        print(f"[mirror {own}] msg (chat {chat_id}) len={len(label)} -> push", flush=True)
             elif opcode == 137:
                 caller = field_int(body, "callerId"); conv = field_str(body, "conversationId"); ctype = field_str(body, "type") or "AUDIO"
                 # MAX's own VoIP handler (-[OKMPushServiceRegister _processVoIPPushPayload:…], RE'd
@@ -527,10 +580,11 @@ class Mirror(threading.Thread):
                     # Only one call push per physical device (voip token): other accounts sharing
                     # this device must not double-report the call to CallKit.
                     if not claim_call_push(voip):
-                        print(f"[mirror {own}] call from {name} -> SKIP (device already got a call push)", flush=True)
+                        print(f"[mirror {own}] call -> SKIP (device already got a call push)", flush=True)
                     else:
                         self.push_voip(voip, bundle, payload)
-                        print(f"[mirror {own}] call from {name} vcp={vcp} vcId={conv} iv={is_video} -> voip push", flush=True)
+                        # No caller name and no vcp (a join credential) in the log.
+                        print(f"[mirror {own}] call vcId={conv} iv={is_video} -> voip push", flush=True)
 
     def _recvn(self, s, n):
         buf = b""
@@ -645,7 +699,9 @@ def supervisor():
     # Periodically recheck subscriptions: stop a lapsed user's mirror, restart a resubscribed one.
     while True:
         time.sleep(CHECK_INTERVAL)
-        for uid, user in list(load_state().items()):
+        _users = load_state()
+        refresh_entitlements(u.get("udid") for u in _users.values())
+        for uid, user in list(_users.items()):
             try:
                 ok = check_entitlement(user.get("udid")); running = uid in _mirrors
                 if ok and not running:
@@ -662,6 +718,7 @@ if __name__ == "__main__":
     threading.Thread(target=flusher, daemon=True).start()
     for _ in range(int(os.environ.get("MXRELAY_REG_WORKERS", "4"))):
         threading.Thread(target=reg_worker, daemon=True).start()
+    refresh_entitlements(u.get("udid") for u in load_state().values())
     for uid, user in list(load_state().items()):
         start_or_update(user)
     threading.Thread(target=supervisor, daemon=True).start()

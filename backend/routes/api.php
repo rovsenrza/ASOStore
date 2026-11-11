@@ -65,6 +65,7 @@ Route::post('/tg-relay/diag', [TelemetryController::class, 'tgDiag'])->middlewar
 // MAX and VK notification relays → subscription check (shared-secret, see MxRelayController). Note: the
 // sibling /v1/mx-relay/register is an nginx exact-match proxy to the relay, not a Laravel route.
 Route::post('/mx-relay/entitlement', [MxRelayController::class, 'entitlement'])->middleware('throttle:relay')->name('api.mx-relay.entitlement');
+Route::post('/mx-relay/entitlements', [MxRelayController::class, 'entitlements'])->middleware('throttle:relay')->name('api.mx-relay.entitlements');
 
 // Import chunks from the app's iOS background upload session; X-Upload-Token (per upload) is the credential.
 Route::put('/import-uploads/{upload}/chunks/{number}', [ImportController::class, 'chunkWithToken'])->whereNumber('number')->name('api.imports.chunk-token');

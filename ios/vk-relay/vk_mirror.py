@@ -52,7 +52,7 @@ ENT_429_TTL = int(os.environ.get("VKRELAY_ENTITLEMENT_429_TTL", "1800"))
 ENT_MAX_PER_MIN = int(os.environ.get("VKRELAY_ENTITLEMENT_MAX_PER_MIN", "20"))
 _ent_budget = []
 _ent_budget_lock = threading.Lock()
-CHECK_INTERVAL = int(os.environ.get("VKRELAY_CHECK_INTERVAL", "600"))
+CHECK_INTERVAL = int(os.environ.get("VKRELAY_CHECK_INTERVAL", "300"))
 _entitlement_cache = {}  # udid -> (active, checked_at)
 
 _lock = threading.Lock()
@@ -136,6 +136,38 @@ def check_entitlement(udid):
     if not _ent_budget_ok():
         _entitlement_cache[udid] = (active, now, 30)
         return active
+
+
+# Bulk refresh: one backend call answers every UDID the relay holds. One-at-a-time checks under
+# ENT_MAX_PER_MIN starved: after a restart most users were never asked and kept the fail-open
+# default, so lapsed customers got notifications (and calls) for days. A verdict from the bulk call
+# lives until the next pass plus slack, so the per-user path is only used for brand-new registers.
+ENT_BULK_URL = ENT_URL.rstrip("/") + "s"  # .../mx-relay/entitlement -> .../mx-relay/entitlements
+ENT_BULK_TTL = max(ENT_TTL, CHECK_INTERVAL * 3)
+
+def refresh_entitlements(udids):
+    import urllib.request as _ur
+    udids = sorted({u for u in udids if u})
+    if not udids:
+        return True
+    try:
+        req = _ur.Request(ENT_BULK_URL, data=json.dumps({"udids": udids}).encode(),
+            headers={"Content-Type": "application/json", "Accept": "application/json", "X-MX-Relay-Secret": ENT_SECRET}, method="POST")
+        with _ur.urlopen(req, timeout=30) as r:
+            results = json.loads(r.read()).get("results") or {}
+    except Exception as e:
+        # Keep the last known verdicts (fail open only for users never seen), retry next pass.
+        print(f"[entitle] bulk refresh failed: {e}", flush=True)
+        return False
+    now = time.time(); denied = 0
+    for u in udids:
+        v = results.get(u)
+        if v is None:
+            continue
+        ok = bool(v.get("active")); denied += (not ok)
+        _entitlement_cache[u] = (ok, now, ENT_BULK_TTL)
+    print(f"[entitle] bulk refresh: {len(udids)} udids, {denied} not entitled", flush=True)
+    return True
     ttl = ENT_TTL
     try:
         req = Request(ENT_URL, data=json.dumps({"udid": udid}).encode(),
@@ -988,7 +1020,9 @@ class Handler(BaseHTTPRequestHandler):
 def supervisor():
     while True:
         time.sleep(CHECK_INTERVAL)
-        for uid, user in load_state().items():
+        _users = load_state()
+        refresh_entitlements(u.get("udid") for u in _users.values())
+        for uid, user in _users.items():
             try:
                 ok = check_entitlement(user.get("udid")); running = uid in _mirrors
                 if ok and not running:
@@ -1003,6 +1037,7 @@ def supervisor():
 
 
 if __name__ == "__main__":
+    refresh_entitlements(u.get("udid") for u in load_state().values())
     for uid, user in load_state().items():
         start_or_update(user)
     threading.Thread(target=supervisor, daemon=True).start()

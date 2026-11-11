@@ -106,3 +106,21 @@ it('lets the relays re-check many users a minute without hitting the telemetry t
             ->assertOk();
     }
 });
+
+it('answers every UDID of the relay in one call, keyed as sent', function () {
+    $active = makeDevice($this->udid);
+    grantSubscription($active->user);
+    $lapsed = makeDevice('00008030-001A2B3C4D5E6F70');
+    grantSubscription($lapsed->user, '-1 minute');
+    $unknown = '00008110-000000000000AAAA';
+
+    $this->withHeader('X-MX-Relay-Secret', 'topsecret')
+        ->postJson('/api/v1/mx-relay/entitlements', ['udids' => [strtolower($this->udid), '00008030-001A2B3C4D5E6F70', $unknown]])
+        ->assertOk()
+        ->assertJsonPath('results.'.strtolower($this->udid).'.active', true)
+        ->assertJsonPath('results.00008030-001A2B3C4D5E6F70.active', false)
+        ->assertJsonPath('results.00008030-001A2B3C4D5E6F70.reason', 'NO_SUBSCRIPTION')
+        ->assertJsonPath("results.{$unknown}.reason", 'UNKNOWN_DEVICE');
+
+    $this->flushHeaders()->postJson('/api/v1/mx-relay/entitlements', ['udids' => [$this->udid]])->assertNotFound();
+});
