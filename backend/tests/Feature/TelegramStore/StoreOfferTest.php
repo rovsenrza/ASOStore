@@ -44,3 +44,22 @@ it('still lists the plans when no bot is configured', function () {
         ->assertJsonPath('data.telegram.news_url', null);
     expect(OpenApiContract::errors($response->getContent(), 'StoreOfferResponse'))->toBe([]);
 });
+
+it('gives a signed-in account a one-time bot link that carries the account', function () {
+    config(['telegram_store.bot_username' => 'RuAppStoreBot']);
+    $user = userWithRoles(App\Enums\RoleSlug::Customer);
+    Laravel\Sanctum\Sanctum::actingAs($user);
+
+    $url = $this->postJson('/api/v1/store/telegram-link')->assertOk()->json('data.url');
+    expect($url)->toStartWith('https://t.me/RuAppStoreBot?start=acc_');
+
+    $customer = App\Models\TelegramStoreCustomer::create(['telegram_user_id' => 42, 'chat_id' => 42, 'referral_code' => 'abcd1234']);
+    $linker = app(App\Services\TelegramStore\AccountLinker::class);
+    $token = substr($url, strrpos($url, 'acc_') + 4);
+    expect($linker->consumeSiteToken($customer, $token)?->id)->toBe($user->id)
+        ->and($linker->consumeSiteToken($customer, $token))->toBeNull()
+        ->and(app(App\Services\TelegramStore\RenewalAccounts::class)->for($customer)->pluck('id')->all())->toBe([$user->id]);
+
+    $this->app['auth']->forgetGuards();
+    $this->postJson('/api/v1/store/telegram-link')->assertUnauthorized();
+});

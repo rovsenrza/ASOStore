@@ -2,8 +2,10 @@
 
 namespace App\Services\TelegramStore;
 
+use App\Enums\ActivationCodeStatus;
 use App\Enums\RoleSlug;
 use App\Models\ActivationCode;
+use App\Models\Subscription;
 use App\Models\TelegramStoreCustomer;
 use App\Models\TelegramStoreOrder;
 use App\Models\User;
@@ -316,6 +318,39 @@ class OrderService
     public function codeWasRedeemed(TelegramStoreOrder $order): bool
     {
         return ActivationCode::query()->where('note', self::codeNote($order))->whereNotNull('redeemed_by')->exists();
+    }
+
+    /**
+     * Paid orders of the customer whose code nobody has redeemed: bought, then left unused,
+     * usually by someone who meant to extend an account. Newest first.
+     *
+     * @return Collection<int, TelegramStoreOrder>
+     */
+    public function unusedCodes(TelegramStoreCustomer $customer): Collection
+    {
+        $orders = TelegramStoreOrder::query()
+            ->where('customer_id', $customer->id)
+            ->where('status', TelegramStoreOrder::PAID)
+            ->whereNotNull('activation_code')
+            ->latest('id')->limit(20)->get();
+        if ($orders->isEmpty()) {
+            return $orders;
+        }
+        $usable = ActivationCode::query()
+            ->whereIn('note', $orders->map(fn (TelegramStoreOrder $order) => self::codeNote($order)))
+            ->get()
+            ->filter(fn (ActivationCode $code) => $code->effectiveStatus() === ActivationCodeStatus::Issued)
+            ->pluck('note')->flip();
+
+        return $orders->filter(fn (TelegramStoreOrder $order) => $usable->has(self::codeNote($order)))->values();
+    }
+
+    /** Puts a paid order's unused code on the account: the days are added to its current term. */
+    public function applyCode(TelegramStoreOrder $order, User $account): Subscription
+    {
+        $code = $this->activationCode($order) ?? throw new RuntimeException('The order has no code.');
+
+        return $this->codes->redeem($account, $code);
     }
 
     public function activationCode(TelegramStoreOrder $order): ?string

@@ -102,11 +102,17 @@ it('links the privacy policy and the user agreement wherever support is offered'
     expect($urls())->toContain('https://store.example/privacy.html', 'https://store.example/terms.html');
 
     ($this->text)(BUYER_ID, '/start buy_month6');
+    ($this->press)(BUYER_ID, 'pln:month6');
     expect($urls())->toContain('https://store.example/privacy.html', 'https://store.example/terms.html');
 });
 
 it('opens the order for a plan chosen on the website', function () {
+    // The plan is kept, but the buyer first says whether this is a new iPhone or an extension.
     ($this->text)(BUYER_ID, '/start buy_month6');
+    expect(TelegramStoreOrder::count())->toBe(0)
+        ->and(($this->sentTo)(BUYER_ID)->last())->toContain('6 месяцев')->toContain('уже установлен на вашем iPhone')
+        ->and(($this->buttons)(BUYER_ID))->toContain('pln:month6', 'lnk:month6');
+    ($this->press)(BUYER_ID, 'pln:month6');
     $order = TelegramStoreOrder::sole();
     expect($order->plan_key)->toBe('month6')
         ->and($order->status)->toBe('PENDING')
@@ -118,11 +124,12 @@ it('opens the order for a plan chosen on the website', function () {
     ($this->text)(BUYER_ID, '/start buy_month99');
     expect(($this->buttons)(BUYER_ID))->toContain('plan:month12');
     ($this->text)(BUYER_ID, '/start buy');
-    expect(($this->buttons)(BUYER_ID))->toContain('plan:month1')
+    expect(($this->buttons)(BUYER_ID))->toContain('buynew', 'renew')
         ->and(TelegramStoreOrder::count())->toBe(1);
 
     // A tester can pay it like any other order.
     ($this->text)(TESTER_ID, '/start buy_month1');
+    ($this->press)(TESTER_ID, 'pln:month1');
     $tester = TelegramStoreOrder::query()->where('telegram_user_id', TESTER_ID)->sole();
     ($this->press)(TESTER_ID, 'pay:card:'.$tester->public_id);
     ($this->press)(TESTER_ID, 'mockpay:'.$tester->public_id);
@@ -150,7 +157,11 @@ it('binds a referral from the start link and tells the referrer', function () {
 });
 
 it('offers the new plans with savings', function () {
+    // A buyer the bot knows no account of is asked first: new iPhone, or an extension?
     ($this->text)(BUYER_ID, '/buy');
+    expect(($this->sentTo)(BUYER_ID)->last())->toContain('уже установлен на вашем iPhone')
+        ->and(($this->buttons)(BUYER_ID))->toContain('buynew', 'renew');
+    ($this->press)(BUYER_ID, 'buynew');
 
     $labels = collect(($this->lastKeyboard)(BUYER_ID))->flatten(1)->pluck('text')->all();
     expect($labels[0])->toBe('1 месяц — 590₽')
@@ -164,7 +175,7 @@ it('lets a tester complete a mock order end to end with a real code and referral
     ($this->text)(ADMIN_ID, '/start');
     ($this->text)(TESTER_ID, '/start ref_'.customer(ADMIN_ID)->referral_code);
 
-    ($this->press)(TESTER_ID, 'plan:month12');
+    ($this->press)(TESTER_ID, 'pln:month12');
     $order = TelegramStoreOrder::sole();
     expect($order->price_rub)->toBe(2360)->and($order->status)->toBe('PENDING')
         ->and(($this->buttons)(TESTER_ID))->toContain('pay:card:'.$order->public_id, 'pay:sbp:'.$order->public_id);
@@ -193,7 +204,7 @@ it('lets a tester complete a mock order end to end with a real code and referral
 
 it('keeps mock payments away from regular customers', function () {
     ($this->text)(BUYER_ID, '/start');
-    ($this->press)(BUYER_ID, 'plan:month1');
+    ($this->press)(BUYER_ID, 'pln:month1');
     $order = TelegramStoreOrder::sole();
 
     expect(($this->sentTo)(BUYER_ID)->last())->toContain('скоро будет доступна')
@@ -210,7 +221,7 @@ it('pays a whole order from the balance without a referral bonus', function () {
     ($this->text)(BUYER_ID, '/start ref_'.customer(ADMIN_ID)->referral_code);
     giveBalance(BUYER_ID, 1000);
 
-    ($this->press)(BUYER_ID, 'plan:month1');
+    ($this->press)(BUYER_ID, 'pln:month1');
     $order = TelegramStoreOrder::sole();
     expect(($this->buttons)(BUYER_ID))->toContain('bal:'.$order->public_id);
 
@@ -227,7 +238,7 @@ it('pays a whole order from the balance without a referral bonus', function () {
 it('holds part of the balance on an order and returns it on cancel', function () {
     ($this->text)(BUYER_ID, '/start');
     giveBalance(BUYER_ID, 300);
-    ($this->press)(BUYER_ID, 'plan:month6');
+    ($this->press)(BUYER_ID, 'pln:month6');
     $order = TelegramStoreOrder::sole();
 
     ($this->press)(BUYER_ID, 'bal:'.$order->public_id);
@@ -241,8 +252,8 @@ it('holds part of the balance on an order and returns it on cancel', function ()
 
 it('replaces an older unpaid order when a new one is opened', function () {
     ($this->text)(BUYER_ID, '/start');
-    ($this->press)(BUYER_ID, 'plan:month1');
-    ($this->press)(BUYER_ID, 'plan:month6');
+    ($this->press)(BUYER_ID, 'pln:month1');
+    ($this->press)(BUYER_ID, 'pln:month6');
 
     expect(TelegramStoreOrder::query()->orderBy('id')->pluck('status')->all())->toBe(['CANCELLED', 'PENDING']);
 });
@@ -250,7 +261,7 @@ it('replaces an older unpaid order when a new one is opened', function () {
 it('expires unpaid orders, refunds held balance and invites the customer back', function () {
     ($this->text)(BUYER_ID, '/start');
     giveBalance(BUYER_ID, 100);
-    ($this->press)(BUYER_ID, 'plan:month6');
+    ($this->press)(BUYER_ID, 'pln:month6');
     $order = TelegramStoreOrder::sole();
     ($this->press)(BUYER_ID, 'bal:'.$order->public_id);
 
@@ -267,7 +278,7 @@ describe('manual payment mode', function () {
 
     it('sends the buyer to the payment link and lets an admin confirm after the window', function () {
         ($this->text)(BUYER_ID, '/start');
-        ($this->press)(BUYER_ID, 'plan:month1');
+        ($this->press)(BUYER_ID, 'pln:month1');
         $order = TelegramStoreOrder::sole();
         expect(($this->buttons)(BUYER_ID))->toContain('pay:card:'.$order->public_id)->not->toContain('pay:sbp:'.$order->public_id);
 
@@ -296,13 +307,13 @@ describe('manual payment mode', function () {
 
     it('confirms with /paid and rejects with a refund', function () {
         ($this->text)(BUYER_ID, '/start');
-        ($this->press)(BUYER_ID, 'plan:month1');
+        ($this->press)(BUYER_ID, 'pln:month1');
         $first = TelegramStoreOrder::sole();
         ($this->text)(ADMIN_ID, '/paid '.$first->reference());
         expect($first->refresh()->status)->toBe('PAID');
 
         giveBalance(BUYER_ID, 200);
-        ($this->press)(BUYER_ID, 'plan:month6');
+        ($this->press)(BUYER_ID, 'pln:month6');
         $second = TelegramStoreOrder::query()->where('status', 'PENDING')->sole();
         ($this->press)(BUYER_ID, 'bal:'.$second->public_id);
         ($this->press)(BUYER_ID, 'paid:'.$second->public_id);
@@ -316,7 +327,7 @@ describe('manual payment mode', function () {
 
 it('ignores admin actions from other users', function () {
     ($this->text)(BUYER_ID, '/start');
-    ($this->press)(BUYER_ID, 'plan:month1');
+    ($this->press)(BUYER_ID, 'pln:month1');
     $order = TelegramStoreOrder::sole();
 
     ($this->text)(BUYER_ID, '/paid '.$order->reference());
@@ -335,7 +346,7 @@ it('lets admins change prices and the referral share', function () {
     ($this->press)(ADMIN_ID, 'adm:ref');
     ($this->text)(ADMIN_ID, '20');
 
-    ($this->press)(BUYER_ID, 'plan:month1');
+    ($this->press)(BUYER_ID, 'pln:month1');
     expect(TelegramStoreOrder::sole()->price_rub)->toBe(490)
         ->and(($this->sentTo)(ADMIN_ID)->implode("\n"))->toContain('Нужна цена')->toContain('Реферальный бонус: 20%');
 });
@@ -353,7 +364,7 @@ it('lets admins adjust a balance and tells the customer about a gift', function 
 });
 
 it('reports sales without counting mock payments', function () {
-    ($this->press)(TESTER_ID, 'plan:month1');
+    ($this->press)(TESTER_ID, 'pln:month1');
     ($this->press)(TESTER_ID, 'mockpay:'.TelegramStoreOrder::sole()->public_id);
     ($this->press)(ADMIN_ID, 'adm:stats:7');
 
@@ -459,7 +470,7 @@ describe('promo codes', function () {
         ($this->promo)('BLOG20 20%');
         ($this->text)(ADMIN_ID, '/start');
         ($this->text)(TESTER_ID, '/start ref_'.customer(ADMIN_ID)->referral_code);
-        ($this->press)(TESTER_ID, 'plan:month12');
+        ($this->press)(TESTER_ID, 'pln:month12');
         $order = TelegramStoreOrder::sole();
 
         ($this->typeCode)(TESTER_ID, $order, 'blog20');
@@ -470,22 +481,22 @@ describe('promo codes', function () {
         expect($order->refresh()->status)->toBe('PAID')->and($order->referral_bonus_rub)->toBe(283);
 
         // Once per customer.
-        ($this->press)(TESTER_ID, 'plan:month1');
+        ($this->press)(TESTER_ID, 'pln:month1');
         ($this->typeCode)(TESTER_ID, TelegramStoreOrder::query()->where('status', 'PENDING')->sole(), 'BLOG20');
         expect(($this->sentTo)(TESTER_ID)->last())->toContain('уже использовали');
     });
 
     it('enforces the plan, the limit, expiry and the on/off switch', function () {
         $promo = ($this->promo)('ONLY12 10% тариф 12 лимит 1');
-        ($this->press)(BUYER_ID, 'plan:month1');
+        ($this->press)(BUYER_ID, 'pln:month1');
         $order = TelegramStoreOrder::sole();
 
         ($this->typeCode)(BUYER_ID, $order, 'ONLY12');
         expect(($this->sentTo)(BUYER_ID)->last())->toContain('только для тарифа: 12 месяцев');
 
-        ($this->press)(TESTER_ID, 'plan:month12');
+        ($this->press)(TESTER_ID, 'pln:month12');
         ($this->typeCode)(TESTER_ID, TelegramStoreOrder::query()->where('telegram_user_id', TESTER_ID)->sole(), 'ONLY12');
-        ($this->press)(BUYER_ID, 'plan:month12');
+        ($this->press)(BUYER_ID, 'pln:month12');
         ($this->typeCode)(BUYER_ID, TelegramStoreOrder::query()->where('telegram_user_id', BUYER_ID)->where('status', 'PENDING')->sole(), 'ONLY12');
         expect(($this->sentTo)(BUYER_ID)->last())->toContain('Лимит активаций');
 
@@ -499,7 +510,7 @@ describe('promo codes', function () {
         ($this->promo)('MINUS300 300₽');
         ($this->text)(BUYER_ID, '/start');
         giveBalance(BUYER_ID, 100);
-        ($this->press)(BUYER_ID, 'plan:month6');
+        ($this->press)(BUYER_ID, 'pln:month6');
         $order = TelegramStoreOrder::sole();
         ($this->press)(BUYER_ID, 'bal:'.$order->public_id);
 
@@ -513,7 +524,7 @@ describe('promo codes', function () {
 
     it('completes an order a full discount covers', function () {
         ($this->promo)('FREE 100%');
-        ($this->press)(BUYER_ID, 'plan:month1');
+        ($this->press)(BUYER_ID, 'pln:month1');
         $order = TelegramStoreOrder::sole();
         ($this->typeCode)(BUYER_ID, $order, 'FREE');
 
@@ -526,7 +537,7 @@ describe('promo codes', function () {
         ($this->text)(BUYER_ID, '/start promo_LINK15');
         expect(($this->sentTo)(BUYER_ID)->last())->toContain('Промокод <b>LINK15</b> активирован');
 
-        ($this->press)(BUYER_ID, 'plan:month1');
+        ($this->press)(BUYER_ID, 'pln:month1');
         expect(TelegramStoreOrder::sole()->discount_rub)->toBe(88);
     });
 });
@@ -558,6 +569,10 @@ it('asks to subscribe to the channel before an order can be opened, then continu
 
     $statuses[BUYER_ID] = 'member';
     ($this->press)(BUYER_ID, 'sub:plan:month6');
+    // Subscribed: the plan is remembered, and the buyer says whether it is a new iPhone.
+    expect(TelegramStoreOrder::count())->toBe(0)
+        ->and(($this->buttons)(BUYER_ID))->toContain('pln:month6', 'lnk:month6');
+    ($this->press)(BUYER_ID, 'pln:month6');
     expect(TelegramStoreOrder::sole()->plan_key)->toBe('month6');
 });
 
@@ -566,13 +581,13 @@ it('keeps the plans and payment buttons behind the channel, but not the menu or 
 
     ($this->press)(BUYER_ID, 'buy');
     expect(($this->buttons)(BUYER_ID))->toBe(['sub:buy', 'menu']);
-    ($this->press)(BUYER_ID, 'plan:month1');
+    ($this->press)(BUYER_ID, 'pln:month1');
     expect(TelegramStoreOrder::count())->toBe(0);
     ($this->press)(BUYER_ID, 'profile');
     expect(($this->sentTo)(BUYER_ID)->last())->not->toContain('Подпишитесь');
 
     // A subscriber goes straight through.
-    ($this->press)(TESTER_ID, 'plan:month1');
+    ($this->press)(TESTER_ID, 'pln:month1');
     expect(TelegramStoreOrder::sole()->customer_id)->toBe(customer(TESTER_ID)->id);
 });
 
@@ -584,7 +599,7 @@ it('stops buying as soon as a customer leaves the channel', function () {
     expect(($this->sentTo)(BUYER_ID)->last())->not->toContain('Подпишитесь');
 
     $statuses[BUYER_ID] = 'left';
-    ($this->press)(BUYER_ID, 'plan:month1');
+    ($this->press)(BUYER_ID, 'pln:month1');
     expect(TelegramStoreOrder::count())->toBe(0)
         ->and(($this->sentTo)(BUYER_ID)->last())->toContain('Подпишитесь на наш канал');
 });
@@ -594,6 +609,7 @@ it('lets customers buy when Telegram cannot say whether they are subscribed', fu
     $this->channel = fn () => Http::response(['ok' => false, 'error_code' => 400, 'description' => 'Bad Request: member list is inaccessible'], 400);
 
     ($this->text)(BUYER_ID, '/start buy_month1');
+    ($this->press)(BUYER_ID, 'pln:month1');
     expect(TelegramStoreOrder::sole()->plan_key)->toBe('month1');
 });
 
@@ -706,7 +722,8 @@ describe('renewal', function () {
         ($this->text)(BUYER_ID, '/start');
         ($this->press)(BUYER_ID, 'renew');
 
-        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Не нашли аккаунт');
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Найти аккаунт по почте')
+            ->and(($this->buttons)(BUYER_ID))->toContain('link', 'buyext');
     });
 
     it('still delivers the code when extending the account fails', function () {
@@ -726,12 +743,179 @@ describe('renewal', function () {
     });
 });
 
+describe('extending without a mix-up', function () {
+    /** A paid bot order of BUYER_ID whose code nobody redeemed. */
+    function unusedOrder(object $test, string $plan = 'month1'): TelegramStoreOrder
+    {
+        ($test->text)(BUYER_ID, '/start');
+        $orders = app(OrderService::class);
+
+        return $orders->complete($orders->create(customer(BUYER_ID), $plan), 'mock')->order;
+    }
+
+    it('finds the account by a code sent to its email, then extends it without a code', function () {
+        Illuminate\Support\Facades\Notification::fake();
+        $account = userWithRoles(RoleSlug::Customer);
+        ($this->text)(BUYER_ID, '/start');
+
+        ($this->press)(BUYER_ID, 'renew');
+        ($this->press)(BUYER_ID, 'link');
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('эл. почту');
+
+        ($this->text)(BUYER_ID, 'not-an-email');
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('не похоже на адрес');
+
+        ($this->text)(BUYER_ID, strtoupper($account->email));
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Проверьте почту');
+        $code = null;
+        Illuminate\Support\Facades\Notification::assertSentTo($account, App\Notifications\TelegramLinkCodeNotification::class, function ($mail) use (&$code) {
+            $code = $mail->code;
+
+            return true;
+        });
+
+        ($this->text)(BUYER_ID, '000000');
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Код не подошёл');
+
+        ($this->text)(BUYER_ID, $code);
+        expect(($this->buttons)(BUYER_ID))->toContain('rnw:month1:'.$account->public_id);
+
+        // The account is remembered: «Купить» now offers to extend it.
+        ($this->press)(BUYER_ID, 'buy');
+        expect(($this->buttons)(BUYER_ID))->toContain('rna:'.$account->public_id);
+
+        ($this->press)(BUYER_ID, 'rnw:month1:'.$account->public_id);
+        $completed = app(OrderService::class)->complete(TelegramStoreOrder::query()->latest('id')->first(), 'mock');
+        expect($completed->renewed)->not->toBeNull()
+            ->and($account->activeSubscription()->first()->ends_at->diffInDays(now()->addDays(30), true))->toBeLessThan(1);
+    });
+
+    it('answers the same for an email without an account and sends nothing', function () {
+        Illuminate\Support\Facades\Notification::fake();
+        ($this->text)(BUYER_ID, '/start');
+        ($this->press)(BUYER_ID, 'link');
+        ($this->text)(BUYER_ID, 'nobody@example.com');
+
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Проверьте почту');
+        Illuminate\Support\Facades\Notification::assertNothingSent();
+
+        ($this->text)(BUYER_ID, '123456');
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Код не подошёл')
+            ->and(App\Models\TelegramAccountLink::query()->count())->toBe(0);
+    });
+
+    it('stops sending codes after three requests in half an hour', function () {
+        Illuminate\Support\Facades\Notification::fake();
+        $account = userWithRoles(RoleSlug::Customer);
+        ($this->text)(BUYER_ID, '/start');
+        foreach (range(1, 3) as $attempt) {
+            ($this->press)(BUYER_ID, 'link');
+            ($this->text)(BUYER_ID, $account->email);
+        }
+        ($this->press)(BUYER_ID, 'link');
+        ($this->text)(BUYER_ID, $account->email);
+
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Слишком много попыток');
+        Illuminate\Support\Facades\Notification::assertSentToTimes($account, App\Notifications\TelegramLinkCodeNotification::class, 3);
+    });
+
+    it('links the account from the signed-in site and goes straight to its terms', function () {
+        $account = userWithRoles(RoleSlug::Customer);
+        $token = app(App\Services\TelegramStore\AccountLinker::class)->siteToken($account);
+
+        ($this->text)(BUYER_ID, '/start acc_'.$token);
+        expect(($this->buttons)(BUYER_ID))->toContain('rnw:month1:'.$account->public_id);
+
+        // The token works once.
+        ($this->text)(TESTER_ID, '/start acc_'.$token);
+        expect(($this->buttons)(TESTER_ID))->not->toContain('rnw:month1:'.$account->public_id);
+    });
+
+    it('puts an unused paid code on the account in one tap instead of selling another', function () {
+        $account = userWithRoles(RoleSlug::Customer);
+        redeemedOnAccount($this, $account);
+        $before = $account->activeSubscription()->first()->ends_at;
+        $order = unusedOrder($this, 'month3');
+
+        // Asking to buy or extend again shows the code that is already paid for.
+        ($this->press)(BUYER_ID, 'renew');
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('ещё не использован')
+            ->and(($this->buttons)(BUYER_ID))->toContain("apl:{$order->public_id}:{$account->public_id}", 'renew2', 'code:'.$order->public_id);
+
+        ($this->press)(BUYER_ID, "apl:{$order->public_id}:{$account->public_id}");
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Подписка продлена')
+            ->and($account->activeSubscription()->first()->ends_at->equalTo($before->copy()->addDays(90)))->toBeTrue()
+            ->and(app(OrderService::class)->unusedCodes(customer(BUYER_ID)))->toHaveCount(0);
+
+        // A second tap cannot add the days twice, and the plans are back.
+        ($this->press)(BUYER_ID, "apl:{$order->public_id}:{$account->public_id}");
+        expect($account->activeSubscription()->first()->ends_at->equalTo($before->copy()->addDays(90)))->toBeTrue();
+        ($this->press)(BUYER_ID, 'renew');
+        expect(($this->buttons)(BUYER_ID))->toContain('rnw:month1:'.$account->public_id);
+    });
+
+    it('never puts a code on an account the buyer has not proved is theirs', function () {
+        $order = unusedOrder($this);
+        $stranger = userWithRoles(RoleSlug::Customer);
+
+        ($this->press)(BUYER_ID, "apl:{$order->public_id}:{$stranger->public_id}");
+
+        expect($stranger->subscriptions()->count())->toBe(0)
+            ->and(app(OrderService::class)->unusedCodes(customer(BUYER_ID)))->toHaveCount(1);
+    });
+
+    it('finds the account by email and then applies the unused code', function () {
+        Illuminate\Support\Facades\Notification::fake();
+        $account = userWithRoles(RoleSlug::Customer);
+        $order = unusedOrder($this);
+
+        // The paid-code message itself offers the shortcut.
+        $paid = app(App\Services\TelegramStore\Bot\CustomerScreens::class)->paid($order, 'CODE');
+        expect(collect($paid->rows)->flatten(1)->pluck('callback_data')->filter()->all())->toContain('use:'.$order->public_id);
+        ($this->press)(BUYER_ID, 'use:'.$order->public_id);
+        expect(($this->buttons)(BUYER_ID))->toContain('lnu:'.$order->public_id, 'code:'.$order->public_id);
+        ($this->press)(BUYER_ID, 'lnu:'.$order->public_id);
+        ($this->text)(BUYER_ID, $account->email);
+        $code = null;
+        Illuminate\Support\Facades\Notification::assertSentTo($account, App\Notifications\TelegramLinkCodeNotification::class, function ($mail) use (&$code) {
+            $code = $mail->code;
+
+            return true;
+        });
+        ($this->text)(BUYER_ID, $code);
+
+        expect(($this->sentTo)(BUYER_ID)->last())->toContain('Подписка продлена')
+            ->and($account->activeSubscription()->first())->not->toBeNull();
+    });
+
+    it('reminds a buyer once about a code left unused for a day', function () {
+        $order = unusedOrder($this);
+        $fresh = fn () => $this->artisan('store:remind-unused-codes')->assertSuccessful();
+
+        // Paid a moment ago: too early.
+        $fresh();
+        expect($order->refresh()->code_reminded_at)->toBeNull();
+
+        $order->forceFill(['paid_at' => now()->subHours(30)])->save();
+        $this->artisan('store:remind-unused-codes --dry-run')->assertSuccessful();
+        expect($order->refresh()->code_reminded_at)->toBeNull();
+
+        $fresh();
+        expect($order->refresh()->code_reminded_at)->not->toBeNull()
+            ->and(($this->sentTo)(BUYER_ID)->last())->toContain('Напоминаем')->toContain('#'.$order->shortReference());
+
+        $sent = ($this->sentTo)(BUYER_ID)->count();
+        $fresh();
+        expect(($this->sentTo)(BUYER_ID)->count())->toBe($sent);
+    });
+});
+
 describe('registration method', function () {
     beforeEach(fn () => config(['instant_certs.enabled' => true, 'instant_certs.api_key' => 'test-key', 'instant_certs.sell' => true]));
 
     it('lets a new buyer pick the instant certificate and switches the account on redemption', function () {
         ($this->text)(BUYER_ID, '/start');
-        ($this->press)(BUYER_ID, 'plan:month1');
+        ($this->press)(BUYER_ID, 'pln:month1');
         expect(($this->sentTo)(BUYER_ID)->last())->toContain('как зарегистрировать iPhone')
             ->and(($this->buttons)(BUYER_ID))->toContain('reg:ins:month1', 'reg:std:month1')
             ->and(TelegramStoreOrder::query()->count())->toBe(0);
@@ -770,21 +954,21 @@ describe('registration method', function () {
         ($this->press)(BUYER_ID, 'renew');
         expect(($this->buttons)(BUYER_ID))->toContain('buyext');
         ($this->press)(BUYER_ID, 'buyext');
-        expect(($this->buttons)(BUYER_ID))->toContain('ext:month1')->not->toContain('plan:month1');
+        expect(($this->buttons)(BUYER_ID))->toContain('ext:month1')->not->toContain('pln:month1');
 
         ($this->press)(BUYER_ID, 'ext:month1');
         expect(($this->sentTo)(BUYER_ID)->last())->not->toContain('как зарегистрировать iPhone')
             ->and(TelegramStoreOrder::query()->latest('id')->first()->plan)->toBe(OrderService::STANDARD);
 
         // The registration question itself offers the way out to a buyer who is extending.
-        ($this->press)(BUYER_ID, 'plan:month1');
+        ($this->press)(BUYER_ID, 'pln:month1');
         expect(($this->buttons)(BUYER_ID))->toContain('ext:month1');
     });
 
     it('asks nothing when instant registration is not on sale', function () {
         config(['instant_certs.sell' => false]);
         ($this->text)(BUYER_ID, '/start');
-        ($this->press)(BUYER_ID, 'plan:month1');
+        ($this->press)(BUYER_ID, 'pln:month1');
         expect(TelegramStoreOrder::query()->latest('id')->first()->plan)->toBe('standard');
 
         ($this->press)(BUYER_ID, 'reg:ins:month1');

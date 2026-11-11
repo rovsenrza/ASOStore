@@ -10,6 +10,7 @@ use App\Models\User;
 use App\Services\TelegramStore\OrderService;
 use App\Services\TelegramStore\Payments\Checkout;
 use App\Services\TelegramStore\Payments\GatewayResolver;
+use App\Services\TelegramStore\AccountLinker;
 use App\Services\TelegramStore\RenewalAccounts;
 use App\Services\TelegramStore\StoreSettings;
 use App\Services\TelegramStore\TelegramApi;
@@ -114,13 +115,14 @@ class CustomerScreens
     {
         $accounts = $this->accounts->for($customer);
         if ($accounts->isEmpty()) {
-            return $this->plans($customer, $promo);
+            return $this->intent($promo);
         }
 
         $rows = $accounts->map(fn (User $user) => [Screen::button(
             '🔄 Продлить '.RenewalAccounts::maskEmail($user->email).' · '.$this->accessLine($user),
             'rna:'.$user->public_id,
         )])->all();
+        $rows[] = [Screen::button('🔗 Продлить другой аккаунт', 'link')];
         $rows[] = [Screen::button('➕ Новый аккаунт — для другого iPhone', 'buynew')];
         $rows[] = [Screen::button('‹ Меню', 'menu')];
 
@@ -129,6 +131,75 @@ class CustomerScreens
             ."<b>🛍 Покупка подписки</b>\n\n"
             .($accounts->count() === 1 ? 'У вас уже есть аккаунт' : 'У вас уже есть аккаунты').". Чтобы продлить подписку на том же iPhone, выберите аккаунт — новые дни прибавятся к текущему сроку, код вводить не нужно.\n\n"
             .'Новый аккаунт нужен только для <b>другого</b> iPhone.',
+            $rows,
+        );
+    }
+
+    /**
+     * The first question to a buyer the bot knows no account of: is this a new iPhone, or an
+     * extension? A new purchase gives a code and a registration; an extension only adds days to
+     * the account that iPhone already has, so the two must not look alike. With a plan picked
+     * already (a link from the site), the answers carry it.
+     */
+    public function intent(?TelegramStorePromoCode $promo = null, ?string $planKey = null): Screen
+    {
+        $plan = $planKey !== null ? ($this->settings->plans()[$planKey] ?? null) : null;
+
+        return new Screen(
+            ($promo ? "🎟 Промокод <b>{$promo->code}</b> активирован: <b>{$promo->label()}</b> — скидка применится к заказу.\n\n" : '')
+            .($plan ? '<b>'.e($this->planLabel($planKey, $plan))."</b>\n\n" : "<b>🛍 Подписка {$this->brandHtml()}</b>\n\n")
+            ."Ru App Store уже установлен на вашем iPhone?\n\n"
+            ."🆕 <b>Нет, покупаю впервые</b> — пришлём код и поможем зарегистрировать iPhone.\n\n"
+            .'🔄 <b>Да, продлеваю</b> — дни прибавятся к вашему аккаунту. iPhone заново регистрировать не нужно, код вводить не нужно.',
+            [
+                [Screen::button('🆕 Нет, покупаю впервые', $plan ? 'pln:'.$planKey : 'buynew')],
+                [Screen::button('🔄 Да, продлеваю подписку', $plan ? 'lnk:'.$planKey : 'renew')],
+                [Screen::button('‹ Меню', 'menu')],
+            ],
+        );
+    }
+
+    /** Asks for the account's email, then for the code sent to it. */
+    public function linkPrompt(string $step, ?string $error = null): Screen
+    {
+        $text = $step === 'email'
+            ? "<b>🔗 Найдём ваш аккаунт</b>\n\nНапишите сообщением <b>эл. почту</b>, с которой вы входите в Ru App Store. Мы отправим на неё код подтверждения — так продлить аккаунт сможете только вы."
+            : "<b>📩 Проверьте почту</b>\n\nЕсли аккаунт с такой почтой есть, мы отправили на неё письмо с кодом из <b>6 цифр</b> (посмотрите и в «Спам»). Напишите код сообщением — он действует ".AccountLinker::CODE_MINUTES.' минут.';
+        $rows = [];
+        if ($step === 'code') {
+            $rows[] = [Screen::button('✏️ Указать другую почту', 'link')];
+        }
+        $rows[] = [Screen::link('🌐 Продлить на сайте', $this->renewUrl())];
+        if ($support = $this->supportRow()) {
+            $rows[] = $support;
+        }
+        $rows[] = [Screen::button('‹ Отмена', 'menu')];
+
+        return new Screen(($error ? '⚠️ '.e($error)."\n\n" : '').$text, $rows);
+    }
+
+    /**
+     * A paid code nobody redeemed. One tap puts it on the buyer's account; the other answers
+     * cover an account the bot does not know yet and a code meant for a new iPhone.
+     */
+    public function unusedCode(TelegramStoreCustomer $customer, TelegramStoreOrder $order, ?string $continue = null, bool $reminder = false): Screen
+    {
+        $rows = $this->accounts->for($customer)->map(fn (User $user) => [Screen::button(
+            '✅ Зачислить на '.RenewalAccounts::maskEmail($user->email).' · '.$this->accessLine($user),
+            "apl:{$order->public_id}:{$user->public_id}",
+        )])->all();
+        $rows[] = [Screen::button($rows === [] ? '🔄 Зачислить на мой аккаунт' : '🔗 Зачислить на другой аккаунт', 'lnu:'.$order->public_id)];
+        $rows[] = [Screen::button('🆕 Это для нового iPhone — показать код', 'code:'.$order->public_id)];
+        if ($continue !== null) {
+            $rows[] = [Screen::button('🛍 Купить ещё одну подписку', $continue)];
+        }
+        $rows[] = [Screen::button('‹ Меню', 'menu')];
+
+        return new Screen(
+            ($reminder ? '👋 Напоминаем: ' : '🎟 ')."<b>у вас есть оплаченный код, который ещё не использован</b>\n\n"
+            ."Заказ #{$order->shortReference()} · {$this->planName($order)} ({$order->duration_days} дней) · оплачен ".Format::date($order->paid_at)."\n\n"
+            ."Если Ru App Store уже стоит на вашем iPhone, просто зачислите эти дни на свой аккаунт: они прибавятся к текущему сроку, код вводить не нужно.\n\n"
+            .'Если код куплен для нового iPhone — откройте его и активируйте на сайте.',
             $rows,
         );
     }
@@ -185,7 +256,9 @@ class CustomerScreens
         $rows[] = [Screen::button($extend ? '‹ Назад' : '‹ Меню', $extend ? 'renew' : ($newAccount ? 'buy' : 'menu'))];
 
         $text = ($promo ? "🎟 Промокод <b>{$promo->code}</b> активирован: <b>{$promo->label()}</b> — скидка применится к заказу.\n\n" : '')
-            .($newAccount ? "➕ <b>Новый аккаунт</b> — подписка для другого iPhone. Код придёт в этот чат.\n\n" : '')
+            .($newAccount ? ($this->accounts->for($customer)->isEmpty()
+                ? "🆕 <b>Новая подписка</b> — для iPhone, на котором ещё нет Ru App Store. Код придёт в этот чат.\n\n"
+                : "➕ <b>Новый аккаунт</b> — подписка для другого iPhone. Код придёт в этот чат.\n\n") : '')
             .($extend ? "🔄 <b>Продление</b> — код придёт в этот чат. Введите его в своём аккаунте на странице активации: новые дни прибавятся к сроку, iPhone заново регистрировать не нужно.\n\n" : '')
             ."<b>💎 Подписка {$this->brandHtml()}</b>\n\n"
             ."✅ Каталог приложений и игр для iPhone\n"
@@ -219,8 +292,9 @@ class CustomerScreens
 
         if ($accounts->isEmpty()) {
             $rows = [
-                [Screen::button('🛍 Выбрать тариф', 'buyext')],
+                [Screen::button('🔗 Найти мой аккаунт по эл. почте', 'link')],
                 [Screen::link('🌐 Продлить на сайте', $this->renewUrl())],
+                [Screen::button('🎟 Получить код в чат', 'buyext')],
             ];
             if ($support = $this->supportRow()) {
                 $rows[] = $support;
@@ -229,9 +303,10 @@ class CustomerScreens
 
             return new Screen(
                 "<b>🔄 Продление подписки</b>\n\n"
-                ."Не нашли аккаунт, на котором активирован код из этого Telegram. Продлить можно двумя способами:\n\n"
-                ."<b>На сайте</b> — войдите в свой аккаунт, выберите срок и оплатите. Подписка продлится сама.\n\n"
-                .'<b>Здесь</b> — выберите тариф и оплатите, код придёт в этот чат. Введите его в своём аккаунте на странице активации: новые дни прибавятся к сроку.',
+                ."Продление прибавляет дни к вашему аккаунту. iPhone остаётся зарегистрированным, заново ждать регистрацию не нужно.\n\n"
+                ."<b>Найти аккаунт по почте</b> — подтвердите эл. почту аккаунта кодом из письма, выберите срок и оплатите. Подписка продлится сама.\n\n"
+                ."<b>На сайте</b> — войдите в аккаунт, выберите срок и оплатите.\n\n"
+                .'<b>Код в чат</b> — если нет доступа к почте: оплатите здесь и введите код в своём аккаунте на странице активации.',
                 $rows,
             );
         }
@@ -240,6 +315,7 @@ class CustomerScreens
             RenewalAccounts::maskEmail($user->email).' · '.$this->accessLine($user),
             'rna:'.$user->public_id,
         )])->all();
+        $rows[] = [Screen::button('🔗 Другой аккаунт', 'link')];
         $rows[] = [Screen::button('‹ Меню', 'menu')];
 
         return new Screen("<b>🔄 Продление подписки</b>\n\nКакой аккаунт продлить? 👇", $rows);
@@ -265,7 +341,7 @@ class CustomerScreens
         return new Screen($text."\n\nВыберите срок 👇", $rows);
     }
 
-    public function renewed(TelegramStoreOrder $order, Subscription $subscription): Screen
+    public function renewed(TelegramStoreOrder $order, Subscription $subscription, ?User $account = null): Screen
     {
         $rows = [[Screen::link('👤 Мой аккаунт', rtrim((string) config('app.url'), '/').'/account.html')]];
         $rows[] = [Screen::button('‹ Меню', 'menu')];
@@ -274,7 +350,7 @@ class CustomerScreens
         return new Screen(
             "✅ <b>Подписка продлена!</b>\n\n"
             ."Заказ #{$order->shortReference()} · {$this->planName($order)}\n"
-            .'Аккаунт: '.e(RenewalAccounts::maskEmail($order->renewUser?->email))."\n"
+            .'Аккаунт: '.e(RenewalAccounts::maskEmail(($account ?? $order->renewUser)?->email))."\n"
             ."Подписка действует {$until}.\n\n"
             .'Код вводить не нужно, откройте Ru App Store на iPhone.',
             $rows,
@@ -398,7 +474,10 @@ class CustomerScreens
     public function paid(TelegramStoreOrder $order, string $code): Screen
     {
         $percent = $this->settings->referralPercent();
-        $rows = [[Screen::link('🔓 Активировать подписку', $this->activationUrl())]];
+        $rows = [
+            [Screen::link('🔓 Активировать подписку', $this->activationUrl())],
+            [Screen::button('🔄 У меня уже есть аккаунт — зачислить на него', 'use:'.$order->public_id)],
+        ];
         if ($percent > 0) {
             $rows[] = [Screen::button("👥 Пригласить друга — {$percent}% вам", 'invite')];
         }
@@ -410,7 +489,7 @@ class CustomerScreens
             ."🔑 Ваш код активации:\n<code>{$code}</code>\n<i>Нажмите на код, чтобы скопировать.</i>\n\n"
             ."Откройте страницу активации и введите код — подписка на {$order->duration_days} дней включится сразу.\n\n"
             .(OrderService::isInstant($order) ? "⚡ Регистрация мгновенная: после установки профиля на iPhone приложения можно ставить сразу.\n\n" : '')
-            ."⚠️ Уже есть аккаунт на этом iPhone? Не регистрируйте новый: войдите в свой аккаунт и введите код там — дни прибавятся к текущему сроку.\n\n"
+            ."⚠️ Уже есть аккаунт на этом iPhone? Не регистрируйте новый: нажмите «У меня уже есть аккаунт» — дни прибавятся к текущему сроку, код вводить не придётся.\n\n"
             .'Код всегда можно найти в «Профиль → Мои заказы».',
             $rows,
         );
@@ -532,6 +611,7 @@ class CustomerScreens
             ."Подписка: {$this->planName($order)} ({$order->duration_days} дней). Введите код на странице активации.",
             [
                 [Screen::link('🔓 Активировать подписку', $this->activationUrl())],
+                ...($this->orders->codeWasRedeemed($order) ? [] : [[Screen::button('🔄 Зачислить на мой аккаунт', 'use:'.$order->public_id)]]),
                 [Screen::button('‹ Мои заказы', 'orders')],
             ],
         );

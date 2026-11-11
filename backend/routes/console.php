@@ -69,6 +69,10 @@ if ($deltaMigratePerRun > 0) {
     ])->everyTenMinutes()->withoutOverlapping(30);
 }
 
+// A paid code nobody redeemed for a day: one reminder in the bot, with a one-tap way to use it.
+// 07:00–17:00 UTC is 10:00–20:00 in Moscow.
+Schedule::command('store:remind-unused-codes')->hourly()->between('7:00', '17:00')->withoutOverlapping();
+
 // Platega payments whose callback never arrived (store orders on the website and in the bot).
 Schedule::call(fn () => app(PlategaPayments::class)->reconcile())
     ->name('platega:reconcile')->everyTwoMinutes()->withoutOverlapping();

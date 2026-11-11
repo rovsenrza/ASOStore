@@ -9,6 +9,7 @@ use App\Http\Responses\ApiResponse;
 use App\Models\Subscription;
 use App\Models\TelegramStoreOrder;
 use App\Services\InstantCerts\InstantCertificates;
+use App\Services\TelegramStore\AccountLinker;
 use App\Services\TelegramStore\Bot\Format;
 use App\Services\TelegramStore\OrderService;
 use App\Services\TelegramStore\Payments\PlategaClient;
@@ -33,6 +34,24 @@ class StoreOrderController extends Controller
         private readonly OrderService $orders,
         private readonly PlategaPayments $payments,
     ) {}
+
+    /**
+     * «Продлить в Telegram» for the signed-in account: a one-time bot link that tells the bot
+     * which account to extend, so it never has to sell a code for it.
+     */
+    public function telegramLink(Request $request, TelegramApi $telegram, AccountLinker $linker): JsonResponse
+    {
+        try {
+            $bot = $telegram->botUsername();
+        } catch (\Throwable) {
+            $bot = null;
+        }
+        if (! is_string($bot) || preg_match('/^\w{5,32}$/', $bot) !== 1) {
+            throw new ApiException(ErrorCode::ServiceUnavailable, 'Бот сейчас недоступен. Продлите подписку на сайте.');
+        }
+
+        return ApiResponse::ok(['url' => "https://t.me/{$bot}?start=acc_".$linker->siteToken($request->user())]);
+    }
 
     /** Opens an order for the signed-in account and returns Platega's payment page. */
     public function checkout(Request $request, StoreSettings $settings): JsonResponse

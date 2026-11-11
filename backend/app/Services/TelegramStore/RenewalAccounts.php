@@ -3,6 +3,7 @@
 namespace App\Services\TelegramStore;
 
 use App\Models\ActivationCode;
+use App\Models\TelegramAccountLink;
 use App\Models\TelegramStoreCustomer;
 use App\Models\TelegramStoreOrder;
 use App\Models\User;
@@ -11,8 +12,8 @@ use Illuminate\Support\Collection;
 
 /**
  * The site accounts a Telegram customer can extend from the bot: those on which a code they
- * bought was redeemed, or which they renewed before. Nothing typed by the customer is looked up,
- * so the bot cannot be used to find out whether an email has an account.
+ * bought was redeemed, and those they proved are theirs (AccountLinker). An email typed into the
+ * chat is never answered with whether it has an account.
  */
 class RenewalAccounts
 {
@@ -21,22 +22,25 @@ class RenewalAccounts
     /** @return Collection<int, User> most recently used first */
     public function for(TelegramStoreCustomer $customer): Collection
     {
+        // Accounts the customer proved are theirs (email code, or a link from the signed-in site).
+        $ids = TelegramAccountLink::query()->where('customer_id', $customer->id)->latest('updated_at')->pluck('user_id');
+
+        // Accounts on which a code they bought here was redeemed.
         $orders = TelegramStoreOrder::query()
             ->where('customer_id', $customer->id)
             ->where('status', TelegramStoreOrder::PAID)
             ->get(['public_id']);
-        if ($orders->isEmpty()) {
+        if ($orders->isNotEmpty()) {
+            $ids = $ids->concat(ActivationCode::query()
+                ->whereIn('note', $orders->map(fn (TelegramStoreOrder $order) => OrderService::codeNote($order)))
+                ->whereNotNull('redeemed_by')
+                ->latest('redeemed_at')
+                ->pluck('redeemed_by'));
+        }
+        $ids = $ids->unique()->take(self::LIMIT)->values();
+        if ($ids->isEmpty()) {
             return collect();
         }
-
-        $ids = ActivationCode::query()
-            ->whereIn('note', $orders->map(fn (TelegramStoreOrder $order) => OrderService::codeNote($order)))
-            ->whereNotNull('redeemed_by')
-            ->latest('redeemed_at')
-            ->pluck('redeemed_by')
-            ->unique()
-            ->take(self::LIMIT)
-            ->values();
         $users = User::query()->with('activeSubscription')->whereKey($ids)->get()->keyBy('id');
 
         return $ids->map(fn ($id) => $users->get($id))->filter()->values();

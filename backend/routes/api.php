@@ -103,6 +103,11 @@ Route::middleware(['auth:sanctum', 'active', 'verified.web'])->group(function ()
         ->middleware(['throttle:store-checkout', 'idempotent'])
         ->name('api.store.checkout');
 
+    // «Продлить в Telegram»: a one-time bot link carrying this account.
+    Route::post('/store/telegram-link', [StoreOrderController::class, 'telegramLink'])
+        ->middleware('throttle:store-checkout')
+        ->name('api.store.telegram-link');
+
     Route::get('/devices/me', [DeviceController::class, 'index'])->name('api.devices.me');
     Route::get('/devices/enrollment-profile', [EnrollmentController::class, 'profile'])
         ->middleware('throttle:enrollment')

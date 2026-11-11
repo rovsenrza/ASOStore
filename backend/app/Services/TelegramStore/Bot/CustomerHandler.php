@@ -5,6 +5,7 @@ namespace App\Services\TelegramStore\Bot;
 use App\Models\TelegramStoreOrder;
 use App\Models\User;
 use App\Services\InstantCerts\InstantCertificates;
+use App\Services\TelegramStore\AccountLinker;
 use App\Services\TelegramStore\CompletedOrder;
 use App\Services\TelegramStore\OrderService;
 use App\Services\TelegramStore\Payments\GatewayResolver;
@@ -32,6 +33,7 @@ class CustomerHandler
         private readonly RenewalAccounts $accounts,
         private readonly StoreSettings $settings,
         private readonly InstantCertificates $instant,
+        private readonly AccountLinker $linker,
     ) {}
 
     /** @return array<string, mixed>|null */
@@ -59,6 +61,25 @@ class CustomerHandler
     {
         $command = strtolower(preg_replace('/@\w+$/', '', strtok($text, ' ') ?: ''));
         $lower = mb_strtolower($text);
+
+        // An email or its confirmation code typed while finding the customer's account.
+        $linking = Cache::get($this->linkStateKey($ctx));
+        if (is_array($linking) && $text !== '' && ! str_starts_with($text, '/')) {
+            $this->enterLink($ctx, $linking, $text);
+
+            return;
+        }
+        Cache::forget($this->linkStateKey($ctx));
+
+        // «Продлить в Telegram» on the signed-in site: the link carries the account.
+        if ($command === '/start' && preg_match('/^\/start\s+acc_([A-Za-z0-9]{20,48})$/', $text, $match)) {
+            $account = $this->linker->consumeSiteToken($ctx->customer, $match[1]);
+            if (! $this->held($ctx, 'renew')) {
+                $account ? $this->afterLink($ctx, $account, []) : $this->messenger->show($ctx, $this->screens->renew($ctx->customer));
+            }
+
+            return;
+        }
 
         // A promo code typed after pressing «Ввести промокод».
         $awaiting = Cache::get($this->promoStateKey($ctx));
@@ -88,14 +109,14 @@ class CustomerHandler
         // «Продлить» from a link on the site or in a post, the command, or plain words.
         $wantsRenewal = $command === '/renew' || ($command === '/start' && preg_match('/^\/start\s+renew$/', $text) === 1) || str_contains($lower, 'продл');
         if ($wantsRenewal) {
-            if (! $this->held($ctx, 'renew')) {
+            if (! $this->held($ctx, 'renew') && ! $this->offeredUnusedCode($ctx, 'renew2')) {
                 $this->messenger->show($ctx, $this->screens->renew($ctx->customer));
             }
 
             return;
         }
 
-        if (($command === '/buy' || str_contains($lower, 'купить')) && $this->held($ctx, 'buy')) {
+        if (($command === '/buy' || str_contains($lower, 'купить')) && ($this->held($ctx, 'buy') || $this->offeredUnusedCode($ctx, 'buy2'))) {
             return;
         }
 
@@ -134,7 +155,7 @@ class CustomerHandler
         }
 
         // Buying and paying need a subscription to the news channel.
-        if (preg_match('/^(buy|buynew|buyext|renew|plan:\w+|pln:\w+|ext:\w+|reg:\w+:\w+|rna:\w+|rnw:\w+:\w+|(order|bal|pay:\w+|paid|mockpay|promo):[0-9a-z]{26})$/', $data) === 1 && $this->held($ctx, $data)) {
+        if (preg_match('/^(buy|buy2|buynew|buyext|renew|renew2|plan:\w+|pln:\w+|ext:\w+|lnk:\w+|reg:\w+:\w+|rna:\w+|rnw:\w+:\w+|(order|bal|pay:\w+|paid|mockpay|promo):[0-9a-z]{26})$/', $data) === 1 && $this->held($ctx, $data)) {
             return;
         }
 
@@ -146,7 +167,16 @@ class CustomerHandler
             return;
         }
 
+        // Buying or extending again while a paid code lies unused: offer to use that code first.
+        if (in_array($data, ['buy', 'renew'], true) && $this->offeredUnusedCode($ctx, $data.'2')) {
+            return;
+        }
+        if (in_array($data, ['buy2', 'renew2'], true)) {
+            $data = rtrim($data, '2');
+        }
+
         if (in_array($data, ['menu', 'buy', 'buynew', 'buyext', 'renew', 'profile', 'orders', 'invite', 'help'], true)) {
+            Cache::forget($this->linkStateKey($ctx));
             $this->messenger->answer($ctx);
             $this->messenger->show($ctx, match ($data) {
                 'menu' => $this->screens->menu(),
@@ -159,6 +189,46 @@ class CustomerHandler
                 'invite' => $this->screens->invite($customer),
                 'help' => $this->screens->help(),
             });
+
+            return;
+        }
+
+        // Find the customer's account by its email: `link` (then the terms), `lnk:<plan>` (then an
+        // order for that plan), `lnu:<order>` (then that order's unused code goes onto the account).
+        if (preg_match('/^(link|lnk:(\w+)|lnu:'.self::ORDER.')$/', $data, $match)) {
+            $then = match (true) {
+                isset($match[3]) => ['order' => $match[3]],
+                isset($match[2]) && $match[2] !== '' => ['plan' => $match[2]],
+                default => [],
+            };
+            $this->messenger->answer($ctx);
+            Cache::put($this->linkStateKey($ctx), ['step' => 'email', 'then' => $then], now()->addMinutes(30));
+            $this->messenger->show($ctx, $this->screens->linkPrompt('email'));
+
+            return;
+        }
+
+        // A paid, unused code: what to do with it.
+        if (preg_match('/^use:'.self::ORDER.'$/', $data, $match)) {
+            $order = $this->unusedOrder($ctx, $match[1]);
+            $this->messenger->answer($ctx, $order ? null : 'Этот код уже использован.', ! $order);
+            $this->messenger->show($ctx, $order ? $this->screens->unusedCode($customer, $order) : $this->screens->orders($customer));
+
+            return;
+        }
+
+        // …onto this account.
+        if (preg_match('/^apl:'.self::ORDER.':(\w+)$/', $data, $match)) {
+            $order = $this->unusedOrder($ctx, $match[1]);
+            $account = $this->accounts->find($customer, $match[2]);
+            if (! $order || ! $account) {
+                $this->messenger->answer($ctx, $order ? 'Аккаунт не найден.' : 'Этот код уже использован.', true);
+                $this->messenger->show($ctx, $this->screens->orders($customer));
+
+                return;
+            }
+            $this->messenger->answer($ctx);
+            $this->applyUnused($ctx, $order, $account);
 
             return;
         }
@@ -268,7 +338,13 @@ class CustomerHandler
 
             return;
         }
-        $this->askRegistration($ctx, $planKey);
+        if ($this->planMissing($planKey)) {
+            $this->askRegistration($ctx, $planKey);
+
+            return;
+        }
+        // Nobody the bot knows: first-time buyer, or someone extending an account bought elsewhere?
+        $this->messenger->show($ctx, $this->screens->intent($this->promos->remembered($ctx->userId()), $planKey));
     }
 
     /** A new account: instant certificate or our developer teams, when both are on sale. */
@@ -355,6 +431,106 @@ class CustomerHandler
     {
         $this->messenger->show($ctx, $this->screens->paidPlaceholder($completed->order));
         $this->messenger->orderCompleted($completed);
+    }
+
+    private function linkStateKey(Context $ctx): string
+    {
+        return 'telegram_store.customer_link_state.'.$ctx->userId();
+    }
+
+    /**
+     * A message typed while finding the account: first its email, then the code from the letter.
+     *
+     * @param  array{step: string, then: array<string, string>}  $state
+     */
+    private function enterLink(Context $ctx, array $state, string $text): void
+    {
+        if ($state['step'] === 'email') {
+            $email = trim($text);
+            if (filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+                $this->messenger->show($ctx, $this->screens->linkPrompt('email', 'Это не похоже на адрес эл. почты. Напишите его ещё раз, например name@mail.ru.'));
+
+                return;
+            }
+            if (! $this->linker->requestCode($ctx->customer, $email)) {
+                $this->messenger->show($ctx, $this->screens->linkPrompt('email', 'Слишком много попыток. Подождите полчаса или продлите подписку на сайте.'));
+
+                return;
+            }
+            Cache::put($this->linkStateKey($ctx), ['step' => 'code'] + $state, now()->addMinutes(AccountLinker::CODE_MINUTES));
+            $this->messenger->show($ctx, $this->screens->linkPrompt('code'));
+
+            return;
+        }
+
+        $account = $this->linker->confirm($ctx->customer, $text);
+        if ($account === null) {
+            $this->messenger->show($ctx, $this->screens->linkPrompt('code', $this->linker->awaitsCode($ctx->customer)
+                ? 'Код не подошёл. Проверьте письмо и напишите 6 цифр ещё раз.'
+                : 'Код не подошёл или устарел. Нажмите «Указать другую почту» и запросите новый.'));
+
+            return;
+        }
+        Cache::forget($this->linkStateKey($ctx));
+        $this->afterLink($ctx, $account, $state['then'] ?? []);
+    }
+
+    /**
+     * The account is known now: carry on with what the customer came for.
+     *
+     * @param  array<string, string>  $then
+     */
+    private function afterLink(Context $ctx, User $account, array $then): void
+    {
+        if (isset($then['order']) && ($order = $this->unusedOrder($ctx, $then['order']))) {
+            $this->applyUnused($ctx, $order, $account);
+
+            return;
+        }
+        if (isset($then['plan']) && ! $this->planMissing($then['plan'])) {
+            $this->startOrder($ctx, $then['plan'], $account);
+
+            return;
+        }
+        // A code already paid for goes first: no need to pay again.
+        if ($order = $this->orders->unusedCodes($ctx->customer)->first()) {
+            $this->messenger->show($ctx, $this->screens->unusedCode($ctx->customer, $order, 'rna:'.$account->public_id));
+
+            return;
+        }
+        $this->messenger->show($ctx, $this->screens->renewPlans($ctx->customer, $account));
+    }
+
+    /** The customer's own paid order whose code is still unused, or null. */
+    private function unusedOrder(Context $ctx, string $reference): ?TelegramStoreOrder
+    {
+        return $this->orders->unusedCodes($ctx->customer)->first(fn (TelegramStoreOrder $order) => $order->public_id === strtolower($reference));
+    }
+
+    private function applyUnused(Context $ctx, TelegramStoreOrder $order, User $account): void
+    {
+        try {
+            $subscription = $this->orders->applyCode($order, $account);
+        } catch (\Throwable $exception) {
+            report($exception);
+            $this->messenger->show($ctx, $this->screens->code($order));
+
+            return;
+        }
+        $this->messenger->show($ctx, $this->screens->renewed($order, $subscription, $account));
+    }
+
+    /** Shows the unused-code screen instead of selling another subscription; false when there is none. */
+    private function offeredUnusedCode(Context $ctx, string $continue): bool
+    {
+        $order = $this->orders->unusedCodes($ctx->customer)->first();
+        if ($order === null) {
+            return false;
+        }
+        $this->messenger->answer($ctx);
+        $this->messenger->show($ctx, $this->screens->unusedCode($ctx->customer, $order, $continue));
+
+        return true;
     }
 
     private function promoStateKey(Context $ctx): string

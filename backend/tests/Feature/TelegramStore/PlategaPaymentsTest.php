@@ -290,7 +290,7 @@ describe('bot', function () {
     });
 
     it('offers Platega to every customer, and the code arrives when the payment is checked', function () {
-        ($this->press)(PLATEGA_BUYER, 'plan:month1');
+        ($this->press)(PLATEGA_BUYER, 'pln:month1');
         $order = TelegramStoreOrder::sole();
         expect(collect(($this->keyboard)(PLATEGA_BUYER))->flatten(1)->pluck('callback_data')->filter()->all())
             ->toContain("pay:online:{$order->public_id}")
@@ -319,7 +319,7 @@ describe('bot', function () {
     });
 
     it('sends the code to the chat when only the callback says the order is paid', function () {
-        ($this->press)(PLATEGA_BUYER, 'plan:month12');
+        ($this->press)(PLATEGA_BUYER, 'pln:month12');
         $order = TelegramStoreOrder::sole();
         ($this->press)(PLATEGA_BUYER, "pay:online:{$order->public_id}");
         $order->refresh();
@@ -361,7 +361,7 @@ describe('separate checkouts for the bot and the website', function () {
 
     it('pays bot orders through the bot checkout and sends the payer back to the bot', function () {
         app(UpdateRouter::class)->handle(['update_id' => 3, 'callback_query' => [
-            'id' => 'cb', 'data' => 'plan:month1', 'from' => ['id' => PLATEGA_BUYER, 'first_name' => 'B', 'username' => 'buyer'],
+            'id' => 'cb', 'data' => 'pln:month1', 'from' => ['id' => PLATEGA_BUYER, 'first_name' => 'B', 'username' => 'buyer'],
             'message' => ['message_id' => 50, 'chat' => ['id' => PLATEGA_BUYER, 'type' => 'private'], 'text' => 'screen'],
         ]]);
         $order = TelegramStoreOrder::sole();

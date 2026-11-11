@@ -35,7 +35,7 @@ class StoreOfferController extends Controller
             ->values()
             ->all();
 
-        return ApiResponse::ok([
+        $response = ApiResponse::ok([
             'currency' => 'RUB',
             'online_payment' => PlategaClient::configured(),
             // A new account may pick the instant certificate (same price) instead of our teams.
@@ -50,7 +50,10 @@ class StoreOfferController extends Controller
                 'news_url' => config('telegram_store.news_url') ?: null,
                 'support_url' => config('telegram_store.support_url') ?: null,
             ],
-        ])->setPublic()->setMaxAge(300);
+        ]);
+
+        // The answer depends on who is signed in (instant_registration), so only a guest's may be shared.
+        return request()->user('sanctum') === null ? $response->setPublic()->setMaxAge(300) : $response->setPrivate()->setMaxAge(0);
     }
 
     /** Configured, or learned from Telegram once a day; the page keeps its own link without it. */
