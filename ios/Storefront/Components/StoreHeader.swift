@@ -32,7 +32,7 @@ struct StoreHeader: View {
                 .accessibilityLabel("Аккаунт")
                 .accessibilityIdentifier("account-button")
             }
-            .font(.system(size: 17, weight: .semibold))
+            .font(.body.weight(.semibold))
             .foregroundStyle(.primary)
             .padding(.horizontal, 6)
             .glassCapsule()

@@ -33,6 +33,12 @@ nonisolated struct APIEnvironment: Equatable, Sendable {
         return url
     }
 
+    /// «Купить доступ» on the portal: tariffs, purchase and renewal (front/src/buy.html;
+    /// pricing.html redirects there).
+    var renewURL: URL? {
+        (try? portalURL)?.appending(path: "buy.html")
+    }
+
     static func current(
         bundle: Bundle = .main,
         arguments: [String] = ProcessInfo.processInfo.arguments

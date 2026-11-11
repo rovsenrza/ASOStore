@@ -3,6 +3,9 @@ import SwiftUI
 /// The install CTA. Rendered only from backend state — the catalog's
 /// `installState`, or the live installation the coordinator is following;
 /// tapping never changes the state locally (FULL_PLAN §11).
+///
+/// When the server says this user or device cannot install yet, the button says what to
+/// do about it instead of a dead «Недоступно»: «Войти», «Продлить», or an explanation on tap.
 struct AppActionButton: View {
     enum Style {
         /// Capsule for lists: brand-blue text on glass.
@@ -16,9 +19,27 @@ struct AppActionButton: View {
     let app: StoreApp
     var style: Style = .standard
     @EnvironmentObject private var installations: InstallationCoordinator
+    @EnvironmentObject private var router: AppRouter
+    @Environment(\.apiClient) private var apiClient
+    @Environment(\.openURL) private var openURL
+    @State private var showsExplanation = false
 
     private var state: InstallState {
         installations.state(for: app)
+    }
+
+    /// Why the server will not let this user or device install yet, and what to offer instead.
+    private var prompt: EligibilityPrompt? {
+        if case .notEligible(let reason) = state { EligibilityPrompt(reason: reason) } else { nil }
+    }
+
+    /// A prepare or authorize request for this app is on its way: no second tap.
+    private var isBusy: Bool {
+        installations.isBusy(app.id)
+    }
+
+    private var isEnabled: Bool {
+        !isBusy && (state.isActionable || prompt != nil)
     }
 
     var body: some View {
@@ -38,16 +59,46 @@ struct AppActionButton: View {
     // MARK: Action
 
     private var action: some View {
-        Button {
-            Task { await installations.act(on: app) }
-        } label: {
-            label
+        VStack(spacing: 8) {
+            Button(action: tap) {
+                label
+            }
+            .buttonStyle(PressableStyle(scale: style == .prominent ? 0.98 : 0.94))
+            .disabled(!isEnabled)
+            .opacity(isEnabled || isBusy ? 1 : 0.55)
+            .accessibilityLabel("\(title) \(app.name)")
+            .accessibilityValue(isBusy ? "Загрузка" : "")
+            .accessibilityHint(hint)
+            .alert(prompt?.alertTitle ?? "", isPresented: $showsExplanation) {
+                Button("Подробнее") { router.sheet = .account }
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(prompt?.explanation ?? "")
+            }
+
+            // The app page has room to say why; lists explain on tap.
+            if style == .prominent, let note {
+                Text(note)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityHidden(true)
+            }
         }
-        .buttonStyle(PressableStyle(scale: style == .prominent ? 0.98 : 0.94))
-        .disabled(!state.isActionable)
-        .opacity(state.isActionable ? 1 : 0.55)
-        .accessibilityLabel("\(title) \(app.name)")
-        .accessibilityHint(hint)
+    }
+
+    private func tap() {
+        switch prompt {
+        case .signIn?:
+            router.sheet = .account
+        case .renew?:
+            if let url = apiClient.environment.renewURL { openURL(url) }
+        case .waiting?, .blocked?:
+            showsExplanation = true
+        case nil:
+            Task { await installations.act(on: app) }
+        }
     }
 
     @ViewBuilder
@@ -55,7 +106,10 @@ struct AppActionButton: View {
         switch style {
         case .prominent:
             HStack(spacing: 8) {
-                if let symbol {
+                if isBusy {
+                    ProgressView()
+                        .tint(isProminentFilled ? .white : AppPalette.accent)
+                } else if let symbol {
                     Image(systemName: symbol)
                         .bounceSymbol(value: state == .readyToInstall)
                 }
@@ -69,6 +123,15 @@ struct AppActionButton: View {
             Text(title)
                 .font(.subheadline.weight(.bold))
                 .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .opacity(isBusy ? 0 : 1)
+                .overlay {
+                    if isBusy {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(foreground)
+                    }
+                }
                 .padding(.horizontal, 16)
                 .frame(minWidth: 88, minHeight: 34)
                 .foregroundStyle(foreground)
@@ -112,6 +175,8 @@ struct AppActionButton: View {
     private var isProminentFilled: Bool {
         switch state {
         case .get, .readyToInstall, .delivered, .updateAvailable: true
+        // Signing in and renewing are the way forward, so they look like it.
+        case .notEligible: prompt == .signIn || prompt == .renew
         default: false
         }
     }
@@ -133,6 +198,12 @@ struct AppActionButton: View {
         case .readyToInstall: "arrow.down.circle.fill"
         case .updateAvailable: "arrow.triangle.2.circlepath"
         case .failed: "arrow.clockwise"
+        case .notEligible:
+            switch prompt {
+            case .signIn?: "person.crop.circle"
+            case .waiting?: "clock"
+            default: nil
+            }
         default: nil
         }
     }
@@ -145,14 +216,23 @@ struct AppActionButton: View {
         case .updateAvailable: "Обновить"
         case .failed: "Повторить"
         case .preparing: "Подготовка"
-        case .notEligible, .unavailable: "Недоступно"
+        case .notEligible: prompt?.title ?? "Недоступно"
+        case .unavailable: "Недоступно"
+        }
+    }
+
+    /// One line under the full-width button when the app cannot be installed right now.
+    private var note: String? {
+        switch state {
+        case .notEligible: prompt?.explanation
+        case .unavailable: "Приложение сейчас недоступно для установки."
+        default: nil
         }
     }
 
     private var hint: String {
         switch state {
-        case .notEligible(reason: .unauthenticated): "Войдите в аккаунт, чтобы установить приложение."
-        case .notEligible: "Устройство пока не готово к установке."
+        case .notEligible: prompt?.explanation ?? ""
         case .unavailable: "Приложение сейчас недоступно для установки."
         case .delivered: "Приложение уже загружалось. Если его нет на экране «Домой», установите снова."
         default: ""

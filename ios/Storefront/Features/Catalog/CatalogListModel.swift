@@ -7,6 +7,8 @@ final class CatalogListModel: ObservableObject {
         var kind = CatalogKind.all
         var category: String?
         var sort = CatalogSort.featured
+        /// Поиск: only apps matching this term, in the server's order (`sort` is not sent).
+        var search: String?
     }
 
     enum More: Equatable {
@@ -40,13 +42,15 @@ final class CatalogListModel: ObservableObject {
         Task { await reload(catalog) }
     }
 
-    func reload(_ catalog: CatalogRepository) async {
+    /// - Parameter fresh: show the loading state instead of keeping the previous list on
+    ///   screen while the new one loads (a new search term: the old results are not an answer to it).
+    func reload(_ catalog: CatalogRepository, fresh: Bool = false) async {
         generation += 1
         let current = generation
-        if state.value == nil { state = .loading }
+        if fresh || state.value == nil { state = .loading }
         more = .idle
         do {
-            let result = try await catalog.list(kind: filter.kind, category: filter.category, sort: filter.sort, page: 1)
+            let result = try await catalog.list(kind: filter.kind, category: filter.category, sort: filter.sort, search: filter.search, page: 1)
             guard current == generation else { return }
             page = 1
             total = result.total
@@ -72,7 +76,7 @@ final class CatalogListModel: ObservableObject {
         let current = generation
         more = .loading
         do {
-            let result = try await catalog.list(kind: filter.kind, category: filter.category, sort: filter.sort, page: page + 1)
+            let result = try await catalog.list(kind: filter.kind, category: filter.category, sort: filter.sort, search: filter.search, page: page + 1)
             guard current == generation else { return }
             page += 1
             // Listings can shift between pages while someone publishes; never show one twice.

@@ -21,7 +21,7 @@ struct StorefrontApp: App {
     @UIApplicationDelegateAdaptor(StorefrontAppDelegate.self) private var appDelegate
     private let apiClient: APIClient
     @StateObject private var session: SessionStore
-    @StateObject private var router = AppRouter()
+    @StateObject private var router: AppRouter
     @StateObject private var installations: InstallationCoordinator
     @StateObject private var imports: ImportCenter
     private let handoff = PortalHandoff()
@@ -36,8 +36,19 @@ struct StorefrontApp: App {
         let apiClient = APIClient.configured()
         self.apiClient = apiClient
         _session = StateObject(wrappedValue: SessionStore(api: apiClient))
+        let router = AppRouter()
+        _router = StateObject(wrappedValue: router)
+        // Local notifications only (no push). Created at launch so that a tap on a
+        // «готово к установке» notification that starts the app still opens «Менеджер»;
+        // permission is asked later, when the first installation starts.
+        let notifier = SystemInstallNotifier()
+        notifier.onOpen = { [weak router] in
+            router?.sheet = nil
+            router?.selectedTab = .manager
+        }
         let installations = InstallationCoordinator(
             repository: PreparationRepository(api: apiClient),
+            notifier: notifier,
             openURL: { url in await UIApplication.shared.open(url) }
         )
         _installations = StateObject(wrappedValue: installations)

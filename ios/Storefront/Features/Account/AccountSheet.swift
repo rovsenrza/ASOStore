@@ -5,7 +5,7 @@ struct AccountSheet: View {
     @EnvironmentObject private var session: SessionStore
     @Environment(\.apiClient) private var apiClient
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
+    @AppStorage(SubscriptionExpiryNotice.dismissedAtKey) private var noticeDismissedAt = 0.0
     @State private var portalURL: URL?
 
     var body: some View {
@@ -22,6 +22,13 @@ struct AccountSheet: View {
                         Button("Повторить") { Task { await session.restore() } }
                     }
                 case .signedIn(let user):
+                    if showsExpiryBanner(user) {
+                        Section {
+                            SubscriptionExpiryBanner()
+                                .listRowInsets(EdgeInsets())
+                                .listRowBackground(Color.clear)
+                        }
+                    }
                     Section {
                         NavigationLink {
                             AccountDetailView(user: user)
@@ -31,7 +38,7 @@ struct AccountSheet: View {
                         .accessibilityIdentifier("account-details")
                     }
                     Section {
-                        NavigationLink("Подписки") { SubscriptionView(subscription: user.subscription) }
+                        NavigationLink("Подписки") { SubscriptionView(subscription: user.subscription, portalURL: portalURL) }
                     }
                 }
 
@@ -40,14 +47,7 @@ struct AccountSheet: View {
                     NavigationLink("Данные и хранилище") { DataStorageView(portalURL: portalURL) }
                 }
 
-                Section {
-                    HStack(spacing: 12) {
-                        shortcut("Уведомления", systemImage: "bell.badge")
-                        shortcut("Язык приложения", systemImage: "globe")
-                    }
-                    .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
-                }
+                NotificationPermissionRow()
 
                 if let portalURL {
                     Section("Помощь") {
@@ -87,6 +87,12 @@ struct AccountSheet: View {
         }
     }
 
+    /// Same rule as the banner itself, so the list has no empty section when it is hidden.
+    private func showsExpiryBanner(_ user: MeDTO) -> Bool {
+        let closed = noticeDismissedAt > 0 ? Date(timeIntervalSinceReferenceDate: noticeDismissedAt) : nil
+        return SubscriptionExpiryNotice(subscription: user.subscription) != nil && !SubscriptionExpiryNotice.isDismissed(at: closed)
+    }
+
     private func accountRow(_ user: MeDTO) -> some View {
         HStack(spacing: 14) {
             Text(user.name.prefix(1).uppercased())
@@ -105,22 +111,6 @@ struct AccountSheet: View {
         }
         .padding(.vertical, 6)
     }
-
-    /// Notifications and language are system settings of the app (iOS per-app language).
-    private func shortcut(_ title: String, systemImage: String) -> some View {
-        Button {
-            if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
-        } label: {
-            VStack(spacing: 6) {
-                Image(systemName: systemImage)
-                Text(title).font(.subheadline.weight(.medium))
-            }
-            .frame(maxWidth: .infinity, minHeight: 64)
-            .foregroundStyle(AppPalette.accent)
-            .background(AppPalette.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-        }
-        .buttonStyle(.plain)
-    }
 }
 
 /// Членство and Устройство.
@@ -131,6 +121,7 @@ struct AccountDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var status: LoadState<StorefrontStatusDTO> = .loading
     @State private var copied = false
+    @State private var confirmsSignOut = false
 
     var body: some View {
         List {
@@ -170,10 +161,19 @@ struct AccountDetailView: View {
 
             Section {
                 Button("Выйти", role: .destructive) {
-                    Task {
-                        await session.signOut()
-                        dismiss()
+                    confirmsSignOut = true
+                }
+                .accessibilityIdentifier("sign-out")
+                .confirmationDialog("Выйти из аккаунта?", isPresented: $confirmsSignOut, titleVisibility: .visible) {
+                    Button("Выйти", role: .destructive) {
+                        Task {
+                            await session.signOut()
+                            dismiss()
+                        }
                     }
+                    Button("Отмена", role: .cancel) {}
+                } message: {
+                    Text("Установленные приложения останутся на iPhone. Чтобы устанавливать и обновлять их, нужно будет войти снова.")
                 }
             }
         }
@@ -193,6 +193,7 @@ struct AccountDetailView: View {
 
 struct SubscriptionView: View {
     let subscription: SubscriptionDTO?
+    var portalURL: URL?
 
     var body: some View {
         List {
@@ -201,7 +202,14 @@ struct SubscriptionView: View {
                 LabeledContent("Статус", value: MembershipText.status(subscription))
                 LabeledContent("Действует до", value: MembershipText.until(subscription))
             } footer: {
-                Text("Подписка активируется кодом на сайте. Продление и тарифы — на странице «Тарифы».")
+                Text("Покупка разовая, без автопродления. Продлить доступ можно на сайте, на странице «Купить доступ».")
+            }
+            if let portalURL {
+                Section {
+                    Link(destination: portalURL.appending(path: "buy.html")) {
+                        Label(subscription == nil ? "Купить доступ" : "Продлить", systemImage: "creditcard")
+                    }
+                }
             }
         }
         .navigationTitle("Подписки")
@@ -264,10 +272,16 @@ struct DataStorageView: View {
 }
 
 enum MembershipText {
-    static func status(_ subscription: SubscriptionDTO?) -> String {
+    /// Backend `SubscriptionStatus`: ACTIVE or CANCELLED. An active one whose end date has
+    /// passed has run out; statuses newer than this build are not called «Истекла».
+    static func status(_ subscription: SubscriptionDTO?, now: Date = .now) -> String {
         guard let subscription else { return "Не активирована" }
-        if let endsAt = subscription.endsAt, endsAt < .now { return "Истекла" }
-        return subscription.status == "ACTIVE" ? "Активна" : "Истекла"
+        let hasEnded = subscription.endsAt.map { $0 < now } ?? false
+        switch subscription.status {
+        case "ACTIVE": return hasEnded ? "Истекла" : "Активна"
+        case "CANCELLED": return "Отменена"
+        default: return hasEnded ? "Истекла" : "Неактивна"
+        }
     }
 
     static func until(_ subscription: SubscriptionDTO?) -> String {

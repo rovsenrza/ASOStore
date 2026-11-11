@@ -100,6 +100,10 @@ nonisolated struct MockTransport: HTTPTransport {
             throw URLError(.fileDoesNotExist)
         }
 
+        if fixture == "auth-me", let days = Self.subscriptionDaysLeft() {
+            body = Self.endingSubscription(body, inDays: days)
+        }
+
         if fixture == "apps-list", let components = request.url.flatMap({ URLComponents(url: $0, resolvingAgainstBaseURL: false) }) {
             body = Self.filterApps(body, query: components.queryItems ?? [])
         }
@@ -114,6 +118,25 @@ nonisolated struct MockTransport: HTTPTransport {
             "error": ["code": code, "message": message, "details": [:]],
         ]
         return (try? JSONSerialization.data(withJSONObject: body)) ?? Data()
+    }
+
+    /// Launch argument `-mockSubscriptionDaysLeft <n>`: the signed-in user's subscription ends
+    /// in n days (negative: ended), for the expiry banner.
+    static func subscriptionDaysLeft(_ arguments: [String] = ProcessInfo.processInfo.arguments) -> Int? {
+        guard let index = arguments.firstIndex(of: "-mockSubscriptionDaysLeft"), arguments.indices.contains(index + 1) else { return nil }
+        return Int(arguments[index + 1])
+    }
+
+    static func endingSubscription(_ body: Data, inDays days: Int, now: Date = .now) -> Data {
+        guard var envelope = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              var user = envelope["data"] as? [String: Any],
+              var subscription = user["subscription"] as? [String: Any] else { return body }
+        // Noon-ish offset keeps "in n days" stable whatever the time of day.
+        let end = now.addingTimeInterval(TimeInterval(days) * 86_400 + (days >= 0 ? 3_600 : -3_600))
+        subscription["ends_at"] = ISO8601DateFormatter().string(from: end)
+        user["subscription"] = subscription
+        envelope["data"] = user
+        return (try? JSONSerialization.data(withJSONObject: envelope)) ?? body
     }
 
     /// Applies ?q=, ?category= and ?kind= to the apps-list fixture, like the API does.

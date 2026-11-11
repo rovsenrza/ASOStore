@@ -16,7 +16,7 @@ nonisolated struct InstallationDTO: Codable, Hashable, Sendable, Identifiable {
     }
 
     let id: String
-    let status: String
+    let status: InstallationStatus
     let statusReason: String?
     let app: AppRef
     let version: String?
@@ -27,17 +27,17 @@ nonisolated struct InstallationDTO: Codable, Hashable, Sendable, Identifiable {
 
     /// Still moving on the server: worth polling and resuming after relaunch.
     var isActive: Bool {
-        ["PREPARING", "READY_TO_INSTALL", "AUTHORIZED", "MANIFEST_FETCHED"].contains(status)
+        status.isActive
     }
 
     /// The CTA state this installation implies (same mapping as the backend resolver).
     var installState: InstallState {
         switch status {
-        case "PREPARING": .preparing(progress: preparation.progress)
-        case "READY_TO_INSTALL", "AUTHORIZED", "MANIFEST_FETCHED": .readyToInstall
-        case "DELIVERED": .delivered
-        case "FAILED", "EXPIRED": .failed(reason: statusReason.map(ErrorCode.init(rawValue:)))
-        default: .unavailable
+        case .preparing: .preparing(progress: preparation.progress)
+        case .readyToInstall, .authorized, .manifestFetched: .readyToInstall
+        case .delivered: .delivered
+        case .failed, .expired: .failed(reason: statusReason.map(ErrorCode.init(rawValue:)))
+        case .unknown: .unavailable
         }
     }
 }

@@ -12,6 +12,7 @@ struct StateContainerView<Value: Sendable, Content: View>: View {
     let state: LoadState<Value>
     let retry: () -> Void
     var skeleton: Skeleton?
+    @EnvironmentObject private var router: AppRouter
     @ViewBuilder let content: (Value) -> Content
 
     var body: some View {
@@ -34,9 +35,9 @@ struct StateContainerView<Value: Sendable, Content: View>: View {
         case .offline:
             unavailable("Нет подключения", "wifi.slash", "Проверьте интернет и повторите попытку.")
         case .unauthorized:
-            unavailable("Нужен вход", "person.crop.circle.badge.exclamationmark", "Войдите в аккаунт, чтобы продолжить.")
+            unavailable("Нужен вход", "person.crop.circle.badge.exclamationmark", "Войдите в аккаунт, чтобы продолжить.", offersSignIn: true)
         case .expired:
-            unavailable("Сеанс истёк", "clock.badge.exclamationmark", "Войдите снова, чтобы продолжить.")
+            unavailable("Сеанс истёк", "clock.badge.exclamationmark", "Войдите снова, чтобы продолжить.", offersSignIn: true)
         case .failed(let error):
             unavailable(
                 "Что-то пошло не так",
@@ -46,10 +47,21 @@ struct StateContainerView<Value: Sendable, Content: View>: View {
         }
     }
 
-    private func unavailable(_ title: String, _ systemImage: String, _ description: String) -> some View {
+    /// Signed-out states lead with «Войти» (the account sheet); retrying stays possible.
+    private func unavailable(_ title: String, _ systemImage: String, _ description: String, offersSignIn: Bool = false) -> some View {
         UnavailableView(title: title, systemImage: systemImage, description: description) {
-            Button("Повторить", action: retry)
-                .buttonStyle(.borderedProminent)
+            if offersSignIn {
+                VStack(spacing: 10) {
+                    Button("Войти") { router.sheet = .account }
+                        .buttonStyle(.borderedProminent)
+                        .accessibilityIdentifier("state-sign-in")
+                    Button("Повторить", action: retry)
+                        .buttonStyle(.bordered)
+                }
+            } else {
+                Button("Повторить", action: retry)
+                    .buttonStyle(.borderedProminent)
+            }
         }
     }
 }

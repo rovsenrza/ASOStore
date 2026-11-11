@@ -26,6 +26,7 @@ struct ManagerView: View {
     @Environment(\.apiClient) private var api
     @EnvironmentObject private var installations: InstallationCoordinator
     @EnvironmentObject private var imports: ImportCenter
+    @EnvironmentObject private var session: SessionStore
     @State private var state: LoadState<[InstallationDTO]> = .loading
     @State private var filter: Filter = .all
     @Namespace private var filterSelection
@@ -53,8 +54,13 @@ struct ManagerView: View {
             .background(AppPalette.canvas)
             .navigationBarHiddenCompat()
             .swipeBackEnabled()
-            .refreshable { await load() }
-            .task { await load() }
+            .refreshable {
+                await load()
+                // Also look again at installations polling gave up on.
+                await installations.resume()
+            }
+            // The library belongs to the account: reload when someone signs in or out.
+            .task(id: session.user?.id) { await load() }
             .storeDestinations()
             .alert("Импорт", isPresented: Binding(
                 get: { imports.message != nil },
@@ -113,7 +119,7 @@ struct ManagerView: View {
             switch filter {
             case .all: true
             case .active: item.isActive
-            case .delivered: item.status == "DELIVERED"
+            case .delivered: item.status == .delivered
             }
         }
 
@@ -184,9 +190,9 @@ private struct ManagerRow: View {
             .frame(width: 62, height: 62)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(alignment: .bottomTrailing) {
-                if installation.status == "DELIVERED" {
+                if installation.status == .delivered {
                     Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 20))
+                        .font(.title3)
                         .foregroundStyle(.white, AppPalette.success)
                         .offset(x: 5, y: 5)
                 }
@@ -227,20 +233,20 @@ private struct ManagerRow: View {
 
     private var statusText: String {
         switch installation.status {
-        case "PREPARING": "Подготовка · \(InstallStage(progress: installation.preparation.progress).title)"
-        case "READY_TO_INSTALL", "AUTHORIZED": "Готово к установке"
-        case "MANIFEST_FETCHED": "Загружается"
-        case "DELIVERED": "Загружено — проверьте экран «Домой»"
-        case "EXPIRED": "Ссылка устарела"
-        default: "Не удалось подготовить"
+        case .preparing: "Подготовка · \(InstallStage(progress: installation.preparation.progress).title)"
+        case .readyToInstall, .authorized: "Готово к установке"
+        case .manifestFetched: "Загружается"
+        case .delivered: "Загружено — проверьте экран «Домой»"
+        case .expired: "Ссылка устарела"
+        case .failed, .unknown: "Не удалось подготовить"
         }
     }
 
     private var statusColor: Color {
         switch installation.status {
-        case "DELIVERED", "READY_TO_INSTALL": AppPalette.success
-        case "FAILED", "EXPIRED": .red
-        default: .secondary
+        case .delivered, .readyToInstall: AppPalette.success
+        case .failed, .expired: .red
+        case .preparing, .authorized, .manifestFetched, .unknown: .secondary
         }
     }
 }

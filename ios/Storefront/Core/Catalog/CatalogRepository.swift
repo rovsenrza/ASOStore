@@ -50,13 +50,18 @@ nonisolated struct CatalogRepository: Sendable {
         return feed
     }
 
-    /// The whole catalog, a page at a time, narrowed by kind and category (Каталог, «Все приложения»).
-    func list(kind: CatalogKind, category: String?, sort: CatalogSort, page: Int, perPage: Int = 30) async throws -> CatalogPage {
+    /// The whole catalog, a page at a time, narrowed by kind and category (Каталог, «Все приложения»),
+    /// or by a search term (Поиск). A search is left in the server's own order, as before paging.
+    func list(kind: CatalogKind, category: String?, sort: CatalogSort, search: String? = nil, page: Int, perPage: Int = 30) async throws -> CatalogPage {
         var query = [
-            URLQueryItem(name: "sort", value: sort.rawValue),
             URLQueryItem(name: "page", value: String(page)),
             URLQueryItem(name: "per_page", value: String(perPage)),
         ]
+        if let search {
+            query.append(URLQueryItem(name: "q", value: search))
+        } else {
+            query.append(URLQueryItem(name: "sort", value: sort.rawValue))
+        }
         if let kind = kind.queryValue {
             query.append(URLQueryItem(name: "kind", value: kind))
         }
@@ -74,10 +79,6 @@ nonisolated struct CatalogRepository: Sendable {
 
     func app(id: String) async throws -> Fetched<AppDetailDTO> {
         try await cached("app-\(id)") { try await api.get("/apps/\(id)", as: AppDetailDTO.self).data }
-    }
-
-    func search(_ query: String) async throws -> [AppSummaryDTO] {
-        try await api.get("/apps", query: [URLQueryItem(name: "q", value: query), URLQueryItem(name: "per_page", value: "50")], as: [AppSummaryDTO].self).data
     }
 
     func apps(category: String? = nil) async throws -> Fetched<[AppSummaryDTO]> {

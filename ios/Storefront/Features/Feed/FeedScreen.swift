@@ -43,6 +43,8 @@ struct FeedScreen: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 34) {
                     StoreHeader()
+                    SubscriptionExpiryBanner()
+                        .padding(.horizontal, AppSpacing.standard)
                     StateContainerView(state: model.state, retry: reload, skeleton: .feed) { feed in
                         LazyVStack(alignment: .leading, spacing: 34) {
                             if model.isStale {
@@ -189,7 +191,7 @@ private struct CategoryTile: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: category.systemImage)
-                .font(.system(size: 17, weight: .semibold))
+                .font(.body.weight(.semibold))
                 .foregroundStyle(.white)
                 .frame(width: 40, height: 40)
                 .background(category.artwork.color.gradient, in: .rect(cornerRadius: 11, style: .continuous))
@@ -198,6 +200,7 @@ private struct CategoryTile: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                 if let count = category.appCount {
                     Text(CatalogView.count(count))
                         .font(.caption)

@@ -137,7 +137,7 @@ private struct ImportRow: View {
                 .overlay(alignment: .bottomTrailing) {
                     if installState == .delivered {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 20))
+                            .font(.title3)
                             .foregroundStyle(.white, AppPalette.success)
                             .offset(x: 5, y: 5)
                     }

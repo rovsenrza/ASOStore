@@ -260,7 +260,7 @@ struct SortMenu: View {
                 Image(systemName: "arrow.up.arrow.down")
             } else {
                 Image(systemName: "arrow.up.arrow.down")
-                    .font(.system(size: 15, weight: .semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.primary)
                     .frame(width: 44, height: 44)
                     .glassCircle()

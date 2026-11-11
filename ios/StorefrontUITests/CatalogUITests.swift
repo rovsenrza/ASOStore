@@ -9,9 +9,9 @@ final class CatalogUITests: XCTestCase {
     }
 
     @MainActor
-    private func launch(_ scenario: String? = nil, tab: String? = nil) -> XCUIApplication {
+    private func launch(_ scenario: String? = nil, tab: String? = nil, extra: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
-        app.launchArguments = ["-apiMode", "mock", "-resetCache"]
+        app.launchArguments = ["-apiMode", "mock", "-resetCache"] + extra
         if let scenario {
             app.launchArguments += ["-mockScenario", scenario]
         }
@@ -94,7 +94,71 @@ final class CatalogUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Нужен вход"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Войдите в аккаунт, чтобы продолжить."].exists)
+        // Signing in is the way forward; retrying stays possible.
+        XCTAssertTrue(app.buttons["state-sign-in"].exists)
         XCTAssertTrue(app.buttons["Повторить"].exists)
+    }
+
+    @MainActor
+    func testSignedOutStateOpensTheAccountSheet() {
+        let app = launch("unauthorized", tab: "catalog")
+
+        let signIn = app.buttons["state-sign-in"]
+        XCTAssertTrue(signIn.waitForExistence(timeout: 10))
+        XCTAssertEqual(signIn.label, "Войти")
+        signIn.tap()
+
+        XCTAssertTrue(app.navigationBars["Аккаунт"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.textFields["Эл. почта"].waitForExistence(timeout: 10))
+    }
+
+    @MainActor
+    func testSignedOutManagerOffersSignIn() {
+        let app = launch("unauthorized", tab: "manager")
+
+        // The library sits below the import cards: scroll until the state is on screen.
+        let signIn = app.buttons["state-sign-in"]
+        XCTAssertTrue(signIn.waitForExistence(timeout: 10))
+        for _ in 0..<6 where !signIn.isHittable {
+            app.swipeUp()
+        }
+        XCTAssertTrue(app.staticTexts["Нужен вход"].exists)
+        signIn.tap()
+        XCTAssertTrue(app.navigationBars["Аккаунт"].waitForExistence(timeout: 10))
+    }
+
+    @MainActor
+    func testSigningOutAsksFirst() {
+        let app = launch(extra: ["-mockSignedIn"])
+
+        let account = app.buttons["account-button"]
+        XCTAssertTrue(account.waitForExistence(timeout: 10))
+        account.tap()
+        let details = app.buttons["account-details"]
+        XCTAssertTrue(details.waitForExistence(timeout: 10))
+        details.tap()
+
+        let signOut = app.buttons["sign-out"]
+        XCTAssertTrue(signOut.waitForExistence(timeout: 10))
+        for _ in 0..<4 where !signOut.isHittable {
+            app.swipeUp()
+        }
+        signOut.tap()
+
+        // Nothing happens until the customer confirms.
+        XCTAssertTrue(app.staticTexts["Выйти из аккаунта?"].waitForExistence(timeout: 10))
+        // Still signed in: the account page is still there behind the dialog.
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "anna@example.com")).firstMatch.exists)
+    }
+
+    @MainActor
+    func testSubscriptionAboutToEndShowsTheRenewBanner() {
+        let app = launch(extra: ["-mockSignedIn", "-mockSubscriptionDaysLeft", "3", "-subscriptionNoticeDismissedAt", "0"])
+
+        // Title and detail are read as one element.
+        let banner = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "Подписка заканчивается через 3 дня")).firstMatch
+        XCTAssertTrue(banner.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["subscription-renew"].exists)
     }
 
     @MainActor
@@ -103,6 +167,7 @@ final class CatalogUITests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["Сеанс истёк"].waitForExistence(timeout: 10))
         XCTAssertTrue(app.staticTexts["Войдите снова, чтобы продолжить."].exists)
+        XCTAssertTrue(app.buttons["state-sign-in"].exists)
         XCTAssertTrue(app.buttons["Повторить"].exists)
     }
 
@@ -151,6 +216,9 @@ final class CatalogUITests: XCTestCase {
         XCTAssertTrue(account.waitForExistence(timeout: 10))
         account.tap()
         XCTAssertTrue(app.staticTexts["Настройки приложения магазина"].waitForExistence(timeout: 10))
-        XCTAssertTrue(app.buttons["Язык приложения"].exists)
+        // The notifications row shows the real permission; the language shortcut is gone
+        // (the app is Russian-only, so iOS Settings has no such section for it).
+        XCTAssertTrue(app.buttons["notifications-permission"].exists)
+        XCTAssertFalse(app.buttons["Язык приложения"].exists)
     }
 }

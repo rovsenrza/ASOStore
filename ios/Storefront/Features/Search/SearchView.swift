@@ -10,27 +10,24 @@ final class SearchModel: ObservableObject {
 
     @Published var query = ""
     @Published var listing: Listing = .updated
-    @Published private(set) var results: LoadState<[StoreApp]> = .empty
+
+    /// What is being searched for, or nil while the field is empty.
+    var term: String? {
+        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return term.isEmpty ? nil : term
+    }
 
     /// Debounced: typing cancels the previous search (FULL_PLAN §11 "search remains responsive").
-    func search(_ catalog: CatalogRepository) async {
-        let term = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !term.isEmpty else {
-            results = .empty
-            return
-        }
-
+    /// The results are a paged list like Каталог, so they keep loading as the list is scrolled.
+    func search(_ catalog: CatalogRepository, into results: CatalogListModel) async {
+        guard let term else { return }
         do {
             try await Task.sleep(for: .milliseconds(300))
-            results = .loading
-            let apps = try await catalog.search(term)
-            try Task.checkCancellation()
-            results = apps.isEmpty ? .empty : .loaded(apps.map(StoreApp.init))
-        } catch is CancellationError {
-            return
         } catch {
-            results = LoadState(error: error)
+            return
         }
+        results.filter.search = term
+        await results.reload(catalog, fresh: true)
     }
 }
 
@@ -40,6 +37,8 @@ struct SearchView: View {
     /// «Обновлено» and «Новое»: the whole catalog in that order, a page at a time.
     @StateObject private var updated = CatalogListModel(sort: .updated)
     @StateObject private var newest = CatalogListModel(sort: .new)
+    /// What the typed query found, a page at a time.
+    @StateObject private var results = CatalogListModel()
     @FocusState private var searching: Bool
     @Namespace private var zoom
 
@@ -68,7 +67,7 @@ struct SearchView: View {
             .navigationBarHiddenCompat()
             .swipeBackEnabled()
             .refreshable { await reloadAll() }
-            .task(id: model.query) { await model.search(catalog) }
+            .task(id: model.term) { await model.search(catalog, into: results) }
             .task { await reloadAll() }
             .environment(\.zoomNamespace, zoom)
             .storeDestinations()
@@ -76,7 +75,7 @@ struct SearchView: View {
     }
 
     private var isSearching: Bool {
-        !model.query.trimmingCharacters(in: .whitespaces).isEmpty
+        model.term != nil
     }
 
     private var searchField: some View {
@@ -98,7 +97,7 @@ struct SearchView: View {
             }
         }
         .padding(.horizontal, 16)
-        .frame(height: 50)
+        .frame(minHeight: 50)
         .glassCapsule()
         .padding(.horizontal, AppSpacing.standard)
     }
@@ -141,31 +140,23 @@ struct SearchView: View {
 
     @ViewBuilder
     private var searchResults: some View {
-        switch model.results {
-        case .empty:
+        // Typing has not reached the server yet (debounce): the list still answers the old term.
+        if results.filter.search != model.term {
+            SkeletonRows()
+                .padding(.horizontal, AppSpacing.standard)
+                .frame(minHeight: 300, alignment: .top)
+        } else if case .empty = results.state {
             SearchUnavailableView(text: model.query)
                 .frame(minHeight: 300)
-        default:
-            StateContainerView(state: model.results, retry: retrySearch, skeleton: .rows) { apps in
-                rows(apps)
-            }
-            .frame(minHeight: 300, alignment: .top)
+        } else {
+            CatalogAppList(model: results, source: "search", retry: retrySearch)
+                .padding(.horizontal, AppSpacing.standard)
+                .frame(minHeight: 300, alignment: .top)
         }
-    }
-
-    private func rows(_ apps: [StoreApp]) -> some View {
-        LazyVStack(spacing: 0) {
-            ForEach(apps) { app in
-                StoreAppRow(app: app, source: "search")
-                    .scrollReveal()
-                Divider().padding(.leading, 76)
-            }
-        }
-        .padding(.horizontal, AppSpacing.standard)
     }
 
     private func retrySearch() {
-        Task { await model.search(catalog) }
+        Task { await results.reload(catalog, fresh: true) }
     }
 
     private func list(_ listing: SearchModel.Listing) -> CatalogListModel {

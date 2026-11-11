@@ -13,7 +13,8 @@ struct UpdateAvailableSheet: View {
     var body: some View {
         VStack(spacing: 20) {
             Image(systemName: "arrow.down.app.fill")
-                .font(.system(size: 48))
+                .font(.largeTitle)
+                .imageScale(.large)
                 .foregroundStyle(AppPalette.accent)
                 .padding(.top, 12)
 

@@ -38,6 +38,10 @@ nonisolated struct ErrorCode: RawRepresentable, Hashable, Sendable, Codable {
     static let artifactNotInstallable = ErrorCode(rawValue: "ARTIFACT_NOT_INSTALLABLE")
     static let incompatibleDevice = ErrorCode(rawValue: "INCOMPATIBLE_DEVICE")
     static let installTokenExpired = ErrorCode(rawValue: "INSTALL_TOKEN_EXPIRED")
+    /// Reserved: the backend does not send these yet (InstallStateResolver has no subscription
+    /// check). When it starts to, the CTA already offers «Продлить» for them.
+    static let subscriptionRequired = ErrorCode(rawValue: "SUBSCRIPTION_REQUIRED")
+    static let subscriptionExpired = ErrorCode(rawValue: "SUBSCRIPTION_EXPIRED")
     static let serviceUnavailable = ErrorCode(rawValue: "SERVICE_UNAVAILABLE")
     static let `internal` = ErrorCode(rawValue: "INTERNAL")
 

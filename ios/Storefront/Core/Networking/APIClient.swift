@@ -31,7 +31,11 @@ actor APIClient {
     static func configured(environment: APIEnvironment = .current()) -> APIClient {
         #if DEBUG
         if environment.mode == .mock {
-            return APIClient(environment: environment, transport: MockTransport(), authenticator: Authenticator(store: InMemoryTokenStore()))
+            // `-mockSignedIn`: start with a session, for the signed-in screens (UI tests, screenshots).
+            let tokens = ProcessInfo.processInfo.arguments.contains("-mockSignedIn")
+                ? StoredTokens(accessToken: "mock", accessTokenExpiresAt: .distantFuture, refreshToken: "mock", refreshTokenExpiresAt: .distantFuture)
+                : nil
+            return APIClient(environment: environment, transport: MockTransport(), authenticator: Authenticator(store: InMemoryTokenStore(tokens)))
         }
         #endif
         return APIClient(environment: environment, transport: URLSessionTransport(), authenticator: Authenticator(store: KeychainTokenStore()))
