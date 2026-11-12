@@ -36,6 +36,18 @@ class Widgets
 
     private const NAV = ['menu', 'profile', 'orders', 'invite', 'help'];
 
+    /** The admin tab bar (the customer one is built into the app). */
+    private const ADMIN_NAV = [['📊', 'Панель', 'adm:panel'], ['🧾', 'Проверка', 'adm:reviews'], ['🔎', 'Клиент', 'adm:find'], ['🛍', 'Магазин', 'menu']];
+
+    /**
+     * How a new account's iPhone is registered. Shown as a second step with nothing preselected:
+     * the two differ a lot, and buyers must not take one by accident.
+     */
+    private const REGISTRATION = [
+        ['ins', '⚡ Мгновенно', 'Приложения сразу после оплаты', 'Нет уведомлений MAX и VK · Apple может отозвать'],
+        ['std', '🛡 Через Apple', 'Все функции и уведомления MAX и VK', 'Подключение до 72 часов'],
+    ];
+
     private static ?string $html = null;
 
     public function __construct(
@@ -51,16 +63,13 @@ class Widgets
         return (bool) config('telegram_store.widgets', true);
     }
 
-    /** The app, minified once per process: CSS and script lines without indentation or blank lines. */
+    /**
+     * The built app (scripts/build-telegram-widget.mjs: esbuild-minified, icon inlined), read
+     * once per process.
+     */
     public static function html(): string
     {
-        if (self::$html !== null) {
-            return self::$html;
-        }
-        $source = (string) file_get_contents(resource_path('telegram-widgets/app.html'));
-        $source = preg_replace_callback('#<style>(.*?)</style>#s', fn ($m) => '<style>'.preg_replace(['/\s*\n\s*/', '/\s*([{};,>])\s*/'], ['', '$1'], $m[1]).'</style>', $source);
-
-        return self::$html = (string) preg_replace('/\n\s*/', "\n", trim((string) $source));
+        return self::$html ??= trim((string) file_get_contents(resource_path('telegram-widgets/app.min.html')));
     }
 
     /** Sends a new widget message showing $state; null if Telegram refused it. */
@@ -166,7 +175,8 @@ class Widgets
             'x' => $body,
             'b' => $rows,
             'bk' => $back,
-            'n' => $admin || str_starts_with((string) $via, 'adm:') ? 'a' : ($via !== null && in_array($via, self::NAV, true) ? $via : 'x'),
+            'n' => ($isAdmin = $admin || str_starts_with((string) $via, 'adm:')) ? ($via ?? 'a') : ($via !== null && in_array($via, self::NAV, true) ? $via : 'x'),
+            'nv' => $isAdmin ? self::ADMIN_NAV : null,
             'm' => $toast,
         ], fn ($value) => $value !== null && $value !== '' && $value !== []);
 
@@ -213,10 +223,11 @@ class Widgets
             'on' => $first?->activeSubscription !== null ? 1 : null,
             'a' => $accounts->map(fn (User $user) => [$user->public_id, RenewalAccounts::maskEmail($user->email), $this->accessShort($user)])->values()->all(),
             'p' => $p,
-            'i' => $this->instantCerts->offered() ? 1 : null,
+            'o' => $this->instantCerts->offered() ? self::REGISTRATION : null,
             'c' => $customer->balance_rub > 0 ? (int) $customer->balance_rub : null,
             'md' => $mode,
-            'uc' => $unused?->public_id,
+            'uc' => $unused ? ['🎟 Оплаченный код ждёт — применить ›', 'use:'.$unused->public_id] : null,
+            'lk' => $accounts->isEmpty() ? ['🔗 Мой аккаунт не найден — найти по почте', 'link'] : null,
             'n' => 'menu',
             'm' => $toast,
         ], fn ($value) => $value !== null && $value !== []));
@@ -259,6 +270,7 @@ class Widgets
             ],
             'b' => [[['💲 Цены', 'adm:prices'], ['🎟 Промо', 'adm:promos'], ['📣 Рассылка', 'adm:bc']]],
             'n' => 'adm:panel',
+            'nv' => self::ADMIN_NAV,
         ];
     }
 

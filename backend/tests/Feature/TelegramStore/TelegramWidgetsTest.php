@@ -50,10 +50,14 @@ function widgetState(Request $r): array
     return json_decode(($r['chat_data'] ?? '').($r['public_data'] ?? ''), true);
 }
 
-it('keeps the app within Telegram\'s size limit', function () {
+it('keeps the built app within Telegram\'s size limit and in step with its source', function () {
     $html = Widgets::html();
     expect(strlen($html))->toBeLessThanOrEqual(32768)
-        ->and(strlen(gzcompress($html, 9)))->toBeLessThanOrEqual(4096);
+        ->and(strlen(gzcompress($html, 9)))->toBeLessThanOrEqual(4096)
+        ->and($html)->toContain('data:image/webp;base64,')
+        // Changed app.html without running scripts/build-telegram-widget.mjs?
+        ->and(trim((string) file_get_contents(resource_path('telegram-widgets/app.min.sha1'))))
+        ->toBe(sha1_file(resource_path('telegram-widgets/app.html')));
 });
 
 it('opens the storefront app on /start: widget only, no caption or keyboard', function () {
@@ -65,6 +69,7 @@ it('opens the storefront app on /start: widget only, no caption or keyboard', fu
         ->and($sent->data())->not->toHaveKeys(['caption', 'reply_markup'])
         ->and(strlen($sent['chat_data']))->toBeLessThanOrEqual(Widgets::PART)
         ->and($state['v'])->toBe('s')
+        ->and($state)->not->toHaveKey('i')
         ->and(collect($state['p'])->pluck(0)->all())->toBe(['month1', 'month3', 'month6', 'month9', 'month12']);
     expect(($this->calls)('sendMessage'))->toHaveCount(0);
 });
@@ -129,7 +134,7 @@ it('shows the admin dashboard and its screens in the same message', function () 
 
     ($this->tap)(W_ADMIN, 'adm:reviews');
     $state = widgetState(($this->calls)('editMessageWidgetData')->last());
-    expect($state['n'])->toBe('a')->and($state['t'])->toContain('На проверке');
+    expect($state['n'])->toBe('adm:reviews')->and($state['nv'][0][2])->toBe('adm:panel')->and($state['t'])->toContain('На проверке');
 });
 
 it('sends news (a paid order) as a new widget message', function () {

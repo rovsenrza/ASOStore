@@ -3,31 +3,36 @@
 *{box-sizing:border-box;margin:0}
 body{font:14px/1.35 system-ui,sans-serif;color:var(--t);padding:12px 12px calc(10px + env(safe-area-inset-bottom))}
 #a{display:grid;gap:9px}
-button{font:inherit;color:inherit;border:0;background:var(--c);border-radius:12px;padding:9px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:transform .12s,opacity .12s}
+button{font:inherit;color:inherit;border:1.5px solid transparent;background:var(--c);border-radius:12px;padding:9px 8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:transform .12s}
 button:active{transform:scale(.97)}
 .hd{display:flex;align-items:center;gap:9px}
-.hd svg{width:32px;height:32px;flex:none}
+.hd img{width:32px;height:32px;border-radius:9px}
 .ti{flex:1;min-width:0;font-weight:700;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .bk{width:32px;height:32px;padding:0;border-radius:99px;font-size:18px;flex:none}
-.pl{font-size:12px;padding:4px 10px;border-radius:99px;background:rgba(35,156,248,.16);color:var(--k);white-space:nowrap}
-.pl.on{background:rgba(15,122,92,.18);color:#1fa57a}
+.pl{font-size:12px;padding:4px 10px;border-radius:99px;background:rgba(35,156,248,.16);color:var(--k)}
 .hero{background:var(--gr);color:#fff;border-radius:16px;padding:12px 14px;display:grid;gap:2px}
 .hero b{font-size:24px}.hero span{opacity:.85;font-size:12px}
-.l{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--h);margin:2px 0 -3px 2px}
+.l{font-size:12px;color:var(--h)}
 .r{display:flex;flex-wrap:wrap;gap:6px}.r>*{flex:1 1 0;min-width:0}
 .g{display:grid;grid-template-columns:1fr 1fr;gap:6px}
-.ch{text-align:left;padding:9px 11px;border:1.5px solid transparent}
+.ch,.pr,.op,.uc{text-align:left;padding:9px 11px}
+.s{border-color:var(--b)!important;background:#0b45e61a!important}
 .ch small{display:block;font-size:11px;color:var(--h);white-space:normal}
 .pl2{display:grid;gap:5px}
-.pr{display:flex;align-items:center;gap:8px;text-align:left;padding:8px 11px;border:1.5px solid transparent}
+.pr{display:flex;align-items:center;gap:8px}
 .pr .o{width:16px;height:16px;border-radius:99px;border:2px solid var(--h);flex:none}
 .pr .nm{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:12px;color:var(--h)}
 .pr b{color:var(--t);font-size:14px;margin-right:6px}
 .pr em{font-style:normal;font-weight:700}
-.pr.s{border-color:var(--b);background:rgba(11,69,230,.1)}
 .pr.s .o{border:5px solid var(--b)}
-.uc{background:rgba(224,38,60,.12);color:#ff6b7d;text-align:left}
-.ch.s{border-color:var(--b);background:rgba(11,69,230,.1)}
+.op{display:grid;gap:3px;padding:12px;white-space:normal}
+.op b{font-size:16px}
+.op span{font-size:12px}
+.ok{color:#1fa57a}
+.no{color:#e8862a}
+.op.s b:after{content:' ✓'}
+.off{opacity:.45}
+.uc{color:#ff6b7d}
 .pr i{font-style:normal;font-size:10px;font-weight:700;color:#fff;background:var(--r);border-radius:6px;padding:1px 5px;margin-left:4px}
 .p{background:var(--gr);color:#fff;font-weight:600;padding:12px;box-shadow:0 6px 16px rgba(11,69,230,.3)}
 .u::after{content:' ↗';opacity:.7}
@@ -36,48 +41,50 @@ button:active{transform:scale(.97)}
 .k b{display:block;font-size:18px;font-variant-numeric:tabular-nums}.k span{font-size:11px;color:var(--h)}
 .k.w b{color:#e8862a}
 .tx{background:var(--c);border-radius:14px;padding:11px 12px;display:grid;gap:3px}
-.tx p:empty{height:5px}
 code{font:600 13px ui-monospace,monospace;background:rgba(35,156,248,.16);color:var(--k);border-radius:6px;padding:1px 5px}
 .n{font-size:12px;color:var(--h);text-align:center}
 .nv{display:flex;gap:4px;border-top:1px solid rgba(127,127,127,.18);padding-top:8px}
 .nv button{flex:1;background:none;font-size:11px;color:var(--h);padding:2px 0;display:grid;justify-items:center}
 .nv button b{font-size:17px;font-weight:400}
-.nv .s{color:var(--b)}
+.nv .s{color:var(--b);border-color:transparent!important;background:none!important}
 </style>
 <div id=a></div>
 <script>
-var W=window.TelegramWidget,R=document.getElementById('a'),S={},busy='',toast='',mode,plan,reg,acc;
+var W=window.TelegramWidget,R=document.getElementById('a'),S={},busy='',toast='',mode,plan,reg='',acc,st=1;
 var NAV=[['🛍','Магазин','menu'],['👤','Профиль','profile'],['🧾','Заказы','orders'],['👥','Друзья','invite'],['❓','Помощь','help']];
-var ANV=[['📊','Панель','adm:panel'],['🧾','Проверка','adm:reviews'],['🔎','Клиент','adm:find'],['🛍','Магазин','menu']];
-var LOGO='<svg viewBox="0 0 40 40"><defs><linearGradient id="q" x2="1" y2="1"><stop stop-color="#239cf8"/><stop offset="1" stop-color="#0b45e6"/></linearGradient></defs><rect width="40" height="40" rx="11" fill="url(#q)"/><path d="M11.5 28.5 20 12.5l8.5 16M15 28.5h11" fill="none" stroke="#fff" stroke-width="4.6" stroke-linecap="round"/></svg>';
+var LOGO='__LOGO__';
 function E(t,c,x,f){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;if(f)e.onclick=f;return e}
 function add(p){for(var i=1;i<arguments.length;i++){var x=arguments[i];if(x)p.appendChild(typeof x=='string'?document.createTextNode(x):x)}return p}
+function cp(t){W.copyText(t);toast='Скопировано ✓';draw()}
 function rub(n){return String(n).replace(/\B(?=(\d{3})+(?!\d))/g,' ')+' ₽'}
 function set(j){toast=j.m||'';if(j.v){S=j;if(j.v=='s')initStore()}draw()}
 function load(){try{var j=JSON.parse((W.chatData||'')+(W.publicData||''));if(j)set(j)}catch(e){}}
-function go(d){if(busy||!W)return;busy=d;toast='';draw();W.request(d).then(function(a){busy='';var r=a&&a.result;if(r&&r.charAt(0)=='{'){try{set(JSON.parse(r));return}catch(e){}}draw()},function(e){busy='';toast=e&&(e.code=='RATE_LIMITED'||e.code=='BUSY')?'Секунду…':'Не получилось, нажмите ещё раз';draw()})}
-function btn(b,c){var d=b[1],k=b[2]||0,e=E('button',(c||'')+(k==1?' p':'')+(k==2?' u':'')+(busy==d?' ld':''),b[0],function(){if(k==2){W.openLink(d)}else if(k==4){W.copyText(d);toast='Скопировано ✓';draw()}else go(d)});return e}
-function line(s){var p=E('p');s.split(/(<b>.*?<\/b>|<code>.*?<\/code>)/).forEach(function(x){if(!x)return;var m=x.match(/^<(b|code)>(.*)<\/\1>$/);if(!m)return p.appendChild(document.createTextNode(x));var e=E(m[1],'',m[2]);if(m[1]=='code')e.onclick=function(){W.copyText(m[2]);toast='Скопировано ✓';draw()};p.appendChild(e)});return p}
-function head(){var h=E('div','hd');if(S.bk)add(h,E('button','bk','‹',function(){go(S.bk)}));var l=E('span');l.innerHTML=LOGO;add(h,S.bk?null:l.firstChild,E('div','ti',S.t||'Ru App Store'),S.s?E('div','pl'+(S.on?' on':''),S.s):null);return h}
-function nav(){var L=S.n=='a'||S.n.indexOf('adm:')==0?ANV:NAV,v=E('div','nv');L.forEach(function(x){var b=E('button',S.n==x[2]?'s':'',null,function(){go(x[2])});add(b,E('b','',x[0]),E('span','',x[1]));v.appendChild(b)});return v}
-function initStore(){var P=S.p||[],a=S.a||[];if(!P.some(function(x){return x[0]==plan}))plan=(P.find(function(x){return x[4]})||P[0]||[])[0];if(!a.some(function(x){return x[0]==acc}))acc=(a[0]||[])[0];mode=S.md||(a.length?'r':'n');reg=reg||'std';if(!S.i)reg='std'}
+function go(d){if(busy)return;busy=d;toast='';draw();W.request(d).then(function(a){busy='';var r=a&&a.result;if(r&&r.charAt(0)=='{'){try{set(JSON.parse(r));return}catch(e){}}draw()},function(e){busy='';toast=e&&(e.code=='RATE_LIMITED'||e.code=='BUSY')?'Секунду…':'Ошибка, нажмите ещё раз';draw()})}
+function btn(b,c){var d=b[1],k=b[2]||0,e=E('button',(c||'')+(k==1?' p':'')+(k==2?' u':'')+(busy&&busy==d?' ld':''),b[0],function(){if(k==2){W.openLink(d)}else if(k==4)cp(d);else go(d)});return e}
+function line(s){var p=E('p');s.split(/(<b>.*?<\/b>|<code>.*?<\/code>)/).forEach(function(x){if(!x)return;var m=x.match(/^<(b|code)>(.*)<\/\1>$/);if(!m)return p.appendChild(document.createTextNode(x));var e=E(m[1],'',m[2]);if(m[1]=='code')e.onclick=function(){cp(m[2])};p.appendChild(e)});return p}
+function head(){var h=E('div','hd'),two=S.v=='s'&&st==2;if(two)add(h,E('button','bk','‹',function(){st=1;draw()}));else if(S.bk)add(h,E('button','bk','‹',function(){go(S.bk)}));else{var l=E('img');l.src=LOGO;h.appendChild(l)}add(h,E('div','ti',two?'Как подключить iPhone?':S.t||'Ru App Store'),!two&&S.s?E('div','pl'+(S.on?' on':''),S.s):null);return h}
+function nav(){var L=S.nv||NAV,v=E('div','nv');L.forEach(function(x){var b=E('button',S.n==x[2]?'s':'',null,function(){go(x[2])});add(b,E('b','',x[0]),E('span','',x[1]));v.appendChild(b)});return v}
+function initStore(){if(!S.o)reg='';var P=S.p||[],a=S.a||[];if(!P.some(function(x){return x[0]==plan}))plan=(P.find(function(x){return x[4]})||P[0]||[])[0];if(!a.some(function(x){return x[0]==acc}))acc=(a[0]||[])[0];mode=S.md||(a.length?'r':'n');st=1;reg=''}
 function store(){var a=S.a||[],P=S.p||[],p=P.find(function(x){return x[0]==plan})||[0,'',0];
-if(S.uc)R.appendChild(btn(['🎟 Оплаченный код ждёт — применить ›','use:'+S.uc],'uc'));
+if(S.uc)R.appendChild(btn(S.uc,'uc'));
 add(R,add(E('div','r'),E('button','ch'+(mode=='n'?' s':''),'🆕 Новый iPhone',function(){mode='n';draw()}),E('button','ch'+(mode=='r'?' s':''),'🔄 Продлить',function(){mode='r';draw()})));
 if(mode=='r'&&a.length>1){add(R,E('div','l','Аккаунт'));var r=E('div','r');a.forEach(function(x){var b=E('button','ch'+(x[0]==acc?' s':''),x[1],function(){acc=x[0];draw()});add(b,E('small','',x[2]));r.appendChild(b)});R.appendChild(r)}
-if(mode=='r'&&!a.length)add(R,E('div','n','Аккаунт ещё не привязан к боту'),btn(['🔗 Найти аккаунт по почте','link']));
+if(mode=='r'&&!a.length&&S.lk)R.appendChild(btn(S.lk));
 var g=E('div','pl2');P.forEach(function(x){var b=E('button','pr'+(x[0]==plan?' s':''),null,function(){plan=x[0];draw()});var n=E('span','nm');add(n,E('b','',x[1]),x[3],x[5]?E('i','',x[5]):null);add(b,E('span','o'),n,E('em','',rub(x[2])));g.appendChild(b)});R.appendChild(g);
-if(mode=='n'&&S.i){var q=E('div','r');[['ins','⚡ Сразу'],['std','🛡 Apple · до 72 ч']].forEach(function(x){q.appendChild(E('button','ch'+(reg==x[0]?' s':''),x[1],function(){reg=x[0];draw()}))});R.appendChild(q)}
-var d=mode=='r'?(a.length?'rnw:'+plan+':'+acc:'ext:'+plan):(S.i?'reg:'+reg+':':'pln:')+plan;
-R.appendChild(btn([(mode=='r'?(a.length?'Продлить':'Код для продления'):'Оплатить')+' · '+rub(p[2]),d,1]));
-var h=mode=='n'&&S.i&&reg=='ins'?'⚡ Сразу после оплаты, но без пушей MAX и VK':S.c?'💰 Баланс '+rub(S.c)+' — можно оплатить в заказе':'';if(h&&!toast&&!busy)R.appendChild(E('div','n',h))}
+if(mode=='n'&&S.o){R.appendChild(btn(['Далее · '+rub(p[2])+' ›','',1])).onclick=function(){st=2;draw()}}
+else{var d=mode=='r'?(a.length?'rnw:'+plan+':'+acc:'ext:'+plan):'pln:'+plan;R.appendChild(btn([(mode=='r'?(a.length?'Продлить':'Код для продления'):'Оплатить')+' · '+rub(p[2]),d,1]))}
+if(S.c&&!toast&&!busy)R.appendChild(E('div','n','💰 Баланс '+rub(S.c)+' — можно оплатить в заказе'))}
+function step2(){var P=S.p||[],p=P.find(function(x){return x[0]==plan})||[0,'',0];
+R.appendChild(E('div','n',p[1]+' · '+rub(p[2])+' · цена одинаковая'));
+S.o.forEach(function(x){var b=E('button','op'+(reg==x[0]?' s':''),null,function(){reg=x[0];draw()});add(b,E('b','',x[1]),E('span','ok','✓ '+x[2]),E('span','no','✕ '+x[3]));R.appendChild(b)});
+var b=btn([reg?'Оплатить · '+rub(p[2]):'Выберите способ','reg:'+reg+':'+plan,reg?1:0]);if(!reg){b.disabled=true;b.className+=' off'}R.appendChild(b)}
 function dash(){var r=E('div','r');[1,7,30].forEach(function(x){r.appendChild(btn([x==1?'Сегодня':x+' дней','w:a:'+x],'ch'+(S.d==x?' s':'')))});R.appendChild(r);
 var h=E('div','hero');add(h,E('span','',S.u),E('b','',S.rv),E('span','',S.pc));R.appendChild(h);
 var g=E('div','g');(S.k||[]).forEach(function(x){var k=E('div','k'+(x[2]?' w':''));if(x[3])k.onclick=function(){go(x[3])};add(k,E('b','',x[1]),E('span','',x[0]));g.appendChild(k)});R.appendChild(g)}
 function draw(){R.textContent='';R.appendChild(head());
-if(S.v=='s')store();else if(S.v=='d')dash();else if(S.x){var t=E('div','tx');S.x.split('\n').forEach(function(s){t.appendChild(line(s))});R.appendChild(t)}
+if(S.v=='s')st==2?step2():store();else if(S.v=='d')dash();else if(S.x){var t=E('div','tx');S.x.split('\n').forEach(function(s){t.appendChild(line(s))});R.appendChild(t)}
 (S.b||[]).forEach(function(row){var r=E('div','r');row.forEach(function(b){r.appendChild(btn(b))});R.appendChild(r)});
 if(toast||busy)R.appendChild(E('div','n',busy?'…':toast));
 if(S.n)R.appendChild(nav())}
-if(W){load();W.onEvent('chatDataChanged',load);W.onEvent('publicDataChanged',load);W.ready()}else{S={v:'g',x:'Откройте в Telegram'};draw()}
+load();W.onEvent('chatDataChanged',load);W.onEvent('publicDataChanged',load);W.ready()
 </script>
