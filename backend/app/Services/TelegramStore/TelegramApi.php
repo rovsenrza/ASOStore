@@ -46,7 +46,7 @@ class TelegramApi
         return $this->call('getUpdates', [
             'offset' => $offset,
             'timeout' => $timeout,
-            'allowed_updates' => ['message', 'callback_query'],
+            'allowed_updates' => ['message', 'callback_query', 'widget_query'],
         ], $timeout + 10) ?? [];
     }
 
@@ -63,6 +63,41 @@ class TelegramApi
             'link_preview_options' => ['is_disabled' => true],
             'reply_markup' => $keyboard,
         ], fn ($value) => $value !== null));
+    }
+
+    /**
+     * Sends an HTML widget (Bot API 10.4). The caption and keyboard are what apps without
+     * widget support show instead.
+     *
+     * @param  array<string, mixed>|null  $keyboard
+     * @return array<string, mixed> the sent message
+     */
+    public function sendWidget(int $chatId, string $html, string $chatData, string $caption, ?array $keyboard = null): array
+    {
+        return $this->call('sendWidget', array_filter([
+            'chat_id' => $chatId,
+            'html' => $html,
+            'chat_data' => $chatData,
+            'caption' => $caption,
+            'parse_mode' => 'HTML',
+            'allow_queries' => true,
+            'reply_markup' => $keyboard,
+        ], fn ($value) => $value !== null));
+    }
+
+    /** Answers a tap in a widget (within 15 seconds); $data goes back only to that widget. */
+    public function answerWidgetQuery(string $queryId, ?string $data = null): void
+    {
+        $this->call('answerWidgetQuery', array_filter([
+            'widget_query_id' => $queryId,
+            'data' => $data,
+        ], fn ($value) => $value !== null), 10);
+    }
+
+    /** Replaces the per-message state of a widget the bot sent; the widget redraws itself. */
+    public function editMessageWidgetData(int $chatId, int $messageId, string $chatData): void
+    {
+        $this->call('editMessageWidgetData', ['chat_id' => $chatId, 'message_id' => $messageId, 'chat_data' => $chatData]);
     }
 
     /** @param  array<string, mixed>|null  $keyboard */

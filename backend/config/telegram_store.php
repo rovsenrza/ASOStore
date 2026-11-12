@@ -41,5 +41,7 @@ return [
     'required_channel' => env('TELEGRAM_STORE_REQUIRED_CHANNEL'),
     'activation_url' => env('TELEGRAM_STORE_ACTIVATION_URL'),
     // Every bot message is this image with the screen as its caption; empty or missing file = text messages.
+    // Interactive HTML widgets (Bot API 10.4) for /start and /admin; false = the plain menus only.
+    'widgets' => filter_var(env('TELEGRAM_STORE_WIDGETS', true), FILTER_VALIDATE_BOOL),
     'welcome_banner' => env('TELEGRAM_STORE_WELCOME_BANNER', base_path('../front/public/assets/banners/ru-app-store-telegram-welcome.jpg')),
 ];

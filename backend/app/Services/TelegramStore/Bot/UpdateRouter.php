@@ -31,6 +31,8 @@ class UpdateRouter
                 $this->message($update['message']);
             } elseif (isset($update['callback_query'])) {
                 $this->callback($update['callback_query']);
+            } elseif (isset($update['widget_query'])) {
+                $this->widget($update['widget_query']);
             }
         } catch (TelegramApiException $exception) {
             if (! $exception->isUnreachable()) {
@@ -60,6 +62,49 @@ class UpdateRouter
             return;
         }
         $this->customerHandler->message($ctx, $text);
+    }
+
+    /**
+     * A tap in one of our widgets. Its data is the callback data of the matching inline button
+     * (`reg:std:month1`, `profile`, `adm:reviews`…), handled exactly like a button press, so the
+     * answer arrives as a new message below the widget. `w:a:<days>` redraws the admin dashboard
+     * in place.
+     *
+     * @param  array<string, mixed>  $query
+     */
+    private function widget(array $query): void
+    {
+        $chat = $query['chat'] ?? [];
+        $data = (string) ($query['data'] ?? '');
+        if (empty($query['id']) || empty($query['from']['id']) || ($chat['type'] ?? '') !== 'private') {
+            return;
+        }
+        [$customer] = $this->customers->sync($query['from'], (int) $chat['id']);
+        $ctx = new Context($customer, (int) $chat['id']);
+        $api = app(\App\Services\TelegramStore\TelegramApi::class);
+
+        // Answer first: Telegram allows 15 seconds, an order with a payment link can take longer.
+        try {
+            $api->answerWidgetQuery((string) $query['id'], 'ok');
+        } catch (TelegramApiException $exception) {
+            report($exception);
+        }
+
+        if (str_starts_with($data, 'w:a:') || str_starts_with($data, 'adm:')) {
+            if (! $ctx->isAdmin()) {
+                return;
+            }
+            if (str_starts_with($data, 'w:a:') && isset($query['message_id'])) {
+                $widgets = app(Widgets::class);
+                $widgets->update($ctx->chatId, (int) $query['message_id'], $widgets->adminState((int) substr($data, 4)));
+
+                return;
+            }
+            $this->adminHandler->callback($ctx, $data);
+
+            return;
+        }
+        $this->customerHandler->callback($ctx, $data);
     }
 
     /** @param array<string, mixed> $callback */

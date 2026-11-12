@@ -128,7 +128,7 @@ class CustomerHandler
         }
 
         match (true) {
-            in_array($command, ['/start', '/menu'], true), $lower === 'меню' => $this->messenger->welcome($ctx->chatId),
+            in_array($command, ['/start', '/menu'], true), $lower === 'меню' => $this->messenger->welcome($ctx->chatId, $ctx->customer),
             $command === '/buy', str_contains($lower, 'купить') => $this->messenger->show($ctx, $this->screens->buy($ctx->customer)),
             $command === '/profile', str_contains($lower, 'профиль') => $this->messenger->show($ctx, $this->screens->profile($ctx->customer)),
             $command === '/invite', str_contains($lower, 'пригласить'), str_contains($lower, 'реферал') => $this->messenger->show($ctx, $this->screens->invite($ctx->customer)),

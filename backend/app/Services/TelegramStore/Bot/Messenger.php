@@ -97,9 +97,17 @@ class Messenger
         return false;
     }
 
-    public function welcome(int $chatId): void
+    /** The main menu: the storefront widget when the customer is known, the banner menu otherwise. */
+    public function welcome(int $chatId, ?TelegramStoreCustomer $customer = null): void
     {
-        $this->send($chatId, $this->screens->menu());
+        $menu = $this->screens->menu();
+        if ($customer !== null && Widgets::enabled() && Messenger::fitsCaption($menu->text)) {
+            $widgets = app(Widgets::class);
+            if ($widgets->send($chatId, 'store', $widgets->storeState($customer), $menu) !== null) {
+                return;
+            }
+        }
+        $this->send($chatId, $menu);
     }
 
     /** Sends the screen to every admin of the store. */

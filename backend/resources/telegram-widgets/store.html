@@ -1,0 +1,43 @@
+<style>
+*{box-sizing:border-box;margin:0}
+body{font:15px/1.3 system-ui,sans-serif;color:var(--tg-theme-text-color);padding:12px;display:grid;gap:10px}
+.h{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.t{font-weight:700;font-size:17px}
+.st{font-size:12px;padding:3px 9px;border-radius:99px;background:var(--tg-theme-secondary-bg-color);color:var(--tg-theme-hint-color)}
+.st.on{background:#2ea36a;color:#fff}
+.l{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--tg-theme-hint-color)}
+.r{display:flex;flex-wrap:wrap;gap:6px}
+.c{flex:1 1 30%;padding:8px 6px;border:0;border-radius:12px;background:var(--tg-theme-secondary-bg-color);color:var(--tg-theme-text-color);font:inherit;font-size:14px;text-align:center}
+.c small{display:block;font-size:11px;color:var(--tg-theme-hint-color)}
+.c.s{background:var(--tg-theme-button-color);color:var(--tg-theme-button-text-color)}
+.c.s small{color:inherit;opacity:.85}
+.go{width:100%;padding:12px;border:0;border-radius:14px;font:600 16px system-ui,sans-serif;background:var(--tg-theme-button-color);color:var(--tg-theme-button-text-color)}
+.n{font-size:12px;color:var(--tg-theme-hint-color)}
+.m .c{flex:1 1 20%;font-size:12px;padding:7px 2px}
+</style>
+<div id=a></div>
+<script>
+var W=window.TelegramWidget,A=document.getElementById('a'),D={},mode,plan,reg='std',acc,msg='';
+function E(t,c,x,f){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;if(f)e.onclick=f;return e}
+function chip(sel,txt,sub,f){var b=E('button','c'+(sel?' s':''),txt,f);if(sub)b.appendChild(E('small','',sub));return b}
+function load(){try{D=JSON.parse(W&&W.chatData||'{}')||{}}catch(e){D={}}var P=D.p||[];if(!P.some(function(x){return x[0]==plan}))plan=(P[0]||[])[0];var a=D.a||[];if(!a.some(function(x){return x[0]==acc}))acc=(a[0]||[])[0];if(!mode)mode=a.length?'r':'n';if(!D.i)reg='std'}
+function price(){var p=(D.p||[]).find(function(x){return x[0]==plan});return p?p[2]:0}
+function send(d){W.request(d).then(function(){msg='✓ Готово — ответ ниже ↓';draw()},function(e){msg=e&&(e.code=='BUSY'||e.code=='RATE_LIMITED')?'Секунду…':'Не получилось, нажмите ещё раз';draw()});msg='…';draw()}
+function row(items){var r=E('div','r');items.forEach(function(i){r.appendChild(i)});return r}
+function draw(){
+A.textContent='';var a=D.a||[];
+var h=E('div','h');h.appendChild(E('div','t',D.b||'Ru App Store'));h.appendChild(E('div','st'+(D.on?' on':''),D.s||'Каталог для iPhone'));A.appendChild(h);
+A.appendChild(row([chip(mode=='n','🆕 Новый iPhone','',function(){mode='n';draw()}),chip(mode=='r','🔄 Продлить','',function(){mode='r';draw()})]));
+if(mode=='r'&&a.length>1){A.appendChild(E('div','l','Аккаунт'));A.appendChild(row(a.map(function(x){return chip(x[0]==acc,x[1],x[2],function(){acc=x[0];draw()})})))}
+if(mode=='r'&&!a.length){A.appendChild(E('div','n','Бот пока не знает ваш аккаунт. Найдите его по эл. почте — или получите код и введите его в аккаунте.'));A.appendChild(row([chip(0,'🔗 Найти аккаунт','',function(){send('link')})]))}
+A.appendChild(E('div','l','Срок'));
+A.appendChild(row((D.p||[]).map(function(x){return chip(x[0]==plan,x[1]+(x[4]?' 🔥':''),x[3],function(){plan=x[0];draw()})})));
+if(mode=='n'&&D.i){A.appendChild(E('div','l','Регистрация iPhone'));A.appendChild(row([chip(reg=='ins','⚡ Сразу','без MAX/VK уведомлений',function(){reg='ins';draw()}),chip(reg=='std','🛡 Через Apple','до 72 ч, все функции',function(){reg='std';draw()})]))}
+var t=mode=='r'?(a.length?'Продлить':'Получить код'):'Оплатить';
+A.appendChild(E('button','go',t+' · '+String(price()).replace(/\B(?=(\d{3})+(?!\d))/g,' ')+' ₽',function(){send(mode=='r'?(a.length?'rnw:'+plan+':'+acc:'ext:'+plan):(D.i?'reg:'+reg+':':'pln:')+plan)}));
+A.appendChild(E('div','n',msg||(D.c?'💰 На балансе '+D.c+' ₽ · промокод можно ввести в заказе':'Разовая покупка, без автопродления')));
+A.appendChild(row([chip(0,'👤 Профиль','',function(){send('profile')}),chip(0,'🧾 Заказы','',function(){send('orders')}),chip(0,'👥 Друзья','',function(){send('invite')}),chip(0,'❓ Помощь','',function(){send('help')})])).className='r m';
+}
+load();draw();
+if(W){W.onEvent('chatDataChanged',function(){load();draw()});W.ready()}
+</script>
