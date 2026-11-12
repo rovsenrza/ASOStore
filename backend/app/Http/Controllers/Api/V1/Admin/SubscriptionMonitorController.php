@@ -59,10 +59,12 @@ class SubscriptionMonitorController extends Controller
         }
 
         $this->applyState($query, $state, $now);
-        in_array($state, ['expired', 'expired7'], true)
-            ? $query->orderByDesc('s.ends_at')
-            : $query->orderBy('s.unlimited')->orderBy('s.ends_at');
-        $query->orderBy('users.id');
+        match (true) {
+            // The whole base and never-paid accounts: newest first, like a sign-up feed.
+            in_array($state, ['all', 'none'], true) => $query->orderByDesc('users.id'),
+            in_array($state, ['expired', 'expired7'], true) => $query->orderByDesc('s.ends_at')->orderBy('users.id'),
+            default => $query->orderBy('s.unlimited')->orderBy('s.ends_at')->orderBy('users.id'),
+        };
 
         $page = $query->paginate($filters['per_page'] ?? 50);
 
