@@ -50,6 +50,7 @@ it('moves only idle originals that have a bucket copy', function () {
     expect(app(ColdStorage::class)->isLocal($idle))->toBeTrue();
 
     $this->artisan('artifacts:cold')->assertSuccessful();
+    $this->artisan('artifacts:cold', ['--status' => true])->expectsOutputToContain('cold: 1 files')->assertSuccessful();
     $cold = app(ColdStorage::class);
     expect($cold->isLocal($idle))->toBeFalse()
         ->and($cold->isLocal($fresh))->toBeTrue()

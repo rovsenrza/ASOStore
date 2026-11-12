@@ -41,9 +41,9 @@ class ArtifactsColdCommand extends Command
 
         $artifacts = AppArtifact::query()->whereNull('purged_at')->where('storage_disk', 'artifacts')->get()->groupBy('storage_path');
         if ($this->option('status')) {
-            $local = $artifacts->filter(fn ($rows) => $cold->isLocal($rows->first()));
+            [$local, $remote] = $artifacts->partition(fn ($rows) => $cold->isLocal($rows->first()));
             $sum = fn ($groups) => round($groups->sum(fn ($rows) => (int) $rows->first()->size_bytes) / 1024 ** 3, 1);
-            $this->line("local: {$local->count()} files, {$sum($local)} GB; cold: ".($artifacts->count() - $local->count()).' files, '.$sum($artifacts->diff($local)).' GB');
+            $this->line("local: {$local->count()} files, {$sum($local)} GB; cold: {$remote->count()} files, {$sum($remote)} GB");
 
             return self::SUCCESS;
         }
