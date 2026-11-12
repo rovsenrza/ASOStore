@@ -392,6 +392,9 @@ return [
 
     // Alert thresholds (FULL_PLAN §14, IMPLEMENTATION_PLAN P8-OPS-02).
     'alerts' => [
+        // Launch crash/quit reports are always stored (php artisan apps:launch-reports); a Telegram
+        // DM to the bot admins per app/kind/hour was too noisy, so it is off unless turned on here.
+        'launch_reports_telegram' => (bool) env('STOREFRONT_LAUNCH_ALERTS_TELEGRAM', false),
         'quota_remaining_ratio' => 0.1,
         'signing_failures_per_hour' => 3,
         'queue_backlog' => (int) env('STOREFRONT_ALERT_QUEUE_BACKLOG', 50),

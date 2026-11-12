@@ -25,7 +25,8 @@ beforeEach(function () {
     app()->instance(Messenger::class, $messenger);
 });
 
-it('stores a crash from one of our builds and tells the admins once an hour', function () {
+it('stores a crash from one of our builds and, when enabled, tells the admins once an hour', function () {
+    config(['storefront.alerts.launch_reports_telegram' => true]);
     $crash = [
         'kind' => 'CRASHED', 'bundle' => 'com.ruappstore.tgabc.team7', 'original_bundle' => 'ru.oneme.app', 'version' => '25.1.0',
         'os' => '16.7', 'model' => 'iPhone10,6', 'shim' => '3', 'detail' => 'SIGSEGV', 'backtrace' => ['0 MAX 0x1', '1 UIKitCore 0x2'],
@@ -44,6 +45,15 @@ it('stores a crash from one of our builds and tells the admins once an hour', fu
 
     $this->artisan('apps:launch-reports', ['report' => $report->id])->expectsOutputToContain('UIKitCore')->assertSuccessful();
     $this->artisan('apps:launch-reports', ['--kind' => 'crashed'])->expectsOutputToContain('SIGSEGV')->assertSuccessful();
+});
+
+it('stores crashes without messaging the admins by default', function () {
+    $this->postJson('/api/v1/telemetry/launch', [
+        'kind' => 'CRASHED', 'bundle' => 'com.ruappstore.tgabc.team7', 'version' => '25.1.0', 'os' => '16.7',
+        'model' => 'iPhone10,6', 'detail' => 'SIGSEGV', 'at' => now()->getTimestamp(),
+    ])->assertStatus(202);
+
+    expect(AppLaunchReport::query()->count())->toBe(1)->and($this->alerts)->toBe([]);
 });
 
 it('records launches quietly and drops reports for bundles we never signed', function () {

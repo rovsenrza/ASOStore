@@ -96,6 +96,9 @@ class TelemetryController extends Controller
     /** One Telegram message per app, team and kind an hour, so a crash loop does not flood the admins. */
     private function alert(AppLaunchReport $report): void
     {
+        if (! config('storefront.alerts.launch_reports_telegram')) {
+            return;
+        }
         if (! Cache::add("launch-alert:{$report->bundle_identifier}:{$report->kind}", true, now()->addHour())) {
             return;
         }
