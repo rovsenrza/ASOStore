@@ -476,3 +476,4 @@ a.stat-card:hover { border-color: var(--ink); }
 .field--grow { flex: 1 1 220px; }
 .field--grow input { width: 100%; }
 .input-short { width: 90px; }
+.badge { white-space: nowrap; }
