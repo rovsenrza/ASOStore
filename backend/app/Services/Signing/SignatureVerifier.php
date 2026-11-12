@@ -181,6 +181,7 @@ class SignatureVerifier
     private function checkDelta(SignedBuild $build, string $packPath, ?string &$inspect = null): ?string
     {
         $artifact = $build->artifact;
+        app(\App\Services\Artifacts\ColdStorage::class)->ensureLocal($artifact);
         $disk = Storage::disk($artifact->storage_disk);
         if (! $disk->getAdapter() instanceof LocalFilesystemAdapter || ! $disk->exists($artifact->storage_path)) {
             return 'DELTA_BASE_MISSING';

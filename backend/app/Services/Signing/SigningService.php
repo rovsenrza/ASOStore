@@ -189,6 +189,8 @@ class SigningService
         if ($build->status !== SignedBuildStatus::SigningPending) {
             return 'SKIPPED_'.$build->status->value;
         }
+        // A cold original comes back now, so the runner's source download finds it local.
+        app(\App\Services\Artifacts\ColdStorage::class)->prefetch($build->artifact);
 
         try {
             $profile = $build->isShared()

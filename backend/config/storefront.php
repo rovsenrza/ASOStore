@@ -317,6 +317,12 @@ return [
     | signed again from the original. StorageJanitor removes idle ones so object storage
     | and the local disk do not fill up as devices × apps grow.
     */
+    // Cold originals (ColdStorage): IPAs idle for `days` live only in the object bucket and come back on demand.
+    'cold_storage' => [
+        'enabled' => (bool) env('ARTIFACTS_COLD_ENABLED', false),
+        'days' => (int) env('ARTIFACTS_COLD_DAYS', 14),
+    ],
+
     'build_storage' => [
         // Kill switch for the scheduled run; `artisan storage:janitor --dry-run` works either way.
         'janitor_enabled' => (bool) env('STOREFRONT_STORAGE_JANITOR_ENABLED', true),

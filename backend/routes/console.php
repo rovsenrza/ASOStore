@@ -102,3 +102,5 @@ if (config('storefront.scheduled_queue_worker')) {
 
 // Instant certificates: revoked/expired ones and a low reseller balance are reported to the bot admins.
 Schedule::command('instant-certs:check')->hourly()->withoutOverlapping();
+// Idle originals leave the local disk (their bucket copy is made nightly at 03:30 by /root/backup-originals.sh).
+Schedule::command('artifacts:cold')->dailyAt('05:00')->withoutOverlapping()->when(fn () => (bool) config('storefront.cold_storage.enabled'));

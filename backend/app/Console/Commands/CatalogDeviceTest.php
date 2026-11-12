@@ -157,6 +157,7 @@ class CatalogDeviceTest extends Command
         }
         $temporary = tempnam(sys_get_temp_dir(), 'composed');
         try {
+            app(\App\Services\Artifacts\ColdStorage::class)->ensureLocal($artifact);
             $basePath = Storage::disk($artifact->storage_disk)->path($artifact->storage_path);
             $out = fopen($temporary, 'wb');
             $core = DeltaComposer::requiredCore($packPath);

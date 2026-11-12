@@ -174,6 +174,7 @@ class ArtifactInspectionService
 
     private function hashMatches(AppArtifact $artifact): bool
     {
+        app(ColdStorage::class)->ensureLocal($artifact);
         $stream = $this->disk($artifact)->readStream($artifact->storage_path);
         if ($stream === null) {
             return false;

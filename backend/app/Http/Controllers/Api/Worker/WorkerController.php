@@ -98,6 +98,7 @@ class WorkerController extends Controller
         $model = $this->job($job);
         $build = $this->signing->assertOwner($model, $this->runner($request));
         $artifact = $build->artifact;
+        app(\App\Services\Artifacts\ColdStorage::class)->ensureLocal($artifact);
 
         return Storage::disk($artifact->storage_disk)->download($artifact->storage_path, $artifact->sha256.'.ipa', [
             'Content-Type' => 'application/octet-stream',

@@ -133,6 +133,7 @@ class InstallDeliveryController extends Controller
     private function streamDelta(Request $request, SignedBuild $build, FilesystemAdapter $signed, string $relative, int $size, int $start, int $end, string $filename): SymfonyResponse
     {
         $artifact = $build->artifact;
+        app(\App\Services\Artifacts\ColdStorage::class)->ensureLocal($artifact);
         $base = Storage::disk($artifact->storage_disk);
         if (! $base->getAdapter() instanceof LocalFilesystemAdapter || ! $base->exists($artifact->storage_path)) {
             Log::error('install.delta_base_missing', ['build' => $build->public_id]);

@@ -98,6 +98,7 @@ class InstallationService
             // The storefront app embeds a one-time login code for this customer, so first launch
             // signs them in without a password.
             $build = $this->signing->requestBuild($artifact, $device, bootstrapUser: $app->is_storefront ? $user : null);
+            app(\App\Services\Artifacts\ColdStorage::class)->prefetch($artifact);
             $installation = Installation::create([
                 'user_id' => $user->id,
                 'device_id' => $device->id,

@@ -3,6 +3,7 @@
 namespace App\Services\Artifacts;
 
 use Illuminate\Filesystem\FilesystemAdapter;
+use Illuminate\Support\Facades\Storage;
 use League\Flysystem\Local\LocalFilesystemAdapter;
 use RuntimeException;
 
@@ -22,6 +23,10 @@ final class LocalArtifactFile
     public static function open(FilesystemAdapter $disk, string $relative): self
     {
         if ($disk->getAdapter() instanceof LocalFilesystemAdapter) {
+            if (! is_file($disk->path($relative)) && $disk->path('') === Storage::disk('artifacts')->path('')) {
+                app(ColdStorage::class)->ensureLocalPath($relative); // a cold original
+            }
+
             return new self($disk->path($relative), false);
         }
 
