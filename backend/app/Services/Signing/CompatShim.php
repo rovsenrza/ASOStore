@@ -31,6 +31,18 @@ class CompatShim
 
     public const VTB_UNMASK_NAME = 'VTBUnmask.dylib';
 
+    /**
+     * Diyorde's generic sideload/integrity/attest bypass set, in load order. An app on the
+     * sideload_bypass list gets these four (ios/sideload-bypass) instead of RuStoreCompat; the
+     * last two (keychain/app-group fixers) stand in for the shim. See ios/sideload-bypass/README.
+     */
+    public const SIDELOAD_BYPASS_NAMES = [
+        'Sideloadbypass1.dylib',
+        'Sideloadbypass2.dylib',
+        'sideloadKeychainFix.dylib',
+        'sideloadFixerLol.dylib',
+    ];
+
     private ?string $encoded = null;
 
     public function enabled(): bool
@@ -69,12 +81,19 @@ class CompatShim
             return $dylibs;
         }
         $dylibs = [];
-        if ($this->enabled() && ! $this->skipped($artifact)
+        // Apps on the sideload_bypass list carry diyorde's four bypass dylibs instead of our shim:
+        // their own keychain/app-group fixers replace RuStoreCompat, so the plain shim is withheld.
+        $sideloadBypass = $this->sideloadBypassDylibsFor($artifact);
+        if ($sideloadBypass === []
+            && $this->enabled() && ! $this->skipped($artifact)
             && ($this->needsShim($artifact) || $this->originalBundleFor($artifact) !== null)) {
             $content = $this->encoded();
             if ($content !== null) {
                 $dylibs[] = ['name' => self::NAME, 'content' => $content];
             }
+        }
+        foreach ($sideloadBypass as $dylib) {
+            $dylibs[] = $dylib;
         }
 
         // The MAX notification-relay hook: ships the session to our server-side mirror, for the
@@ -113,6 +132,54 @@ class CompatShim
         $unmask = $this->deceptiumUnmaskDylibFor($artifact);
         if ($unmask !== null) {
             $dylibs[] = $unmask;
+        }
+
+        return $dylibs;
+    }
+
+    /**
+     * Whether this app gets diyorde's sideload/integrity bypass set: its original vendor bundle id
+     * (the artifact's stored bundle_identifier) matches storefront.signing.sideload_bypass.bundle_ids.
+     */
+    public function hasSideloadBypass(AppArtifact $artifact): bool
+    {
+        if ($this->asIs($artifact)) {
+            return false;
+        }
+        $bundle = $artifact->bundle_identifier;
+        if (! is_string($bundle) || $bundle === '') {
+            return false;
+        }
+        foreach ((array) config('storefront.signing.sideload_bypass.bundle_ids', []) as $pattern) {
+            if (is_string($pattern) && $pattern !== '' && fnmatch($pattern, $bundle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * The four diyorde bypass dylibs (ios/sideload-bypass) for a listed app, in load order, in the
+     * runner's lease shape. Empty when the app is not listed or a dylib file is missing.
+     *
+     * @return list<array{name: string, content: string}>
+     */
+    private function sideloadBypassDylibsFor(AppArtifact $artifact): array
+    {
+        if (! $this->hasSideloadBypass($artifact)) {
+            return [];
+        }
+        $dir = (string) config('storefront.signing.sideload_bypass.dir', base_path('../ios/sideload-bypass'));
+        $dylibs = [];
+        foreach (self::SIDELOAD_BYPASS_NAMES as $name) {
+            $bytes = @file_get_contents($dir.'/'.$name);
+            if ($bytes === false || $bytes === '') {
+                Log::warning('signing.sideload_bypass_missing', ['path' => $dir.'/'.$name, 'bundle' => $artifact->bundle_identifier]);
+
+                continue;
+            }
+            $dylibs[] = ['name' => $name, 'content' => base64_encode($bytes)];
         }
 
         return $dylibs;

@@ -282,6 +282,22 @@ return [
             ))))),
         ],
 
+        // Diyorde-style sideload / integrity bypass: some apps (bank / gov) enforce a native
+        // sideload / integrity / App-Attest gate that fails after re-signing — the app installs and
+        // launches, but login or a feature is blocked because the vendor's RASP sees the re-sign.
+        // Diyorde defeats this WITHOUT patching app code by injecting four generic bypass dylibs
+        // (ios/sideload-bypass) and keeping the real bundle id. We inject the same four for the
+        // listed vendor bundle ids; such an app gets these INSTEAD of RuStoreCompat (their own
+        // keychain/app-group fixers stand in for the shim). Proven on Амина (ru.mos.amina.app);
+        // extended per app here. Match is against the artifact's original vendor bundle id.
+        'sideload_bypass' => [
+            'dir' => env('STOREFRONT_SIDELOAD_BYPASS_DIR', base_path('../ios/sideload-bypass')),
+            'bundle_ids' => array_values(array_filter(array_map('trim', explode(',', (string) env(
+                'STOREFRONT_SIDELOAD_BYPASS_BUNDLE_IDS',
+                'ru.halvacard'
+            ))))),
+        ],
+
         'compat_shim' => [
             'enabled' => (bool) env('STOREFRONT_SIGNING_COMPAT_SHIM', true),
             'path' => env('STOREFRONT_SIGNING_COMPAT_SHIM_PATH', base_path('../ios/compat-shim/RuStoreCompat.dylib')),
