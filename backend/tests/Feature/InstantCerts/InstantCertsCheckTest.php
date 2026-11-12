@@ -32,7 +32,7 @@ beforeEach(function () {
     $team = AppleTeam::create(['apple_team_id' => 'EXTTEAM001', 'name' => 'Ext', 'status' => AppleTeamStatus::External, 'membership_expires_at' => now()->addYear()]);
     $this->cert = ExternalCertificate::create([
         'apple_team_id' => $team->id, 'device_id' => $device->id, 'udid_hash' => $device->udid_hash, 'provider' => 'nekoo',
-        'provider_certificate_id' => 'C1', 'sha1_fingerprint' => str_repeat('a', 40), 'profile_uuid' => 'P1', 'profile_encrypted' => 'x', 'status' => 'ACTIVE',
+        'provider_certificate_id' => 'C1', 'plan' => 'super0', 'common_name' => 'iPhone Distribution: Test Seller (EXTTEAM001)', 'sha1_fingerprint' => str_repeat('a', 40), 'profile_uuid' => 'P1', 'profile_encrypted' => 'x', 'status' => 'ACTIVE',
     ]);
     $this->adminTexts = fn () => collect(Http::recorded())->map(fn ($pair) => $pair[0])
         ->filter(fn (Request $request) => str_contains($request->url(), 'api.telegram.org') && ($request['chat_id'] ?? null) === 1000)
@@ -47,7 +47,13 @@ it('keeps a working certificate and tells the admins when one is revoked', funct
     $this->cert->forceFill(['checked_at' => null])->save();
     $this->artisan('instant-certs:check')->assertSuccessful();
     expect($this->cert->refresh()->status)->toBe('REVOKED')
-        ->and(($this->adminTexts)()->implode(' '))->toContain('сертификат отозван');
+        ->and(($this->adminTexts)()->implode(' '))->toContain('сертификат отозван')
+        ->toContain('UDID: <code>00008030-0000000000000042</code>')
+        ->toContain('iPhone Distribution: Test Seller (EXTTEAM001)')
+        ->toContain('Team ID: <code>EXTTEAM001</code>')
+        ->toContain('<code>C1</code>')
+        ->toContain('instant-certs:manage provision '.$this->cert->device->user->email)
+        ->toContain('instant-certs:manage off '.$this->cert->device->user->email);
 });
 
 it('warns the admins once about a low reseller balance', function () {

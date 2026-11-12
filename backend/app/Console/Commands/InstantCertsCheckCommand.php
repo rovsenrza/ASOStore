@@ -30,7 +30,7 @@ class InstantCertsCheckCommand extends Command
             return self::SUCCESS;
         }
 
-        $certificates = ExternalCertificate::query()->with('device.user')->where('status', 'ACTIVE')
+        $certificates = ExternalCertificate::query()->with(['device.user', 'team'])->where('status', 'ACTIVE')
             ->where(fn ($query) => $query->whereNull('checked_at')->orWhere('checked_at', '<', now()->subMinutes(50)))
             ->limit(200)->get();
         foreach ($certificates as $certificate) {
@@ -55,17 +55,8 @@ class InstantCertsCheckCommand extends Command
             if ($state === 'ACTIVE') {
                 continue;
             }
-            $user = $device->user;
-            $active = $user?->activeSubscription()->first();
             $this->warn("certificate {$certificate->id}: {$state} (device {$device->id})");
-            $messenger->notifyAdmins(new Screen(
-                ($state === 'REVOKED' ? '⚠️ <b>Мгновенный сертификат отозван</b>' : '⚠️ <b>Мгновенный сертификат истёк</b>')."\n\n"
-                .'Аккаунт: '.e($user->email ?? '—')."\n"
-                .'iPhone: '.e(($device->product ?? '?').' · '.($device->udid_hint ?? ''))."\n"
-                .'Подписка: '.($active ? ($active->ends_at ? 'до '.$active->ends_at->format('d.m.Y') : 'без срока') : 'не активна')."\n"
-                .'Гарантия продавца: '.($certificate->warranty_until ? 'до '.$certificate->warranty_until->format('d.m.Y') : '—')."\n\n"
-                .'Приложения на этом iPhone перестанут открываться. Новый сертификат: <code>php artisan instant-certs:manage provision '.e($user->email ?? '').'</code>, или перевод на наши аккаунты: <code>instant-certs:manage off</code>.'
-            ));
+            $messenger->notifyAdmins(new Screen(self::alertText($certificate, $state)));
         }
 
         try {
@@ -81,5 +72,35 @@ class InstantCertsCheckCommand extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * The admin alert for a revoked/expired certificate: everything needed to act on it without
+     * looking anything up (full UDID, certificate name, team, reseller id, ready commands).
+     */
+    public static function alertText(ExternalCertificate $certificate, string $state): string
+    {
+        $device = $certificate->device;
+        $user = $device?->user;
+        $active = $user?->activeSubscription()->first();
+        $udid = $device && $device->udid_encrypted ? UdidHasher::normalize((string) $device->udid_encrypted) : '—';
+        $email = (string) ($user->email ?? '');
+        $artisan = 'cd /var/www/storefront/app/backend &amp;&amp; sudo -u storefront php artisan instant-certs:manage';
+        $date = fn ($value) => $value ? $value->format('d.m.Y H:i') : '—';
+
+        return ($state === 'REVOKED' ? '⚠️ <b>Мгновенный сертификат отозван</b>' : '⚠️ <b>Мгновенный сертификат истёк</b>')."\n\n"
+            .'Аккаунт: '.e($email !== '' ? $email : '—').($user ? ' (user #'.$user->id.')' : '')."\n"
+            .'Устройство: '.e(($device->product ?? '?').($device?->name ? ' «'.$device->name.'»' : '')).' (device #'.($device->id ?? '?').')'."\n"
+            .'UDID: <code>'.e($udid).'</code>'."\n\n"
+            .'Сертификат: <code>'.e($certificate->common_name ?? '—').'</code>'."\n"
+            .'Team ID: <code>'.e($certificate->team->apple_team_id ?? '—').'</code>'."\n"
+            .'ID у продавца: <code>'.e((string) ($certificate->provider_certificate_id ?? '—')).'</code> ('.e($certificate->provider ?? '?').', план '.e($certificate->plan ?? '—').')'."\n"
+            .'SHA-1: <code>'.e($certificate->sha1_fingerprint ?? '—').'</code>'."\n"
+            .'Профиль до: '.$date($certificate->profile_expires_at)."\n"
+            .'Гарантия продавца: '.$date($certificate->warranty_until)."\n"
+            .'Подписка: '.($active ? ($active->ends_at ? 'до '.$active->ends_at->format('d.m.Y') : 'без срока') : 'не активна')."\n\n"
+            .'Приложения на этом устройстве перестанут открываться.'."\n\n"
+            .'Новый сертификат:'."\n<code>{$artisan} provision ".e($email).'</code>'."\n\n"
+            .'Перевод на наши аккаунты:'."\n<code>{$artisan} off ".e($email).'</code>';
     }
 }
