@@ -10,11 +10,12 @@ use App\Services\TelegramStore\Bot\Screen;
 use App\Services\Devices\UdidHasher;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use Throwable;
 
 /**
  * Hourly: asks the reseller whether each instant certificate still works. A revoked or expired one
- * is marked so and the admins hear about it in the bot (nothing is bought again on its own: the
+ * (twice in a row, an hour apart, each confirmed by a second full request) is marked so and the admins hear about it in the bot (nothing is bought again on its own: the
  * admin decides, e.g. `instant-certs:manage provision <email>`). Also warns when the prepaid
  * reseller balance runs low, since new instant customers would then be stuck.
  */
@@ -38,23 +39,40 @@ class InstantCertsCheckCommand extends Command
             if ($device === null || ! $device->udid_encrypted) {
                 continue;
             }
+            $udid = UdidHasher::normalize((string) $device->udid_encrypted);
             try {
-                $found = collect($api->certificates(UdidHasher::normalize((string) $device->udid_encrypted), true))
-                    ->first(fn (array $row) => (string) ($row['id'] ?? '') === (string) $certificate->provider_certificate_id);
+                [$state, $found] = $this->stateAtReseller($api, $udid, $certificate, true);
+                if ($state !== 'ACTIVE') {
+                    // The reseller's API sometimes answers wrong for a moment (2026-11-12: a working
+                    // certificate came back as not valid and the customer lost installs for hours).
+                    // Ask again in full before believing it.
+                    sleep($this->retryDelaySeconds());
+                    [$state, $found] = $this->stateAtReseller($api, $udid, $certificate, false);
+                }
             } catch (Throwable $e) {
                 $this->warn("certificate {$certificate->id}: {$e->getMessage()}");
 
                 continue;
             }
-            $state = match (true) {
-                $found === null, ($found['status'] ?? null) === 'revoked', ($found['provision_valid'] ?? true) === false => 'REVOKED',
-                ($found['status'] ?? null) === 'expired', ($found['expired'] ?? false) === true => 'EXPIRED',
-                default => 'ACTIVE',
-            };
-            $certificate->forceFill(['status' => $state, 'checked_at' => now()])->save();
+            $strikeKey = "instant-certs:strike:{$certificate->id}";
             if ($state === 'ACTIVE') {
+                Cache::forget($strikeKey);
+                $certificate->forceFill(['checked_at' => now()])->save();
+
                 continue;
             }
+            Log::warning('instant_cert.check_bad', ['certificate' => $certificate->id, 'device' => $device->id, 'state' => $state, 'reseller' => $found === null ? null : collect($found)->except('p12', 'mobileprovision', 'provision')->all()]);
+            // Only a second bad hourly check in a row counts: until then the certificate stays usable.
+            $strikes = (int) Cache::get($strikeKey, 0) + 1;
+            if ($strikes < 2) {
+                Cache::put($strikeKey, $strikes, now()->addHours(3));
+                $certificate->forceFill(['checked_at' => now()])->save();
+                $this->warn("certificate {$certificate->id}: {$state} once (device {$device->id}), waiting for the next check");
+
+                continue;
+            }
+            Cache::forget($strikeKey);
+            $certificate->forceFill(['status' => $state, 'checked_at' => now()])->save();
             $this->warn("certificate {$certificate->id}: {$state} (device {$device->id})");
             $messenger->notifyAdmins(new Screen(self::alertText($certificate, $state)));
         }
@@ -72,6 +90,27 @@ class InstantCertsCheckCommand extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * @return array{0: string, 1: array<string, mixed>|null} ACTIVE | REVOKED | EXPIRED and the reseller's row
+     */
+    private function stateAtReseller(NekooClient $api, string $udid, ExternalCertificate $certificate, bool $light): array
+    {
+        $found = collect($api->certificates($udid, $light))
+            ->first(fn (array $row) => (string) ($row['id'] ?? '') === (string) $certificate->provider_certificate_id);
+        $state = match (true) {
+            $found === null, ($found['status'] ?? null) === 'revoked', ($found['provision_valid'] ?? true) === false => 'REVOKED',
+            ($found['status'] ?? null) === 'expired', ($found['expired'] ?? false) === true => 'EXPIRED',
+            default => 'ACTIVE',
+        };
+
+        return [$state, $found];
+    }
+
+    private function retryDelaySeconds(): int
+    {
+        return app()->runningUnitTests() ? 0 : 10;
     }
 
     /**

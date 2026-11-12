@@ -46,6 +46,11 @@ it('keeps a working certificate and tells the admins when one is revoked', funct
     $this->status = 'revoked';
     $this->cert->forceFill(['checked_at' => null])->save();
     $this->artisan('instant-certs:check')->assertSuccessful();
+    // One bad answer is not trusted: the certificate keeps working until the next check agrees.
+    expect($this->cert->refresh()->status)->toBe('ACTIVE')->and(($this->adminTexts)())->toBeEmpty();
+
+    $this->cert->forceFill(['checked_at' => null])->save();
+    $this->artisan('instant-certs:check')->assertSuccessful();
     expect($this->cert->refresh()->status)->toBe('REVOKED')
         ->and(($this->adminTexts)()->implode(' '))->toContain('сертификат отозван')
         ->toContain('UDID: <code>00008030-0000000000000042</code>')
@@ -54,6 +59,18 @@ it('keeps a working certificate and tells the admins when one is revoked', funct
         ->toContain('<code>C1</code>')
         ->toContain('instant-certs:manage provision '.$this->cert->device->user->email)
         ->toContain('instant-certs:manage off '.$this->cert->device->user->email);
+});
+
+it('forgets a one-off bad answer from the reseller', function () {
+    $this->status = 'revoked';
+    $this->artisan('instant-certs:check')->assertSuccessful();
+    $this->status = 'signed';
+    $this->cert->forceFill(['checked_at' => null])->save();
+    $this->artisan('instant-certs:check')->assertSuccessful();
+    $this->status = 'revoked';
+    $this->cert->forceFill(['checked_at' => null])->save();
+    $this->artisan('instant-certs:check')->assertSuccessful();
+    expect($this->cert->refresh()->status)->toBe('ACTIVE')->and(($this->adminTexts)())->toBeEmpty();
 });
 
 it('warns the admins once about a low reseller balance', function () {
