@@ -13,6 +13,7 @@ use App\Models\Device;
 use App\Models\DeviceRegistration;
 use App\Services\Audit\AuditService;
 use App\Services\Devices\DeviceRegistrationService;
+use App\Services\Devices\UdidHasher;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -24,6 +25,9 @@ use Illuminate\Validation\Rule;
  */
 class DeviceController extends Controller
 {
+    /** Admins (devices.reveal-udid) see full UDIDs in lists; others the last four characters. */
+    private bool $showUdid = false;
+
     public function index(Request $request): JsonResponse
     {
         $filters = $request->validate([
@@ -36,11 +40,14 @@ class DeviceController extends Controller
         ]);
 
         $query = Device::query()->with(['user', 'latestRegistration.team'])->latest('id');
+        $this->showUdid = $request->user()?->can('devices.reveal-udid') ?? false;
 
         if (filled($filters['q'] ?? null)) {
             $term = $filters['q'];
+            $compact = preg_replace('/[^0-9A-Za-z]/', '', $term) ?? '';
             $query->where(fn (Builder $where) => $where
-                ->where('udid_hint', strtoupper(substr(preg_replace('/[^0-9A-Za-z]/', '', $term) ?? '', -4)))
+                ->where('udid_hint', strtoupper(substr($compact, -4)))
+                ->when(strlen($compact) >= 20, fn (Builder $full) => $full->orWhere('udid_hash', app(UdidHasher::class)->hash($term)))
                 ->orWhereHas('user', fn (Builder $user) => $user->where('email', 'like', '%'.addcslashes($term, '%_\\').'%')));
         }
         if (filled($filters['status'] ?? null)) {
@@ -60,6 +67,7 @@ class DeviceController extends Controller
 
     public function show(Request $request, Device $device): JsonResponse
     {
+        $this->showUdid = $request->user()?->can('devices.reveal-udid') ?? false;
         $device->load(['user', 'latestRegistration.team', 'registrations' => fn ($query) => $query->with('team')->latest('id')]);
 
         $history = AuditLog::query()
@@ -122,6 +130,7 @@ class DeviceController extends Controller
             'id' => $device->public_id,
             'user' => ['id' => $device->user->public_id, 'number' => $device->user->id, 'email' => $device->user->email],
             'udid_hint' => $device->maskedUdid(),
+            'udid' => $this->showUdid ? $device->udid_encrypted : null,
             'product' => $device->product,
             'family' => $device->device_family->value,
             'os_version' => $device->os_version,

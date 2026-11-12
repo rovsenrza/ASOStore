@@ -448,3 +448,31 @@ a.stat-card:hover { border-color: var(--ink); }
 .bot-menu-preview { display: grid; gap: 6px; padding: var(--space-3); background: #e7eef7; border-radius: 14px; }
 .bot-menu-row { display: flex; gap: 6px; }
 .bot-menu-button { flex: 1; padding: 8px 6px; text-align: center; font-size: .8rem; background: rgba(255,255,255,.85); border-radius: 8px; box-shadow: 0 1px 0 rgba(0,0,0,.08); }
+
+/* Clients list + compact customer card (2026-11-13) */
+.small { font-size: .78rem; }
+.stack-tight { display: grid; gap: 2px; justify-items: start; }
+.stat-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.stat-chip { display: inline-flex; align-items: baseline; gap: var(--space-2); padding: 6px 12px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-size: .8rem; color: var(--ink-soft); }
+.stat-chip strong { font: 600 1rem var(--font-display); color: var(--ink); }
+.stat-chip:hover { border-color: var(--ink); }
+.clients-table .data-table th, .clients-table .data-table td { padding: 8px var(--space-3); vertical-align: top; }
+.device-line { display: flex; flex-wrap: wrap; align-items: center; gap: 4px var(--space-2); font-size: .82rem; }
+.udid-chip { padding: 1px 6px; border: 1px dashed var(--line); background: var(--surface-muted); color: var(--ink); cursor: copy; user-select: all; }
+.udid-chip:hover { border-color: var(--ink); }
+.link-button { padding: 0; border: 0; background: none; color: var(--ink-soft); text-decoration: underline; cursor: pointer; font-size: .78rem; }
+.customer-head { display: grid; gap: var(--space-3); padding-bottom: var(--space-3); border-bottom: 1px solid var(--line); }
+.customer-head__badges { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.details--compact { grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: var(--space-2) var(--space-4); }
+.details--compact dd { font-size: .85rem; }
+.customer-devices { display: grid; gap: var(--space-1); }
+.card-tabs-wrap { display: grid; gap: var(--space-3); }
+.card-tabs { flex-wrap: wrap; }
+.card-tabs [role="tab"] { padding: 8px var(--space-3); font-size: .85rem; }
+.card-tab-panel { display: grid; gap: var(--space-3); }
+.card-tab-panel h3 { margin: var(--space-2) 0 0; }
+.device-block { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--line); }
+.form-inline { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-2) var(--space-3); }
+.field--grow { flex: 1 1 220px; }
+.field--grow input { width: 100%; }
+.input-short { width: 90px; }

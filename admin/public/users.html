@@ -6,7 +6,7 @@
   <link rel="icon" type="image/png" sizes="32x32" href="assets/brand/ru-app-store-logo-32.png">
   <link rel="apple-touch-icon" href="assets/brand/ru-app-store-logo-180.png">
   <meta name="robots" content="noindex, nofollow">
-  <title>Пользователи — Ru App Store Admin</title>
+  <title>Клиенты — Ru App Store Admin</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -19,8 +19,7 @@
       <a class="brand" href="index.html"><img src="assets/brand/ru-app-store-logo-64.png" alt="" width="32" height="32">Ru App Store<small>Операторская панель</small></a>
       <nav aria-label="Разделы">
         <a href="index.html">Панель</a>
-        <a href="users.html">Пользователи</a>
-        <a href="subscriptions.html">Подписки</a>
+        <a href="users.html">Клиенты</a>
         <a href="devices.html">Устройства</a>
         <a href="home.html">Главная приложения</a>
         <a href="apps.html">Приложения</a>
@@ -37,11 +36,11 @@
       <p class="sidebar-foot">Доступ по ролям. Все действия записываются в журнал аудита.</p>
     </aside>
     <div class="main">
-      <header class="topbar"><h1>Пользователи</h1></header>
+      <header class="topbar"><h1>Клиенты</h1></header>
       <main class="content" id="main">
         <div class="page-actions">
           <div class="tabs" role="tablist" aria-label="Разделы">
-            <button type="button" role="tab" id="tab-users" aria-controls="panel-users" aria-selected="true">Пользователи</button>
+            <button type="button" role="tab" id="tab-users" aria-controls="panel-users" aria-selected="true">Клиенты</button>
             <button type="button" role="tab" id="tab-codes" aria-controls="panel-codes" aria-selected="false" tabindex="-1">Коды активации</button>
             <button type="button" role="tab" id="tab-tickets" aria-controls="panel-tickets" aria-selected="false" tabindex="-1">Обращения</button>
           </div>
@@ -49,7 +48,9 @@
         </div>
 
         <section id="panel-users" role="tabpanel" aria-labelledby="tab-users">
-          <div id="users-table"></div>
+          <div class="stat-chips" id="clients-summary"></div>
+          <div id="users-table" class="clients-table"></div>
+          <p class="muted small">Аккаунт, срок доступа и iPhone клиента — в одной строке; карточка открывается по email. Регистрации по командам Apple — в разделе <a href="devices.html">Устройства</a>.</p>
         </section>
 
         <section id="panel-tickets" role="tabpanel" aria-labelledby="tab-tickets" hidden>

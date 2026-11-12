@@ -2,48 +2,9 @@
 <html lang="ru">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="icon" type="image/png" sizes="32x32" href="assets/brand/ru-app-store-logo-32.png">
-  <link rel="apple-touch-icon" href="assets/brand/ru-app-store-logo-180.png">
   <meta name="robots" content="noindex, nofollow">
-  <title>Подписки — Ru App Store Admin</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="css/admin.css">
-  <script type="module" src="js/pages/subscriptions.js"></script>
+  <title>Клиенты — Ru App Store Admin</title>
+  <script>location.replace('users.html' + (location.search || '?state=active'));</script>
 </head>
-<body>
-  <div class="admin-shell">
-    <aside class="sidebar">
-      <a class="brand" href="index.html"><img src="assets/brand/ru-app-store-logo-64.png" alt="" width="32" height="32">Ru App Store<small>Операторская панель</small></a>
-      <nav aria-label="Разделы">
-        <a href="index.html">Панель</a>
-        <a href="users.html">Пользователи</a>
-        <a href="subscriptions.html">Подписки</a>
-        <a href="devices.html">Устройства</a>
-        <a href="home.html">Главная приложения</a>
-        <a href="apps.html">Приложения</a>
-        <a href="publish.html">Быстрая публикация</a>
-        <a href="promo.html">Видео для канала</a>
-        <a href="store.html">Магазин</a>
-        <a href="sales.html">Продажи</a>
-        <a href="bot.html">Telegram-бот</a>
-        <a href="artifacts.html">Артефакты</a>
-        <a href="teams.html">Команды Apple</a>
-        <a href="jobs.html">Задачи</a>
-        <a href="audit.html">Аудит</a>
-      </nav>
-      <p class="sidebar-foot">Доступ по ролям. Все действия записываются в журнал аудита.</p>
-    </aside>
-    <div class="main">
-      <header class="topbar"><h1>Подписки</h1></header>
-      <main class="content" id="main">
-        <p class="muted">Когда у каждого клиента кончается доступ (по последней активной подписке). Сверху — те, у кого осталось меньше всего. Нажмите на клиента, чтобы открыть карточку и продлить срок.</p>
-        <div class="stat-grid" id="sub-summary"></div>
-        <div id="subs-table"></div>
-      </main>
-    </div>
-  </div>
-</body>
+<body><p>Подписки теперь в разделе <a href="users.html?state=active">Клиенты</a>.</p></body>
 </html>

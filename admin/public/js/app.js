@@ -8,7 +8,6 @@ import ru from './i18n/ru.js';
  */
 const NAV_PERMISSIONS = {
   'users.html': ['users.view', 'activation-codes.view'],
-  'subscriptions.html': ['users.view'],
   'audit.html': ['audit.view'],
   'devices.html': ['devices.view'],
   'apps.html': ['catalog.view'],

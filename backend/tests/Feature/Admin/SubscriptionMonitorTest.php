@@ -35,7 +35,7 @@ it('lists active customers soonest first with the time left and window counts', 
         ->and($response->json('data.0.seconds_left'))->toBeGreaterThan(11 * 3600)->toBeLessThanOrEqual(12 * 3600)
         ->and($response->json('data.3.unlimited'))->toBeTrue()
         ->and($response->json('meta.summary'))->toMatchArray([
-            'active' => 4, 'ending1' => 1, 'ending3' => 1, 'ending7' => 2, 'expired7' => 1, 'expired' => 2, 'unlimited' => 1, 'all' => 6,
+            'active' => 4, 'ending1' => 1, 'ending3' => 1, 'ending7' => 2, 'expired7' => 1, 'expired' => 2, 'unlimited' => 1, 'none' => 2, 'all' => 8,
         ]);
 });
 

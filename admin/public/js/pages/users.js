@@ -4,7 +4,7 @@ import { createDataTable } from '../components/data-table.js';
 import { openDialog } from '../components/dialog.js';
 import { statusBadge } from '../components/status-badge.js';
 import { toast } from '../components/toast.js';
-import { openCustomerCard } from '../components/customer-card.js';
+import { deviceLine, openCustomerCard, telegramLink } from '../components/customer-card.js';
 
 const { api, t, can, me } = await boot();
 const ROLES = ['customer', 'support', 'catalog_manager', 'admin'];
@@ -30,154 +30,108 @@ tabs.forEach((tab) => {
 });
 selectTab(tabs.find((tab) => !tab.hidden));
 
-/* ---------- Users ---------- */
+/* ---------- Clients: account + access + iPhones in one table ---------- */
 
-const roleLabels = (roles) => roles.map((role) => t(`roles.${role}`)).join(', ') || t('common.none');
+const ctx = { api, t, can, me };
+const STATES = [
+  ['all', 'Все'],
+  ['active', 'С доступом'],
+  ['ending1', 'Кончается за 24 ч'],
+  ['ending3', 'Кончается за 3 дня'],
+  ['ending7', 'Кончается за 7 дней'],
+  ['expired7', 'Закончилась за 7 дней'],
+  ['expired', 'Закончилась'],
+  ['unlimited', 'Бессрочно'],
+  ['none', 'Никогда не было'],
+];
 
-const usersTable = can('users.view') && createDataTable({
+/** «12 дн 5 ч», «5 ч 20 мин», «3 дн назад». */
+function leftText(seconds, unlimited) {
+  if (unlimited) return 'бессрочно';
+  if (seconds === null || seconds === undefined) return 'нет подписки';
+  const abs = Math.abs(seconds);
+  const days = Math.floor(abs / 86400);
+  const hours = Math.floor((abs % 86400) / 3600);
+  const minutes = Math.floor((abs % 3600) / 60);
+  const text = days ? `${days} дн${hours ? ` ${hours} ч` : ''}` : hours ? `${hours} ч${minutes ? ` ${minutes} мин` : ''}` : `${minutes} мин`;
+  return seconds > 0 ? text : `${text} назад`;
+}
+
+function accessCell(row) {
+  const s = row.seconds_left;
+  const tone = row.unlimited ? 'ok' : s === null ? 'neutral' : s <= 0 ? 'error' : s <= 86400 * 3 ? 'warn' : 'ok';
+  return el('span', { className: 'stack-tight' },
+    el('span', { className: `badge badge--${tone}` }, leftText(s, row.unlimited)),
+    row.ends_at ? el('span', { className: 'muted small' }, `до ${formatDateTime(row.ends_at)}`) : null);
+}
+
+function clientCell(row) {
+  const staff = (row.roles ?? []).filter((r) => r !== 'customer');
+  return el('span', { className: 'stack-tight' },
+    el('a', { href: '#', onclick: (e) => { e.preventDefault(); openCustomerCard(ctx, row.id, { onChange: () => clients?.reload() }); } }, row.email),
+    el('span', { className: 'muted small' }, `№${row.number}`, row.name && row.name !== row.email ? ` · ${row.name}` : '',
+      row.status !== 'ACTIVE' ? ' · заблокирован' : '', staff.length ? ` · ${staff.map((r) => t(`roles.${r}`)).join(', ')}` : ''));
+}
+
+function devicesCell(row) {
+  if (!row.device_list?.length) return el('span', { className: 'muted' }, '—');
+  return el('span', { className: 'stack-tight' }, ...row.device_list.map((d) => deviceLine(d)),
+    row.devices > row.device_list.length ? el('span', { className: 'muted small' }, `ещё ${row.devices - row.device_list.length}`) : null);
+}
+
+const summaryBox = document.querySelector('#clients-summary');
+let stateSelect;
+
+function renderSummary(summary) {
+  summaryBox.replaceChildren(...STATES.filter(([key]) => key !== 'all').map(([key, label]) => el('button', {
+    type: 'button', className: 'stat-chip', onclick: () => selectState(key),
+  }, el('span', {}, label), el('strong', {}, String(summary?.[key] ?? 0)))));
+}
+
+const clients = can('users.view') && createDataTable({
   container: document.querySelector('#users-table'),
   t,
-  caption: t('codes.usersTab'),
-  searchLabel: 'Имя, email, №, @telegram или Telegram ID',
+  perPage: 50,
+  caption: 'Клиенты',
+  searchLabel: 'Email, имя, №, @telegram, UDID или 4 последних символа',
   filters: [
+    { name: 'state', label: 'Доступ', type: 'select', options: STATES },
     { name: 'role', label: t('users.roles'), type: 'select', options: [['', t('users.allRoles')], ...ROLES.map((role) => [role, t(`roles.${role}`)])] },
-    { name: 'status', label: t('users.status'), type: 'select', options: [['', t('users.allStatuses')], ['ACTIVE', t('userStatus.ACTIVE')], ['SUSPENDED', t('userStatus.SUSPENDED')]] },
-    { name: 'access', label: 'Доступ', type: 'select', options: [['', 'Любой доступ'], ['active', 'Доступ есть'], ['ending7', 'Кончается за 7 дней'], ['expired', 'Закончился'], ['none', 'Никогда не было']] },
   ],
   columns: [
-    { key: 'number', label: '№', render: (user) => el('span', { className: 'mono' }, String(user.number ?? '')) },
-    { key: 'name', label: t('users.name'), sortable: true },
-    { key: 'email', label: t('users.email'), sortable: true },
-    { key: 'roles', label: t('users.roles'), render: (user) => roleLabels(user.roles) },
-    { key: 'status', label: t('users.status'), render: (user) => statusBadge(user.status, t(`userStatus.${user.status}`)) },
-    { key: 'totp_enabled', label: t('users.totp'), render: (user) => (user.totp_enabled ? t('common.yes') : t('common.none')) },
-    { key: 'subscription', label: t('users.subscription'), render: (user) => subscriptionText(user.subscription) },
-    { key: 'last_login_at', label: t('users.lastLogin'), sortable: true, render: (user) => formatDateTime(user.last_login_at) },
-    { key: 'actions', label: '', render: (user) => el('span', { className: 'button-row button-row--tight' },
-      el('button', { type: 'button', className: 'button button--primary', onclick: () => openCustomerCard({ api, t, can }, user.id, { onChange: () => usersTable?.reload() }) }, t('common.open')),
-      el('button', { type: 'button', className: 'button', onclick: () => openUser(user.id) }, 'Учётная запись')) },
+    { key: 'email', label: 'Клиент', render: clientCell },
+    { key: 'telegram', label: 'Telegram', render: (r) => (r.telegram ? telegramLink(r.telegram) : '—') },
+    { key: 'seconds_left', label: 'Доступ', render: accessCell },
+    { key: 'device_list', label: 'Устройства · UDID · регистрация', render: devicesCell },
+    { key: 'actions', label: '', render: (r) => el('button', { type: 'button', className: 'button', onclick: () => openCustomerCard(ctx, r.id, { onChange: () => clients?.reload() }) }, t('common.open')) },
   ],
   fetchPage: async ({ page, perPage, query, filters, signal }) => {
-    const params = new URLSearchParams({ page, per_page: perPage, ...filters });
+    const params = new URLSearchParams({ page, per_page: perPage, state: 'all', ...filters });
     if (query) params.set('q', query);
-    const { data, meta } = await api.get(`/admin/users?${params}`, { signal });
+    const { data, meta } = await api.get(`/admin/subscriptions?${params}`, { signal });
+    renderSummary(meta.summary);
     return { rows: data, pagination: meta.pagination };
   },
 });
 
-function subscriptionText(subscription) {
-  if (!subscription) return t('users.noSubscription');
-  if (!subscription.ends_at) return t('users.unlimited');
-  const days = (new Date(subscription.ends_at) - Date.now()) / 86400000;
-  return `${formatDate(subscription.ends_at)} · ${days.toFixed(1).replace('.', ',')} дн`;
+stateSelect = document.querySelector('#users-table select');
+
+function selectState(key) {
+  if (!stateSelect) return;
+  stateSelect.value = key;
+  stateSelect.dispatchEvent(new Event('change'));
+  history.replaceState(null, '', `?state=${key}`);
 }
 
-function definitionList(pairs) {
-  return el('dl', { className: 'details' }, pairs.map(([term, value]) => el('div', {}, el('dt', {}, term), el('dd', {}, value))));
-}
-
-async function openUser(id) {
-  const panel = openDialog(t, { title: t('common.loading'), body: el('p', {}, t('common.loading')), wide: true });
-
-  async function render() {
-    try {
-      const { data: user } = await api.get(`/admin/users/${id}`);
-      panel.dialog.querySelector('h2').textContent = user.name;
-      panel.setBody(...userDetail(user, render));
-    } catch (error) {
-      panel.setBody(errorNotice(t, error, render));
-    }
-  }
-
-  await render();
-}
-
-function userDetail(user, refresh) {
-  const nodes = [
-    definitionList([
-      [t('users.email'), user.email],
-      [t('users.status'), statusBadge(user.status, t(`userStatus.${user.status}`))],
-      [t('users.roles'), roleLabels(user.roles)],
-      [t('users.totp'), user.totp_enabled ? t('common.yes') : t('common.none')],
-      [t('users.subscription'), subscriptionText(user.subscription)],
-      [t('users.lastLogin'), formatDateTime(user.last_login_at)],
-      [t('users.created'), formatDateTime(user.created_at)],
-    ]),
-  ];
-
-  if (can('users.manage')) nodes.push(userActions(user, refresh));
-
-  nodes.push(el('h3', {}, t('users.subscriptions')));
-  nodes.push(user.subscriptions.length
-    ? el('ul', { className: 'plain-list' }, user.subscriptions.map((sub) => el('li', {}, `${sub.plan} · ${formatDate(sub.starts_at)} — ${sub.ends_at ? formatDate(sub.ends_at) : t('users.unlimited')} · ${sub.status}`)))
-    : el('p', { className: 'muted' }, t('users.noSubscription')));
-
-  nodes.push(el('h3', {}, t('users.activity')));
-  nodes.push(user.recent_activity.length
-    ? el('ul', { className: 'plain-list' }, user.recent_activity.map((entry) => el('li', {},
-      el('span', { className: 'muted' }, formatDateTime(entry.occurred_at)), ' ',
-      el('span', { className: 'mono' }, entry.action),
-      entry.reason ? ` — ${entry.reason}` : '')))
-    : el('p', { className: 'muted' }, t('users.noActivity')));
-
-  return nodes;
-}
-
-function userActions(user, refresh) {
-  const isSelf = user.id === me.id;
-  const roleBoxes = ROLES.map((role) => el('label', { className: 'check' },
-    el('input', { type: 'checkbox', name: 'roles', value: role, checked: user.roles.includes(role), disabled: isSelf && role === 'admin' }),
-    ` ${t(`roles.${role}`)}`));
-
-  const saveRoles = el('button', { type: 'button', className: 'button button--primary' }, t('users.saveRoles'));
-  saveRoles.addEventListener('click', async () => {
-    const roles = roleBoxes.map((label) => label.querySelector('input')).filter((box) => box.checked).map((box) => box.value);
-    const { confirmed, reason } = await confirmAction(t, { title: t('users.rolesTitle'), message: t('users.rolesMessage'), requireReason: true });
-    if (!confirmed) return;
-    await act(() => api.put(`/admin/users/${user.id}/roles`, { roles, reason }), t('users.rolesSaved'), refresh);
-  });
-
-  const suspended = user.status === 'SUSPENDED';
-  const toggleStatus = el('button', { type: 'button', className: `button ${suspended ? '' : 'button--danger'}`, disabled: isSelf },
-    suspended ? t('users.reactivate') : t('users.suspend'));
-  toggleStatus.addEventListener('click', async () => {
-    const { confirmed, reason } = await confirmAction(t, {
-      title: suspended ? t('users.reactivateTitle') : t('users.suspendTitle'),
-      message: suspended ? t('users.reactivateMessage') : t('users.suspendMessage'),
-      danger: !suspended,
-      requireReason: true,
-    });
-    if (!confirmed) return;
-    await act(() => api.patch(`/admin/users/${user.id}`, { status: suspended ? 'ACTIVE' : 'SUSPENDED', reason }), t('users.statusSaved'), refresh);
-  });
-
-  const resetTotp = el('button', { type: 'button', className: 'button', disabled: !user.totp_enabled }, t('users.resetTotp'));
-  resetTotp.addEventListener('click', async () => {
-    const { confirmed, reason } = await confirmAction(t, { title: t('users.resetTotpTitle'), message: t('users.resetTotpMessage'), danger: true, requireReason: true });
-    if (!confirmed) return;
-    await act(() => api.post(`/admin/users/${user.id}/totp/reset`, { reason }), t('users.totpReset'), refresh);
-  });
-
-  // Irreversible erasure (P8-SEC-02): the operator retypes the email as confirmation.
-  const erase = el('button', { type: 'button', className: 'button button--danger', disabled: isSelf || Boolean(user.erased_at) }, t('users.erase'));
-  erase.addEventListener('click', async () => {
-    const { confirmed, reason } = await confirmAction(t, { title: t('users.eraseTitle'), message: t('users.eraseMessage', { email: user.email }), danger: true, requireReason: true });
-    if (!confirmed) return;
-    const typed = window.prompt(t('users.eraseConfirmEmail'));
-    if (typed === null) return;
-    await act(() => api.post(`/admin/users/${user.id}/erase`, { confirm_email: typed.trim(), reason }, { idempotencyKey: newIdempotencyKey('erase') }), t('users.erased'), refresh);
-  });
-
-  return el('section', { className: 'card actions-card' },
-    el('fieldset', { className: 'role-set' }, el('legend', {}, t('users.roles')), roleBoxes),
-    el('div', { className: 'button-row' }, saveRoles, toggleStatus, resetTotp, erase));
-}
+const initialState = new URLSearchParams(location.search).get('state');
+if (initialState && STATES.some(([key]) => key === initialState)) selectState(initialState);
+const usersTable = clients;
 
 async function act(request, successMessage, refresh) {
   try {
     await request();
     toast(successMessage, { tone: 'ok' });
-    await refresh();
+    await refresh?.();
     usersTable?.reload();
   } catch (error) {
     toast(t.error(error), { tone: 'error' });

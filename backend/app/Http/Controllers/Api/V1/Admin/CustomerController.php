@@ -36,9 +36,10 @@ class CustomerController extends Controller
         private readonly AccountContacts $contacts,
     ) {}
 
-    public function profile(User $user): JsonResponse
+    public function profile(Request $request, User $user): JsonResponse
     {
-        $user->load(['devices.registrations.team', 'subscriptions' => fn ($query) => $query->latest('id')]);
+        $user->load(['roles', 'devices.registrations.team', 'subscriptions' => fn ($query) => $query->latest('id')]);
+        $showUdid = $request->user()?->can('devices.reveal-udid') ?? false;
 
         $subscriptionIds = $user->subscriptions->pluck('public_id');
         $extensions = AuditLog::query()->where('subject_type', 'subscription')->whereIn('subject_id', $subscriptionIds->all())
@@ -59,6 +60,12 @@ class CustomerController extends Controller
             'email' => $user->email,
             'status' => $user->status->value,
             'created_at' => $user->created_at?->toIso8601ZuluString(),
+            'account' => [
+                'roles' => $user->roleSlugs(),
+                'totp_enabled' => $user->hasConfirmedTotp(),
+                'last_login_at' => $user->last_login_at?->toIso8601ZuluString(),
+                'erased_at' => $user->erased_at?->toIso8601ZuluString(),
+            ],
             'access' => [
                 'unlimited' => $unlimited,
                 'ends_at' => $unlimited ? null : ($lastEnd ? Carbon::parse($lastEnd)->toIso8601ZuluString() : null),
@@ -94,6 +101,7 @@ class CustomerController extends Controller
             'devices' => $user->devices->sortByDesc('id')->map(fn (Device $device) => [
                 'id' => $device->public_id,
                 'udid_hint' => $device->maskedUdid(),
+                'udid' => $showUdid ? $device->udid_encrypted : null,
                 'product' => $device->product,
                 'name' => $device->name,
                 'os_version' => $device->os_version,

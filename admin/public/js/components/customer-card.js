@@ -41,12 +41,43 @@ function table(headers, rows, empty = 'Нет данных.') {
     el('tbody', {}, rows.map((cells) => el('tr', {}, cells.map((c) => el('td', {}, c ?? '—')))))));
 }
 
-function section(title, ...children) {
-  return el('section', { className: 'card-section' }, el('h3', {}, title), ...children);
+/** The UDID as admins see it (full, click to copy) or its last four characters for everyone else. */
+export function udidChip(device) {
+  if (!device.udid) return el('span', { className: 'mono muted' }, device.udid_hint);
+  return el('button', { type: 'button', className: 'udid-chip mono', title: 'Скопировать UDID', onclick: async (event) => {
+    event.stopPropagation();
+    await navigator.clipboard.writeText(device.udid);
+    toast('UDID скопирован', { tone: 'ok' });
+  } }, device.udid);
+}
+
+const REG_TONE = { ELIGIBLE: 'ok', DISABLED: 'neutral', APPLE_FAILED: 'error', QUOTA_BLOCKED: 'error', NO_ELIGIBLE_TEAM: 'error' };
+
+/** One device on one line: model · iOS · UDID · registration · team. */
+export function deviceLine(device, registration = device.registration, team = device.team) {
+  return el('div', { className: 'device-line' },
+    el('strong', {}, device.product || device.name || 'Устройство'),
+    device.os_version ? el('span', { className: 'muted' }, `iOS ${device.os_version}`) : null,
+    udidChip(device),
+    registration ? el('span', { className: `badge badge--${REG_TONE[registration] ?? 'warn'}` }, regStatusLabel(registration)) : el('span', { className: 'badge badge--neutral' }, 'Не подключено'),
+    team ? el('span', { className: 'mono muted' }, team) : null);
+}
+
+function tabs(items) {
+  const visible = items.filter(Boolean);
+  const bar = el('div', { className: 'tabs card-tabs', role: 'tablist' });
+  const panels = visible.map(([, build]) => el('div', { className: 'card-tab-panel', role: 'tabpanel', hidden: true }, ...[].concat(build())));
+  const buttons = visible.map(([label], index) => el('button', { type: 'button', role: 'tab', onclick: () => select(index) }, label));
+  function select(index) {
+    buttons.forEach((b, i) => { b.setAttribute('aria-selected', String(i === index)); panels[i].hidden = i !== index; });
+  }
+  bar.append(...buttons);
+  select(0);
+  return el('div', { className: 'card-tabs-wrap' }, bar, ...panels);
 }
 
 export async function openCustomerCard(ctx, userId, { onChange } = {}) {
-  const { api, can } = ctx;
+  const { api, can, t } = ctx;
   const panel = openDialog(ctx.t, { title: 'Загрузка…', body: el('p', {}, 'Загрузка…'), wide: true, onClose: onChange });
 
   async function render() {
@@ -71,64 +102,115 @@ export async function openCustomerCard(ctx, userId, { onChange } = {}) {
 
   function build(user) {
     const access = user.access;
-    const accessText = access.unlimited ? 'Бессрочно'
-      : access.ends_at ? `${formatDateTime(access.ends_at)} · ${access.days_left > 0 ? `осталось ${String(access.days_left).replace('.', ',')} дн` : 'закончилась'}` : 'Нет подписки';
+    const left = access.unlimited ? 'бессрочно'
+      : access.ends_at ? (access.days_left > 0 ? `осталось ${String(access.days_left).replace('.', ',')} дн` : 'закончилась') : 'нет подписки';
+    const tone = access.unlimited || access.days_left > 3 ? 'ok' : access.days_left > 0 ? 'warn' : 'error';
+    const staffRoles = (user.account?.roles ?? []).filter((r) => r !== 'customer');
 
-    const copyId = el('button', { type: 'button', className: 'button button--ghost', onclick: async () => {
+    const copyId = el('button', { type: 'button', className: 'link-button', onclick: async () => {
       await navigator.clipboard.writeText(`${user.email} · №${user.number}`);
       toast('Скопировано', { tone: 'ok' });
-    } }, 'Копировать');
+    } }, 'копировать');
 
-    const summary = el('dl', { className: 'details' }, [
-      ['Email', el('span', {}, user.email, ' ', copyId)],
-      ['Номер', String(user.number)],
-      ['Статус', statusBadge(user.status, user.status === 'ACTIVE' ? 'Активен' : 'Заблокирован')],
-      ['Доступ', el('span', {}, statusBadge(access.active ? 'ACTIVE' : 'EXPIRED', access.active ? 'Есть' : 'Нет'), ' ', accessText)],
-      ['Оплачено дней (коды)', String(access.paid_days)],
-      ['Telegram', user.telegram.length ? el('span', {}, ...user.telegram.flatMap((c, i) => [i ? ', ' : '', telegramLink(c),
-        c.balance_rub ? ` (баланс ${rub(c.balance_rub)})` : '', c.blocked_bot ? ' · заблокировал бота' : ''])) : 'не найден (покупал не через бота)'],
-      ['Зарегистрирован', formatDateTime(user.created_at)],
-    ].map(([term, value]) => el('div', {}, el('dt', {}, term), el('dd', {}, value))));
+    // Header: who, how long the access lasts, and their iPhones — all without scrolling.
+    const head = el('div', { className: 'customer-head' },
+      el('div', { className: 'customer-head__badges' },
+        el('span', { className: `badge badge--${tone}` }, access.active ? `Доступ · ${left}` : `Нет доступа · ${left}`),
+        user.status === 'ACTIVE' ? null : statusBadge(user.status, 'Заблокирован'),
+        ...staffRoles.map((r) => el('span', { className: 'badge badge--neutral' }, t?.(`roles.${r}`) ?? r))),
+      el('dl', { className: 'details details--compact' }, [
+        ['Email', el('span', {}, user.email, ' ', copyId)],
+        ['Доступ до', access.unlimited ? 'бессрочно' : formatDateTime(access.ends_at)],
+        ['Telegram', user.telegram.length ? el('span', {}, ...user.telegram.flatMap((c, i) => [i ? ', ' : '', telegramLink(c),
+          c.balance_rub ? ` (${rub(c.balance_rub)})` : '', c.blocked_bot ? ' · блок бота' : ''])) : '—'],
+        ['Оплачено (коды)', `${access.paid_days} дн`],
+        ['Создан', formatDate(user.created_at)],
+        ['Вход', formatDateTime(user.account?.last_login_at)],
+      ].map(([term, value]) => el('div', {}, el('dt', {}, term), el('dd', {}, value)))),
+      el('div', { className: 'customer-devices' }, user.devices.length
+        ? user.devices.map((d) => deviceLine(d, d.registrations[0]?.status, d.registrations[0]?.team))
+        : el('p', { className: 'muted' }, 'Устройств нет.')));
 
-    const nodes = [summary];
-    if (can('users.manage')) nodes.push(subscriptionForm(user));
-    if (can('users.manage') && user.telegram.length) nodes.push(messageForm(user));
+    return [head, tabs([
+      ['Устройства', () => devicesTab(user)],
+      ['Срок доступа', () => [can('users.manage') ? subscriptionForm(user) : null,
+        table(['План', 'Статус', 'Начало', 'Конец'], user.subscriptions.map((s) => [s.plan, statusBadge(s.status, s.status), formatDateTime(s.starts_at), s.ends_at ? formatDateTime(s.ends_at) : 'бессрочно']), 'Подписок нет.'),
+        el('h3', {}, 'Изменения срока'),
+        table(['Когда', 'Кто', 'Было', 'Стало', 'Причина'],
+          user.extensions.map((e) => [formatDateTime(e.occurred_at), e.actor ?? '—', formatDateTime(e.before), formatDateTime(e.after), e.reason ?? '']), 'Срок не менялся.')].filter(Boolean)],
+      [`Заказы и коды (${user.orders.length})`, () => [
+        table(['Заказ', 'Статус', 'Канал', 'Тариф', 'Сумма', 'Промокод', 'Создан', 'Оплачен'],
+          user.orders.map((o) => [el('span', { className: 'mono', title: o.reference }, o.short), statusBadge(o.status === 'PAID' ? 'ok' : o.status, orderStatusLabel(o.status)),
+            o.channel === 'web' ? 'Сайт' : 'Бот', `${o.duration_days} дн${o.renewal ? ' · продление' : ''}`, rub(o.amount_due_rub), o.promo ?? '', formatDateTime(o.created_at), formatDateTime(o.paid_at)]), 'Заказов нет.'),
+        el('h3', {}, 'Коды активации'),
+        table(['Код', 'Статус', 'Срок', 'Заметка', 'Активирован'],
+          user.codes.map((c) => [el('span', { className: 'mono' }, `••••-${c.hint}`), c.status, c.duration_days ? `${c.duration_days} дн` : 'бессрочно', c.note ?? '', formatDateTime(c.redeemed_at)]), 'Кодов нет.')]],
+      ['Установки', () => table(['Приложение', 'Статус', 'Причина', 'Начало', 'Доставлено'],
+        user.installations.map((i) => [i.app ?? '—', statusBadge(i.status, i.status), el('span', { className: 'mono' }, i.reason ?? ''), formatDateTime(i.created_at), formatDateTime(i.delivered_at)]), 'Установок нет.')],
+      can('users.manage') && user.telegram.length ? ['Написать', () => messageForm(user)] : null,
+      can('users.manage') && user.account ? ['Учётная запись', () => accountForm(user)] : null,
+      user.tickets.length ? [`Обращения (${user.tickets.length})`, () => table(['Когда', 'Тема', 'Статус', 'Текст'],
+        user.tickets.map((tk) => [formatDateTime(tk.created_at), tk.topic, tk.status, tk.message.slice(0, 200)]))] : null,
+    ])];
+  }
 
-    nodes.push(section(`Устройства (${user.devices.length})`, user.devices.length ? el('div', { className: 'stack' }, user.devices.map((device) => el('div', { className: 'device-block' },
-      el('p', {}, el('strong', {}, device.product || device.name || 'Устройство'), ` · ${device.udid_hint} · iOS ${device.os_version ?? '?'} · подключено ${formatDateTime(device.enrolled_at)}`),
-      table(['Команда', 'Статус', 'Причина', 'Создана', 'Готова', 'Ожидание', 'Компенсация', ''],
+  function devicesTab(user) {
+    if (!user.devices.length) return el('p', { className: 'muted' }, 'Устройств нет.');
+    return el('div', { className: 'stack' }, user.devices.map((device) => el('div', { className: 'device-block' },
+      deviceLine(device, device.registrations[0]?.status, device.registrations[0]?.team),
+      el('p', { className: 'muted' }, `Подключено ${formatDateTime(device.enrolled_at)}`),
+      table(['Команда', 'Статус', 'Причина', 'Создана', 'Ожидание', 'Компенсация', ''],
         device.registrations.map((r) => [
           el('span', { className: 'mono', title: r.team_name ?? '' }, r.team ?? '—', r.team_status && r.team_status !== 'ACTIVE' ? ` (${r.team_status})` : ''),
           statusBadge(r.status, regStatusLabel(r.status)),
           el('span', { className: 'mono' }, r.reason ?? ''),
           formatDateTime(r.created_at),
-          formatDateTime(r.eligible_at),
           hoursText(r.waited_hours),
           r.compensation_minutes ? hoursText(r.compensation_minutes / 60) : (r.gift_at ? 'подарок' : '—'),
           registrationActions(r),
-        ]))))) : el('p', { className: 'muted' }, 'Устройств нет.')));
+        ])))));
+  }
 
-    nodes.push(section('Подписки', table(['План', 'Статус', 'Начало', 'Конец'],
-      user.subscriptions.map((s) => [s.plan, statusBadge(s.status, s.status), formatDateTime(s.starts_at), s.ends_at ? formatDateTime(s.ends_at) : 'бессрочно']), 'Подписок нет.')));
+  /** Roles, block/unblock, 2FA reset and erasure — formerly a separate «Учётная запись» window. */
+  function accountForm(user) {
+    const account = user.account;
+    const isSelf = ctx.me && ctx.me.id === user.id;
+    const ROLES = ['customer', 'support', 'catalog_manager', 'admin'];
+    const label = (r) => t?.(`roles.${r}`) ?? r;
+    const boxes = ROLES.map((role) => el('label', { className: 'check' },
+      el('input', { type: 'checkbox', value: role, checked: account.roles.includes(role), disabled: isSelf && role === 'admin' }), ` ${label(role)}`));
+    const confirmed = async (title, message, danger = false) => confirmAction(ctx.t, { title, message, danger, requireReason: true });
 
-    nodes.push(section('Изменения срока', table(['Когда', 'Кто', 'Было', 'Стало', 'Причина'],
-      user.extensions.map((e) => [formatDateTime(e.occurred_at), e.actor ?? '—', formatDateTime(e.before), formatDateTime(e.after), e.reason ?? '']), 'Срок не менялся.')));
+    const saveRoles = el('button', { type: 'button', className: 'button button--primary', onclick: async () => {
+      const roles = boxes.map((b) => b.querySelector('input')).filter((i) => i.checked).map((i) => i.value);
+      const { confirmed: ok, reason } = await confirmed(t('users.rolesTitle'), t('users.rolesMessage'));
+      if (ok) await act(() => api.put(`/admin/users/${user.id}/roles`, { roles, reason }), t('users.rolesSaved'));
+    } }, t('users.saveRoles'));
 
-    nodes.push(section(`Заказы (${user.orders.length})`, table(['Заказ', 'Статус', 'Канал', 'Тариф', 'Сумма', 'Промокод', 'Создан', 'Оплачен'],
-      user.orders.map((o) => [el('span', { className: 'mono', title: o.reference }, o.short), statusBadge(o.status === 'PAID' ? 'ok' : o.status, orderStatusLabel(o.status)),
-        o.channel === 'web' ? 'Сайт' : 'Бот', `${o.duration_days} дн${o.renewal ? ' · продление' : ''}`, rub(o.amount_due_rub), o.promo ?? '', formatDateTime(o.created_at), formatDateTime(o.paid_at)]), 'Заказов нет.')));
+    const suspended = user.status === 'SUSPENDED';
+    const toggle = el('button', { type: 'button', className: `button ${suspended ? '' : 'button--danger'}`, disabled: isSelf, onclick: async () => {
+      const { confirmed: ok, reason } = await confirmed(suspended ? t('users.reactivateTitle') : t('users.suspendTitle'),
+        suspended ? t('users.reactivateMessage') : t('users.suspendMessage'), !suspended);
+      if (ok) await act(() => api.patch(`/admin/users/${user.id}`, { status: suspended ? 'ACTIVE' : 'SUSPENDED', reason }), t('users.statusSaved'));
+    } }, suspended ? t('users.reactivate') : t('users.suspend'));
 
-    nodes.push(section('Коды активации', table(['Код', 'Статус', 'Срок', 'Заметка', 'Активирован'],
-      user.codes.map((c) => [el('span', { className: 'mono' }, `••••-${c.hint}`), c.status, c.duration_days ? `${c.duration_days} дн` : 'бессрочно', c.note ?? '', formatDateTime(c.redeemed_at)]), 'Кодов нет.')));
+    const totp = el('button', { type: 'button', className: 'button', disabled: !account.totp_enabled, onclick: async () => {
+      const { confirmed: ok, reason } = await confirmed(t('users.resetTotpTitle'), t('users.resetTotpMessage'), true);
+      if (ok) await act(() => api.post(`/admin/users/${user.id}/totp/reset`, { reason }), t('users.totpReset'));
+    } }, t('users.resetTotp'));
 
-    nodes.push(section('Установки (последние 20)', table(['Приложение', 'Статус', 'Причина', 'Начало', 'Доставлено'],
-      user.installations.map((i) => [i.app ?? '—', statusBadge(i.status, i.status), el('span', { className: 'mono' }, i.reason ?? ''), formatDateTime(i.created_at), formatDateTime(i.delivered_at)]), 'Установок нет.')));
+    const erase = el('button', { type: 'button', className: 'button button--danger', disabled: isSelf || Boolean(account.erased_at), onclick: async () => {
+      const { confirmed: ok, reason } = await confirmed(t('users.eraseTitle'), t('users.eraseMessage', { email: user.email }), true);
+      if (!ok) return;
+      const typed = window.prompt(t('users.eraseConfirmEmail'));
+      if (typed === null) return;
+      await act(() => api.post(`/admin/users/${user.id}/erase`, { confirm_email: typed.trim(), reason }, { idempotencyKey: newIdempotencyKey('erase') }), t('users.erased'));
+    } }, t('users.erase'));
 
-    if (user.tickets.length) {
-      nodes.push(section('Обращения', table(['Когда', 'Тема', 'Статус', 'Текст'],
-        user.tickets.map((tk) => [formatDateTime(tk.created_at), tk.topic, tk.status, tk.message.slice(0, 200)]))));
-    }
-    return nodes;
+    return el('section', { className: 'actions-card' },
+      el('p', { className: 'muted' }, `2FA: ${account.totp_enabled ? 'включена' : 'нет'} · последний вход ${formatDateTime(account.last_login_at)}`),
+      el('fieldset', { className: 'role-set' }, el('legend', {}, t('users.roles')), boxes),
+      el('div', { className: 'button-row' }, saveRoles, toggle, totp, erase));
   }
 
   function registrationActions(r) {
@@ -171,16 +253,15 @@ export async function openCustomerCard(ctx, userId, { onChange } = {}) {
         'Срок доступа изменён');
     };
 
-    return el('section', { className: 'card actions-card' },
-      el('h3', {}, 'Срок доступа'),
+    return el('section', { className: 'actions-card' },
       el('div', { className: 'form-inline' },
         el('label', { className: 'field' }, 'Дней (минус — убрать)', days),
         el('div', { className: 'button-row' }, ...quick),
-        el('button', { type: 'button', className: 'button button--primary', onclick: () => send({ mode: 'add', days: Number(days.value) }) }, 'Добавить / убрать дни')),
+        el('button', { type: 'button', className: 'button button--primary', onclick: () => send({ mode: 'add', days: Number(days.value) }) }, 'Применить')),
       el('div', { className: 'form-inline' },
-        el('label', { className: 'field' }, 'Или точная дата окончания', date),
-        el('button', { type: 'button', className: 'button', onclick: () => date.value && send({ mode: 'set', ends_at: new Date(date.value).toISOString() }) }, 'Установить дату')),
-      el('label', { className: 'field' }, 'Причина', reason));
+        el('label', { className: 'field' }, 'Или дата окончания', date),
+        el('button', { type: 'button', className: 'button', onclick: () => date.value && send({ mode: 'set', ends_at: new Date(date.value).toISOString() }) }, 'Установить дату'),
+        el('label', { className: 'field field--grow' }, 'Причина', reason)));
   }
 
   function messageForm(user) {
@@ -200,7 +281,7 @@ export async function openCustomerCard(ctx, userId, { onChange } = {}) {
       }, 'Сообщение отправлено');
       send.disabled = false;
     });
-    return el('section', { className: 'card actions-card' }, el('h3', {}, 'Написать в Telegram'),
+    return el('section', { className: 'actions-card' },
       el('div', { className: 'button-row' }, ...templates), text, el('div', { className: 'button-row' }, send));
   }
 

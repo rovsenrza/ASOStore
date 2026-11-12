@@ -4,9 +4,9 @@ import { createDataTable } from '../components/data-table.js';
 import { openDialog } from '../components/dialog.js';
 import { statusBadge } from '../components/status-badge.js';
 import { toast } from '../components/toast.js';
-import { hoursText, openCustomerCard } from '../components/customer-card.js';
+import { hoursText, openCustomerCard, udidChip } from '../components/customer-card.js';
 
-const { api, t, can } = await boot();
+const { api, t, can, me } = await boot();
 const STATUSES = ['ENROLLED', 'APPLE_PENDING', 'ELIGIBLE', 'APPLE_FAILED', 'QUOTA_BLOCKED', 'NO_ELIGIBLE_TEAM', 'DISABLED'];
 
 function registrationBadge(registration) {
@@ -25,8 +25,8 @@ const table = createDataTable({
     { name: 'family', label: t('devices.family'), type: 'select', options: [['', t('devices.allFamilies')], ['IPHONE', 'iPhone'], ['IPAD', 'iPad']] },
   ],
   columns: [
-    { key: 'udid_hint', label: t('devices.identifier'), className: 'mono' },
-    { key: 'owner', label: t('devices.owner'), render: (device) => el('a', { href: '#', onclick: (event) => { event.preventDefault(); openCustomerCard({ api, t, can }, device.user.id, { onChange: () => table.reload() }); } }, `${device.user.email} · №${device.user.number}`) },
+    { key: 'udid_hint', label: t('devices.identifier'), render: (device) => udidChip(device) },
+    { key: 'owner', label: t('devices.owner'), render: (device) => el('a', { href: '#', onclick: (event) => { event.preventDefault(); openCustomerCard({ api, t, can, me }, device.user.id, { onChange: () => table.reload() }); } }, `${device.user.email} · №${device.user.number}`) },
     { key: 'product', label: t('devices.model'), className: 'mono' },
     { key: 'os_version', label: t('devices.ios') },
     { key: 'registration', label: t('devices.registration'), render: (device) => registrationBadge(device.registration) },
@@ -50,7 +50,7 @@ async function openDevice(id) {
   async function render() {
     try {
       const { data: device } = await api.get(`/admin/devices/${id}`);
-      panel.dialog.querySelector('h2').textContent = `${device.udid_hint} · ${device.user.email}`;
+      panel.dialog.querySelector('h2').textContent = `${device.udid ?? device.udid_hint} · ${device.user.email}`;
       panel.setBody(...detail(device, panel));
     } catch (error) {
       panel.setBody(errorNotice(t, error, render));
@@ -70,7 +70,7 @@ function detail(device, panel) {
   ];
 
   const actions = el('div', { className: 'button-row' });
-  actions.append(el('button', { type: 'button', className: 'button button--primary', onclick: () => { panel.close(); openCustomerCard({ api, t, can }, device.user.id, { onChange: () => table.reload() }); } },
+  actions.append(el('button', { type: 'button', className: 'button button--primary', onclick: () => { panel.close(); openCustomerCard({ api, t, can, me }, device.user.id, { onChange: () => table.reload() }); } },
     'Карточка клиента (действия с регистрациями)'));
   if (can('devices.manage')) {
     const sync = el('button', { type: 'button', className: 'button' }, t('devices.sync'));
@@ -88,7 +88,7 @@ function detail(device, panel) {
     });
     actions.append(sync);
   }
-  if (can('devices.reveal-udid')) {
+  if (can('devices.reveal-udid') && !device.udid) {
     const reveal = el('button', { type: 'button', className: 'button button--danger' }, t('devices.reveal'));
     const output = el('code', { className: 'mono revealed-udid' });
     reveal.addEventListener('click', async () => {
