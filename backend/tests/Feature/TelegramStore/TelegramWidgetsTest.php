@@ -45,26 +45,27 @@ beforeEach(function () {
     ]);
 });
 
-it('keeps both widgets within Telegram\'s size limit', function () {
-    foreach (['store', 'admin'] as $name) {
-        $html = Widgets::html($name);
-        expect(strlen($html))->toBeLessThanOrEqual(32768)
-            ->and(strlen(gzcompress($html, 9)))->toBeLessThanOrEqual(4096);
-    }
+function widgetState(Request $r): array
+{
+    return json_decode(($r['chat_data'] ?? '').($r['public_data'] ?? ''), true);
+}
+
+it('keeps the app within Telegram\'s size limit', function () {
+    $html = Widgets::html();
+    expect(strlen($html))->toBeLessThanOrEqual(32768)
+        ->and(strlen(gzcompress($html, 9)))->toBeLessThanOrEqual(4096);
 });
 
-it('opens the storefront widget on /start, with the menu as fallback for old apps', function () {
+it('opens the storefront app on /start: widget only, no caption or keyboard', function () {
     ($this->text)(W_BUYER, '/start');
 
     $sent = ($this->calls)('sendWidget')->sole();
-    $state = json_decode($sent['chat_data'], true);
+    $state = widgetState($sent);
     expect($sent['allow_queries'])->toBeTrue()
-        ->and($sent['html'])->toContain('TelegramWidget')
-        ->and($sent['caption'])->toContain('Ru App Store')
-        ->and(collect($sent['reply_markup']['inline_keyboard'])->flatten(1)->pluck('callback_data'))->toContain('buy')
-        ->and(strlen($sent['chat_data']))->toBeLessThanOrEqual(Widgets::STATE_LIMIT)
-        ->and(collect($state['p'])->pluck(0)->all())->toBe(['month1', 'month3', 'month6', 'month9', 'month12'])
-        ->and($state['a'])->toBe([]);
+        ->and($sent->data())->not->toHaveKeys(['caption', 'reply_markup'])
+        ->and(strlen($sent['chat_data']))->toBeLessThanOrEqual(Widgets::PART)
+        ->and($state['v'])->toBe('s')
+        ->and(collect($state['p'])->pluck(0)->all())->toBe(['month1', 'month3', 'month6', 'month9', 'month12']);
     expect(($this->calls)('sendMessage'))->toHaveCount(0);
 });
 
@@ -75,15 +76,40 @@ it('falls back to the plain menu when Telegram refuses the widget', function () 
     expect(($this->calls)('sendMessage')->sole()['text'])->toContain('Ru App Store');
 });
 
-it('runs a tap like the matching button: a new-account order appears below the widget', function () {
-    ($this->text)(W_BUYER, '/start');
+it('navigates inside the same message and answers with the new screen', function () {
+    ($this->tap)(W_BUYER, 'help');
+
+    $edit = ($this->calls)('editMessageWidgetData')->sole();
+    $state = widgetState($edit);
+    expect($edit['message_id'])->toBe(88)
+        ->and($state['v'])->toBe('g')
+        ->and($state['n'])->toBe('help')
+        ->and($state['x'])->not->toContain('<a ')
+        ->and(($this->calls)('sendMessage'))->toHaveCount(0)
+        ->and(($this->calls)('sendWidget'))->toHaveCount(0);
+    $answer = ($this->calls)('answerWidgetQuery')->sole()['data'];
+    expect($answer === 'r' || json_decode($answer, true)['v'] === 'g')->toBeTrue();
+});
+
+it('opens an order from the storefront in place', function () {
     ($this->tap)(W_BUYER, 'reg:std:month1');
 
-    expect(($this->calls)('answerWidgetQuery')->sole()['widget_query_id'])->toBe('wq1');
     $order = TelegramStoreOrder::query()->sole();
+    $state = widgetState(($this->calls)('editMessageWidgetData')->sole());
     expect($order->plan_key)->toBe('month1')
         ->and($order->status)->toBe(TelegramStoreOrder::PENDING)
-        ->and(($this->calls)('sendMessage')->last()['text'])->toContain('590');
+        ->and(json_encode($state, JSON_UNESCAPED_UNICODE))->toContain('590')
+        ->and(collect($state['b'])->flatten(1)->pluck(1))->toContain('cancel:'.$order->public_id);
+});
+
+it('keeps every state within the two data parts, splitting at a character boundary', function () {
+    $long = new \App\Services\TelegramStore\Bot\Screen('<b>Длинно</b>'."\n".str_repeat('Очень длинный текст экрана. ', 200), [[['text' => 'Ок', 'callback_data' => 'menu']]]);
+    $state = app(Widgets::class)->fromScreen($long);
+    [$chat, $public] = Widgets::parts($state);
+    expect(strlen($chat))->toBeLessThanOrEqual(Widgets::PART)
+        ->and(strlen($public))->toBeLessThanOrEqual(Widgets::PART)
+        ->and(mb_check_encoding($chat, 'UTF-8'))->toBeTrue()
+        ->and(json_decode($chat.$public, true)['t'])->toBe('Длинно');
 });
 
 it('keeps admin taps away from customers', function () {
@@ -94,15 +120,22 @@ it('keeps admin taps away from customers', function () {
         ->and(($this->calls)('sendMessage'))->toHaveCount(0);
 });
 
-it('shows the admin dashboard widget and redraws it for another period in place', function () {
+it('shows the admin dashboard and its screens in the same message', function () {
     ($this->text)(W_ADMIN, '/admin');
-    $state = json_decode(($this->calls)('sendWidget')->sole()['chat_data'], true);
-    expect($state['d'])->toBe(1)->and(collect($state['k'])->pluck(0))->toContain('выручка');
+    expect(widgetState(($this->calls)('sendWidget')->sole())['v'])->toBe('d');
 
     ($this->tap)(W_ADMIN, 'w:a:30');
-    $edit = ($this->calls)('editMessageWidgetData')->sole();
-    expect($edit['message_id'])->toBe(88)->and(json_decode($edit['chat_data'], true)['d'])->toBe(30);
+    expect(widgetState(($this->calls)('editMessageWidgetData')->last())['d'])->toBe(30);
 
     ($this->tap)(W_ADMIN, 'adm:reviews');
-    expect(($this->calls)('sendMessage')->last()['text'])->toContain('На проверке');
+    $state = widgetState(($this->calls)('editMessageWidgetData')->last());
+    expect($state['n'])->toBe('a')->and($state['t'])->toContain('На проверке');
+});
+
+it('sends news (a paid order) as a new widget message', function () {
+    $customer = \App\Models\TelegramStoreCustomer::query()->create(['telegram_user_id' => W_BUYER, 'chat_id' => W_BUYER, 'first_name' => 'B', 'referral_code' => 'wbuyer01']);
+    app(\App\Services\TelegramStore\Bot\Messenger::class)->notify(W_BUYER, new \App\Services\TelegramStore\Bot\Screen("<b>✅ Оплата получена</b>\nКод: <code>AAAA-BBBB</code>"));
+
+    $state = widgetState(($this->calls)('sendWidget')->sole());
+    expect($state['t'])->toBe('✅ Оплата получена')->and($state['x'])->toContain('<code>AAAA-BBBB</code>');
 });

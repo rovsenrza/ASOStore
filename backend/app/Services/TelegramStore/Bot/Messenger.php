@@ -34,6 +34,17 @@ class Messenger
      */
     public function show(Context $ctx, Screen $screen): ?int
     {
+        if (Widgets::enabled()) {
+            $widgets = app(Widgets::class);
+            if ($ctx->widgetMessageId !== null) {
+                $ctx->widgetState = $widgets->fromScreen($screen, $ctx->via, $ctx->toast);
+
+                return $ctx->widgetMessageId;
+            }
+            if (($id = $widgets->send($ctx->chatId, $widgets->fromScreen($screen, $ctx->via))) !== null) {
+                return $id;
+            }
+        }
         $asPhoto = $this->usesBanner($screen);
         // A text message cannot become a photo (or back), so those get a fresh message.
         if ($ctx->messageId !== null && $ctx->messageHasPhoto === $asPhoto) {
@@ -60,6 +71,9 @@ class Messenger
     /** Sends a screen as a new message; returns its id. */
     public function send(int $chatId, Screen $screen): ?int
     {
+        if (Widgets::enabled() && ($id = app(Widgets::class)->send($chatId, app(Widgets::class)->fromScreen($screen))) !== null) {
+            return $id;
+        }
         if ($this->usesBanner($screen)) {
             try {
                 return $this->sendBanner($chatId, $screen);
@@ -100,14 +114,10 @@ class Messenger
     /** The main menu: the storefront widget when the customer is known, the banner menu otherwise. */
     public function welcome(int $chatId, ?TelegramStoreCustomer $customer = null): void
     {
-        $menu = $this->screens->menu();
-        if ($customer !== null && Widgets::enabled() && Messenger::fitsCaption($menu->text)) {
-            $widgets = app(Widgets::class);
-            if ($widgets->send($chatId, 'store', $widgets->storeState($customer), $menu) !== null) {
-                return;
-            }
+        if ($customer !== null && Widgets::enabled() && app(Widgets::class)->send($chatId, app(Widgets::class)->storeState($customer)) !== null) {
+            return;
         }
-        $this->send($chatId, $menu);
+        $this->send($chatId, $this->screens->menu());
     }
 
     /** Sends the screen to every admin of the store. */
@@ -150,6 +160,11 @@ class Messenger
 
     public function answer(Context $ctx, ?string $text = null, bool $alert = false): void
     {
+        if ($ctx->widgetMessageId !== null) {
+            $ctx->toast = $text ?? $ctx->toast;
+
+            return;
+        }
         if ($ctx->callbackId === null) {
             if ($text !== null) {
                 $this->send($ctx->chatId, new Screen(e($text)));

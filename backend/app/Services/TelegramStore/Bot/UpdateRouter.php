@@ -65,10 +65,10 @@ class UpdateRouter
     }
 
     /**
-     * A tap in one of our widgets. Its data is the callback data of the matching inline button
-     * (`reg:std:month1`, `profile`, `adm:reviews`…), handled exactly like a button press, so the
-     * answer arrives as a new message below the widget. `w:a:<days>` redraws the admin dashboard
-     * in place.
+     * A tap in our widget. Its data is the callback data of the matching button, run through the
+     * usual handlers; whatever screen they show becomes the widget's new state, written into the
+     * same message and returned in the answer so the widget redraws at once. The storefront and
+     * the admin dashboard have their own views.
      *
      * @param  array<string, mixed>  $query
      */
@@ -76,35 +76,44 @@ class UpdateRouter
     {
         $chat = $query['chat'] ?? [];
         $data = (string) ($query['data'] ?? '');
-        if (empty($query['id']) || empty($query['from']['id']) || ($chat['type'] ?? '') !== 'private') {
+        if (empty($query['id']) || empty($query['from']['id']) || ($chat['type'] ?? '') !== 'private' || empty($query['message_id'])) {
             return;
         }
         [$customer] = $this->customers->sync($query['from'], (int) $chat['id']);
-        $ctx = new Context($customer, (int) $chat['id']);
-        $api = app(\App\Services\TelegramStore\TelegramApi::class);
+        $ctx = new Context($customer, (int) $chat['id'], widgetMessageId: (int) $query['message_id'], via: $data);
+        $widgets = app(Widgets::class);
 
-        // Answer first: Telegram allows 15 seconds, an order with a payment link can take longer.
         try {
-            $api->answerWidgetQuery((string) $query['id'], 'ok');
-        } catch (TelegramApiException $exception) {
-            report($exception);
-        }
-
-        if (str_starts_with($data, 'w:a:') || str_starts_with($data, 'adm:')) {
-            if (! $ctx->isAdmin()) {
-                return;
+            match (true) {
+                in_array($data, ['menu', 'buy', 'buy2', 'buynew', 'renew', 'renew2'], true) => $ctx->widgetState = $widgets->storeState(
+                    $customer, str_starts_with($data, 'renew') ? 'r' : ($data === 'buynew' ? 'n' : null)),
+                $data === 'adm:panel' || str_starts_with($data, 'w:a:') => $ctx->isAdmin()
+                    ? $ctx->widgetState = $widgets->adminState($data === 'adm:panel' ? 1 : (int) substr($data, 4))
+                    : null,
+                str_starts_with($data, 'adm:') => $ctx->isAdmin() ? $this->adminHandler->callback($ctx, $data) : null,
+                default => $this->customerHandler->callback($ctx, $data),
+            };
+        } finally {
+            $state = $ctx->widgetState;
+            if ($state !== null && $ctx->toast !== null && ! isset($state['m'])) {
+                $state['m'] = $ctx->toast;
             }
-            if (str_starts_with($data, 'w:a:') && isset($query['message_id'])) {
-                $widgets = app(Widgets::class);
-                $widgets->update($ctx->chatId, (int) $query['message_id'], $widgets->adminState((int) substr($data, 4)));
-
-                return;
+            if ($state !== null) {
+                $widgets->update($ctx->chatId, $ctx->widgetMessageId, $state);
             }
-            $this->adminHandler->callback($ctx, $data);
-
-            return;
+            try {
+                $this->api()->answerWidgetQuery((string) $query['id'], $state !== null
+                    ? Widgets::answer($state)
+                    : ($ctx->toast !== null ? Widgets::encode(['m' => $ctx->toast]) : null));
+            } catch (TelegramApiException $exception) {
+                report($exception);
+            }
         }
-        $this->customerHandler->callback($ctx, $data);
+    }
+
+    private function api(): \App\Services\TelegramStore\TelegramApi
+    {
+        return app(\App\Services\TelegramStore\TelegramApi::class);
     }
 
     /** @param array<string, mixed> $callback */

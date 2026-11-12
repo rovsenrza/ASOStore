@@ -15,7 +15,16 @@ final class Context
         public readonly ?int $messageId = null,
         public readonly bool $messageHasPhoto = false,
         public readonly ?string $callbackId = null,
+        // Set when the update is a tap in our widget: screens then replace that widget's state.
+        public readonly ?int $widgetMessageId = null,
+        public readonly ?string $via = null,
     ) {}
+
+    /** The widget state the handler produced (the last screen it showed), if any. */
+    public ?array $widgetState = null;
+
+    /** A short notice for the widget (what a callback answer would have said). */
+    public ?string $toast = null;
 
     public function userId(): int
     {

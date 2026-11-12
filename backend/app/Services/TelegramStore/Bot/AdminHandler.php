@@ -69,9 +69,8 @@ class AdminHandler
         }
         if ($command === '/admin') {
             $this->forgetState($ctx);
-            // The live dashboard widget; the panel text and buttons are its fallback.
-            $widgets = app(Widgets::class);
-            if ($widgets->send($ctx->chatId, 'admin', $widgets->adminState(), $this->panel()) === null) {
+            // The live dashboard widget; the plain panel when widgets are off or refused.
+            if (! Widgets::enabled() || app(Widgets::class)->send($ctx->chatId, app(Widgets::class)->adminState()) === null) {
                 $this->showPanel($ctx);
             }
 

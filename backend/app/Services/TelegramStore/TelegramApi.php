@@ -66,23 +66,19 @@ class TelegramApi
     }
 
     /**
-     * Sends an HTML widget (Bot API 10.4). The caption and keyboard are what apps without
-     * widget support show instead.
+     * Sends an HTML widget (Bot API 10.4) with its state split over chat_data and public_data.
      *
-     * @param  array<string, mixed>|null  $keyboard
      * @return array<string, mixed> the sent message
      */
-    public function sendWidget(int $chatId, string $html, string $chatData, string $caption, ?array $keyboard = null): array
+    public function sendWidget(int $chatId, string $html, string $chatData, string $publicData = ''): array
     {
         return $this->call('sendWidget', array_filter([
             'chat_id' => $chatId,
             'html' => $html,
             'chat_data' => $chatData,
-            'caption' => $caption,
-            'parse_mode' => 'HTML',
+            'public_data' => $publicData,
             'allow_queries' => true,
-            'reply_markup' => $keyboard,
-        ], fn ($value) => $value !== null));
+        ], fn ($value) => $value !== ''));
     }
 
     /** Answers a tap in a widget (within 15 seconds); $data goes back only to that widget. */
@@ -95,9 +91,10 @@ class TelegramApi
     }
 
     /** Replaces the per-message state of a widget the bot sent; the widget redraws itself. */
-    public function editMessageWidgetData(int $chatId, int $messageId, string $chatData): void
+    public function editMessageWidgetData(int $chatId, int $messageId, string $chatData, string $publicData = ''): void
     {
-        $this->call('editMessageWidgetData', ['chat_id' => $chatId, 'message_id' => $messageId, 'chat_data' => $chatData]);
+        // An empty public_data clears what a longer previous screen left there.
+        $this->call('editMessageWidgetData', ['chat_id' => $chatId, 'message_id' => $messageId, 'chat_data' => $chatData, 'public_data' => $publicData]);
     }
 
     /** @param  array<string, mixed>|null  $keyboard */
