@@ -30,9 +30,9 @@ class ClaimService
     /**
      * @return array{code: string, url: string, expires_at: string}
      */
-    public function create(User $user): array
+    public function create(User $user, ?Device $device = null): array
     {
-        $device = $user->latestDevice()->with('latestRegistration')->first();
+        $device = ($device ?? $user->latestDevice()->first())?->loadMissing('latestRegistration');
         if ($device?->latestRegistration?->status !== DeviceRegistrationStatus::Eligible) {
             throw new ApiException(ErrorCode::DeviceNotEligible);
         }

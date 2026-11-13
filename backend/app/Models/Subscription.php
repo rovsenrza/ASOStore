@@ -24,9 +24,31 @@ class Subscription extends Model
         'status' => 'ACTIVE',
     ];
 
-    protected $fillable = ['user_id', 'activation_code_id', 'plan', 'status', 'starts_at', 'ends_at'];
+    protected $fillable = ['user_id', 'device_id', 'activation_code_id', 'plan', 'status', 'starts_at', 'ends_at'];
 
     protected $hidden = ['id'];
+
+    /**
+     * Access is paid per iPhone, so every subscription belongs to a device. Code that creates one
+     * without saying which (older paths, admin tools) gets the obvious one: the account's only
+     * device, or a new pending device when it has none. With several devices it must say which.
+     */
+    protected static function booted(): void
+    {
+        static::creating(function (Subscription $subscription) {
+            if ($subscription->device_id !== null || $subscription->user_id === null) {
+                return;
+            }
+            $devices = Device::query()->where('user_id', $subscription->user_id)->orderBy('id')->limit(2)->pluck('id');
+            if ($devices->count() > 1) {
+                \Illuminate\Support\Facades\Log::warning('subscription.device_missing', ['user' => $subscription->user_id]);
+
+                return;
+            }
+            $subscription->device_id = $devices->first()
+                ?? Device::query()->create(['user_id' => $subscription->user_id])->id;
+        });
+    }
 
     protected function casts(): array
     {
@@ -43,6 +65,14 @@ class Subscription extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * @return BelongsTo<Device, $this>
+     */
+    public function device(): BelongsTo
+    {
+        return $this->belongsTo(Device::class);
     }
 
     /**

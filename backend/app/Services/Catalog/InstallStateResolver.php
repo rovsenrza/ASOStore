@@ -44,13 +44,14 @@ class InstallStateResolver
         if ($user === null) {
             return $this->state(InstallStateStatus::NotEligible, ErrorCode::Unauthenticated);
         }
-        // Installing is refused without a subscription (InstallationService): say so on the
-        // button, where the app (1.7+) turns this reason into «Продлить», not a failed install.
-        if (! $this->subscribed($user)) {
+        // Installing is refused without access for THIS iPhone (InstallationService): say so on
+        // the button, where the app (1.7+) turns this reason into «Продлить», not a failed install.
+        $device = $this->device($user);
+        // No iPhone connected: renewal first when the account has no access at all.
+        if ($device === null ? ! ($user->isStaff() || $user->activeSubscription()->exists()) : ! $this->subscribed($user, $device)) {
             return $this->state(InstallStateStatus::NotEligible, ErrorCode::SubscriptionRequired);
         }
 
-        $device = $this->device($user);
         $registration = $device?->latestRegistration;
         if ($registration?->status !== DeviceRegistrationStatus::Eligible) {
             return $this->state(InstallStateStatus::NotEligible, match ($registration?->status) {
@@ -88,9 +89,11 @@ class InstallStateResolver
         };
     }
 
-    private function subscribed(User $user): bool
+    private function subscribed(User $user, ?Device $device): bool
     {
-        return $this->subscribed[$user->id] ??= $user->isStaff() || $user->activeSubscription()->exists();
+        $key = $user->id.':'.($device?->id ?? 0);
+
+        return $this->subscribed[$key] ??= $user->isStaff() || ($device?->hasAccess() ?? false);
     }
 
     private function device(User $user): ?Device

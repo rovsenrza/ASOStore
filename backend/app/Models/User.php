@@ -124,13 +124,13 @@ class User extends Authenticatable
     }
 
     /**
-     * The most recently enrolled device.
+     * The most recently enrolled device (an iPhone, not a pending place).
      *
      * @return HasOne<Device, $this>
      */
     public function latestDevice(): HasOne
     {
-        return $this->hasOne(Device::class)->latestOfMany();
+        return $this->hasOne(Device::class)->ofMany(['id' => 'max'], fn (Builder $query) => $query->whereNotNull('udid_hash'));
     }
 
     /**

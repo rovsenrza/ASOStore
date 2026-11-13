@@ -207,3 +207,27 @@ function approveTeamFor(string $bundleIdentifier, ?AppleTeam $team = null): Team
         ['evidence' => 'Test fixture', 'status' => 'APPROVED', 'approved_by' => userWithRoles(RoleSlug::Admin)->id, 'approved_at' => now()],
     );
 }
+
+/** A fresh activation code for $days (issued by an admin), in plain text. */
+function issueActivationCode(?int $days = 30, string $plan = 'standard'): string
+{
+    $admin = \App\Models\User::query()->whereHas('roles', fn ($q) => $q->where('slug', 'admin'))->first() ?? userWithRoles(RoleSlug::Admin);
+
+    return app(\App\Services\Activation\ActivationCodeService::class)->generate($admin, 1, $plan, $days, null, 'test')['codes'][0];
+}
+
+/**
+ * An iPhone of $user with $udid, the way enrollment connects one: into the pending device the
+ * account paid for when there is one (access is per device), else a new device row.
+ */
+function connectIphone(\App\Models\User $user, string $udid): \App\Models\Device
+{
+    $device = $user->devices()->pending()->orderBy('id')->first()
+        ?? \App\Models\Device::factory()->make(['user_id' => $user->id]);
+    $device->device_family = \App\Enums\DeviceFamily::Iphone;
+    $device->setUdid($udid);
+    $device->enrolled_at = now();
+    $device->save();
+
+    return $device;
+}

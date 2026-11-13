@@ -16,7 +16,7 @@ class ClaimController extends Controller
 
     public function store(Request $request): JsonResponse
     {
-        return ApiResponse::ok($this->claims->create($request->user()), 201);
+        return ApiResponse::ok($this->claims->create($request->user(), app(\App\Services\Devices\CurrentDevice::class)->resolve($request)), 201);
     }
 
     public function redeem(Request $request): JsonResponse

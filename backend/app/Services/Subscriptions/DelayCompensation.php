@@ -112,8 +112,9 @@ class DelayCompensation
         if ($userId !== null) {
             User::query()->whereKey($userId)->lockForUpdate()->first();
         }
+        // Access is paid per iPhone: the wait is made up on the iPhone that waited.
         $subscription = Subscription::query()
-            ->where('user_id', $userId)
+            ->where('device_id', $registration->device_id)
             ->where('status', SubscriptionStatus::Active->value)->whereNotNull('ends_at')
             ->orderByDesc('ends_at')->lockForUpdate()->first();
         if ($subscription === null) {

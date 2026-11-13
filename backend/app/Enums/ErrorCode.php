@@ -30,6 +30,8 @@ enum ErrorCode: string
     case DeviceNotEligible = 'DEVICE_NOT_ELIGIBLE';
     case DeviceLimitReached = 'DEVICE_LIMIT_REACHED';
     case DeviceOwnedElsewhere = 'DEVICE_OWNED_ELSEWHERE';
+    case DeviceTargetRequired = 'DEVICE_TARGET_REQUIRED';
+    case DeviceSlotRequired = 'DEVICE_SLOT_REQUIRED';
     case EnrollmentPayloadInvalid = 'ENROLLMENT_PAYLOAD_INVALID';
     case AppleNotConnected = 'APPLE_NOT_CONNECTED';
     case ClaimInvalid = 'CLAIM_INVALID';
@@ -66,7 +68,7 @@ enum ErrorCode: string
             self::QuotaExhausted, self::NoEligibleTeam, self::ArtifactNotInstallable, self::DuplicateArtifact,
             self::VersionExists, self::EncryptedBinary, self::IdempotencyConflict, self::UploadCorrupt,
             self::SourceTypeNotPublishable,
-            self::DeviceLimitReached, self::DeviceOwnedElsewhere => 409,
+            self::DeviceLimitReached, self::DeviceOwnedElsewhere, self::DeviceTargetRequired, self::DeviceSlotRequired => 409,
             self::UploadIncomplete, self::DeltaCoreMissing => 422,
             self::RateLimited => 429,
             self::AppleUnavailable, self::AppleNotConnected, self::ServiceUnavailable => 503,
@@ -97,6 +99,8 @@ enum ErrorCode: string
             self::EnrollmentChallengeExpired => 'Срок действия профиля истёк. Скачайте его заново.',
             self::DeviceNotEligible => 'Устройство пока не готово к установке.',
             self::DeviceLimitReached => 'К аккаунту уже привязано максимальное число устройств.',
+            self::DeviceTargetRequired => 'Выберите устройство, для которого этот код.',
+            self::DeviceSlotRequired => 'Это новый iPhone. Сначала оплатите его в разделе «Мои устройства», затем установите профиль на нём.',
             self::DeviceOwnedElsewhere => 'Это устройство привязано к другому аккаунту. Обратитесь в поддержку.',
             self::EnrollmentPayloadInvalid => 'Не удалось прочитать данные устройства. Установите профиль заново.',
             self::AppleNotConnected => 'Регистрация устройств у Apple пока не подключена.',

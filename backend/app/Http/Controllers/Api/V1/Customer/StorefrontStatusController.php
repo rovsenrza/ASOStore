@@ -16,6 +16,9 @@ class StorefrontStatusController extends Controller
     {
         $user = $request->user('sanctum');
 
-        return ApiResponse::ok($resolver->resolve($user instanceof User ? $user : null, EmailVerificationService::blocks($request)));
+        $user = $user instanceof User ? $user : null;
+
+        return ApiResponse::ok($resolver->resolve($user, EmailVerificationService::blocks($request),
+            $user ? app(\App\Services\Devices\CurrentDevice::class)->resolve($request) : null));
     }
 }

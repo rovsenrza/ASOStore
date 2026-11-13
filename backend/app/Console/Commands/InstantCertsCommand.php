@@ -26,7 +26,7 @@ class InstantCertsCommand extends Command
         if ($action === 'status') {
             $me = $api->me();
             $this->line('enabled='.json_encode($instant->enabled()).' balance='.json_encode($me['balance'] ?? null).' role='.($me['role'] ?? '?'));
-            $this->line('instant customers: '.User::query()->where('registration_method', InstantCertificates::METHOD)->count());
+            $this->line('instant devices: '.\App\Models\Device::query()->where('registration_method', InstantCertificates::METHOD)->count());
 
             return self::SUCCESS;
         }
@@ -37,8 +37,11 @@ class InstantCertsCommand extends Command
             return self::FAILURE;
         }
         if ($action === 'on' || $action === 'off') {
-            $user->forceFill(['registration_method' => $action === 'on' ? InstantCertificates::METHOD : null])->save();
-            $this->info("{$user->email}: ".($action === 'on' ? 'instant certificate' : 'our Apple teams'));
+            // The method is per device; the account flag is kept in step for the older reports.
+            $method = $action === 'on' ? InstantCertificates::METHOD : null;
+            $user->forceFill(['registration_method' => $method])->save();
+            $user->devices()->update(['registration_method' => $method]);
+            $this->info("{$user->email}: every device on ".($action === 'on' ? 'instant certificate' : 'our Apple teams'));
 
             return self::SUCCESS;
         }

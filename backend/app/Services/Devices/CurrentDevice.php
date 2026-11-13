@@ -10,9 +10,10 @@ use Laravel\Sanctum\PersonalAccessToken;
 
 /**
  * Which enrolled device a request speaks for. Native app tokens are bound to
- * a device by the storefront claim (IMPLEMENTATION_PLAN G8); other tokens and
- * browser sessions (the portal in Safari on the iPhone) speak for the
- * account's latest enrolled device.
+ * a device by the storefront claim (IMPLEMENTATION_PLAN G8). The website names
+ * the iPhone it runs on in the X-Storefront-Device header (remembered when that
+ * iPhone enrolled, or picked in «Мои устройства»); otherwise the account's
+ * latest enrolled device.
  */
 class CurrentDevice
 {
@@ -37,8 +38,14 @@ class CurrentDevice
             }
         }
 
-        // Unbound tokens and browser sessions: the account's enrolled device
-        // (one per account by default, STOREFRONT_MAX_DEVICES_PER_ACCOUNT).
+        $named = trim((string) $request->header('X-Storefront-Device', ''));
+        if ($named !== '' && preg_match('/^[0-9a-z]{26}$/i', $named) === 1) {
+            $device = $user->devices()->enrolled()->where('public_id', strtolower($named))->first();
+            if ($device !== null) {
+                return $device;
+            }
+        }
+
         return $user->latestDevice()->first();
     }
 }

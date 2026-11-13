@@ -16,8 +16,9 @@ class StorefrontStatusResolver
     /**
      * @return array{stage: string, next_action: string, blocking_reason: string|null, device: array<string, mixed>|null}
      */
-    public function resolve(?User $user, bool $awaitingEmail = false): array
+    public function resolve(?User $user, bool $awaitingEmail = false, ?Device $current = null): array
     {
+        $this->pending = false;
         if ($user === null) {
             return $this->stage('signed_out', 'sign_in');
         }
@@ -28,17 +29,20 @@ class StorefrontStatusResolver
         if ($awaitingEmail) {
             return $this->stage('email_verification_required', 'verify_email');
         }
-        if ($user->activeSubscription === null) {
-            return $this->stage('activation_required', 'redeem_activation');
-        }
-
-        $device = $user->latestDevice()->with('latestRegistration')->first();
+        // Access is paid per iPhone. The stage is that of the iPhone asking (CurrentDevice), and
+        // a paid iPhone not connected yet is announced so the page can offer to connect it.
+        $pending = app(\App\Services\Devices\DeviceSlots::class)->claimable($user) !== null;
+        $device = ($current ?? $user->latestDevice()->first())?->loadMissing('latestRegistration');
         if ($device === null) {
-            return $this->stage('device_required', 'enroll_device');
+            return $pending ? $this->stage('device_required', 'enroll_device', pending: true) : $this->stage('activation_required', 'redeem_activation');
         }
 
         $registration = $device->latestRegistration;
         $summary = self::presentDevice($device);
+        if (! $user->isStaff() && ! $device->hasAccess()) {
+            return $this->stage('activation_required', 'redeem_activation', ErrorCode::SubscriptionRequired, $summary, $pending);
+        }
+        $this->pending = $pending;
 
         return match ($registration?->status) {
             null, Registration::Enrolled, Registration::ApplePending => $this->stage('device_pending', 'wait_apple', device: $summary),
@@ -81,13 +85,17 @@ class StorefrontStatusResolver
      * @param  array<string, mixed>|null  $device
      * @return array{stage: string, next_action: string, blocking_reason: string|null, device: array<string, mixed>|null}
      */
-    private function stage(string $stage, string $nextAction, ?ErrorCode $blockingReason = null, ?array $device = null): array
+    private function stage(string $stage, string $nextAction, ?ErrorCode $blockingReason = null, ?array $device = null, ?bool $pending = null): array
     {
         return [
             'stage' => $stage,
             'next_action' => $nextAction,
             'blocking_reason' => $blockingReason?->value,
             'device' => $device,
+            // A paid iPhone waits to be connected (install the profile on it).
+            'pending_device' => $pending ?? $this->pending,
         ];
     }
+
+    private bool $pending = false;
 }

@@ -929,8 +929,9 @@ describe('registration method', function () {
         expect(ActivationCode::query()->where('note', OrderService::codeNote($order))->value('plan'))->toBe('instant');
 
         $account = userWithRoles(RoleSlug::Customer);
-        app(App\Services\Activation\ActivationCodeService::class)->redeem($account, $completed->code);
-        expect($account->refresh()->registration_method)->toBe('INSTANT');
+        $subscription = app(App\Services\Activation\ActivationCodeService::class)->redeem($account, $completed->code);
+        // The method is per iPhone: the (pending) device the code paid for registers instantly.
+        expect($subscription->device->registration_method)->toBe('INSTANT');
     });
 
     it('keeps the standard path for reg:std and for an account whose iPhone is registered already', function () {

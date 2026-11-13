@@ -3645,6 +3645,8 @@ components:
         - DEVICE_NOT_ELIGIBLE
         - DEVICE_LIMIT_REACHED
         - DEVICE_OWNED_ELSEWHERE
+        - DEVICE_TARGET_REQUIRED
+        - DEVICE_SLOT_REQUIRED
         - ENROLLMENT_PAYLOAD_INVALID
         - APPLE_NOT_CONNECTED
         - CLAIM_INVALID
@@ -4502,6 +4504,21 @@ components:
           oneOf:
             - $ref: "#/components/schemas/RegistrationSummary"
             - type: "null"
+        model: { type: [string, "null"], description: "Marketing name, e.g. iPhone 16 Pro" }
+        connected: { type: boolean, description: "False for a paid iPhone not connected yet (install the profile on it)." }
+        method: { type: string, enum: [apple, instant], description: "How the iPhone is registered." }
+        state: { type: string, enum: [ready, waiting, blocked, connect, expired] }
+        access:
+          type: object
+          description: Access is paid per iPhone.
+          properties:
+            active: { type: boolean }
+            unlimited: { type: boolean }
+            ends_at:
+              oneOf:
+                - $ref: "#/components/schemas/Timestamp"
+                - type: "null"
+            days_left: { type: [integer, "null"] }
 
     AdminDevice:
       type: object

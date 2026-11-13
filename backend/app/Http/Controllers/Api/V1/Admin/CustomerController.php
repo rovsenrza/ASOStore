@@ -144,11 +144,16 @@ class CustomerController extends Controller
             'days' => ['required_if:mode,add', 'nullable', 'numeric', 'between:-3650,3650', 'not_in:0'],
             'ends_at' => ['required_if:mode,set', 'nullable', 'date', 'before:2037-12-31'],
             'reason' => ['required', 'string', 'max:500'],
+            // Access is per iPhone: which one (optional when the account has a single device).
+            'device_id' => ['nullable', 'string', 'size:26'],
         ]);
 
         $subscription = DB::transaction(function () use ($user, $data) {
             User::query()->whereKey($user->id)->lockForUpdate()->first();
-            $subscription = Subscription::query()->where('user_id', $user->id)->where('status', SubscriptionStatus::Active->value)
+            $device = filled($data['device_id'] ?? null)
+                ? Device::query()->where('user_id', $user->id)->where('public_id', strtolower($data['device_id']))->firstOrFail()
+                : app(\App\Services\Devices\DeviceSlots::class)->target($user);
+            $subscription = Subscription::query()->where('device_id', $device->id)->where('status', SubscriptionStatus::Active->value)
                 ->orderByRaw('ends_at IS NULL DESC')->orderByDesc('ends_at')->lockForUpdate()->first();
             if ($subscription !== null && $subscription->ends_at === null) {
                 throw new ApiException(ErrorCode::Conflict, 'У пользователя бессрочная подписка — менять нечего.');
@@ -166,7 +171,7 @@ class CustomerController extends Controller
 
             if ($subscription === null) {
                 $subscription = Subscription::create([
-                    'user_id' => $user->id, 'plan' => 'standard', 'status' => SubscriptionStatus::Active,
+                    'user_id' => $user->id, 'device_id' => $device->id, 'plan' => 'standard', 'status' => SubscriptionStatus::Active,
                     'starts_at' => now(), 'ends_at' => $end,
                 ]);
             } else {
@@ -175,7 +180,7 @@ class CustomerController extends Controller
 
             $this->audit->record('subscription.adjusted', $subscription,
                 before: ['ends_at' => $before?->utc()->format('Y-m-d\TH:i:s\Z')],
-                after: ['ends_at' => $end->copy()->utc()->format('Y-m-d\TH:i:s\Z'), 'mode' => $data['mode'], 'days' => $data['mode'] === 'add' ? (float) $data['days'] : null],
+                after: ['ends_at' => $end->copy()->utc()->format('Y-m-d\TH:i:s\Z'), 'mode' => $data['mode'], 'days' => $data['mode'] === 'add' ? (float) $data['days'] : null, 'device_id' => $device->public_id],
                 reason: $data['reason']);
 
             return $subscription;

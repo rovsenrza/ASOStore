@@ -69,7 +69,7 @@ class MxRelayController extends Controller
         // The newest device row per UDID hash, as the single check always took.
         $devices = Device::query()
             ->whereIn('udid_hash', array_values(array_unique($hashes)))
-            ->with(['user.activeSubscription'])
+            ->with(['user', 'activeSubscription'])
             ->orderBy('id')
             ->get()
             ->keyBy('udid_hash');
@@ -78,7 +78,8 @@ class MxRelayController extends Controller
         foreach ($hashes as $udid => $hash) {
             $device = $devices->get($hash);
             $user = $device?->user;
-            $subscription = $user?->activeSubscription;
+            // Access is paid per iPhone: this device's own subscription decides.
+            $subscription = $device?->activeSubscription;
             $active = $user !== null && $user->isActive() && $subscription !== null;
             $results[$udid] = [
                 'active' => $active,

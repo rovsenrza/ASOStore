@@ -24,8 +24,9 @@ beforeEach(function () {
         'starts_at' => '2026-10-01 10:00:00', 'ends_at' => $this->endsAt]);
 
     // A registration created `$minutesAgo` minutes before "now"; enabled after `$waited` minutes when given.
+    // The customer's iPhone (it holds the subscription); every registration is of that iPhone.
     $this->register = function (int $minutesAgo, ?int $waited = null, ?Status $status = null) {
-        $device = Device::factory()->create(['user_id' => $this->user->id]);
+        $device = $this->subscription->device;
         $registration = DeviceRegistration::create([
             'device_id' => $device->id, 'apple_team_id' => $this->team->id, 'membership_year_id' => $this->team->currentMembershipYear()->id,
             'udid_hash' => bin2hex(random_bytes(32)), 'device_family' => DeviceFamily::Iphone,

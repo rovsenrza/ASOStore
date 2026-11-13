@@ -51,22 +51,22 @@ class InstantCertificates
     }
 
     /**
-     * A redeemed code bought with the instant method switches the account to it, as long as no
-     * iPhone is on the account yet: a device already on one of our teams keeps its slot there.
+     * A redeemed code bought with the instant method sends its device that way, as long as no
+     * iPhone is behind it yet: an iPhone already on one of our teams keeps its slot there.
      */
-    public function applyCodePlan(\App\Models\User $user, ?string $plan): void
+    public function applyCodePlan(Device $device, ?string $plan): void
     {
-        if ($plan !== self::PLAN || $user->registration_method === self::METHOD || $user->devices()->exists()) {
+        if ($plan !== self::PLAN || $device->registration_method === self::METHOD || $device->isEnrolled()) {
             return;
         }
-        $user->forceFill(['registration_method' => self::METHOD])->save();
-        Log::info('instant_cert.method_chosen', ['user' => $user->id]);
+        $device->forceFill(['registration_method' => self::METHOD])->save();
+        Log::info('instant_cert.method_chosen', ['user' => $device->user_id, 'device' => $device->id]);
     }
 
     /** Whether this device registers through an instant certificate instead of our teams. */
     public function wantedFor(Device $device): bool
     {
-        return $this->enabled() && $device->user?->registration_method === self::METHOD;
+        return $this->enabled() && $device->registration_method === self::METHOD;
     }
 
     /** The device's current registration on its instant certificate, if it has a usable one. */

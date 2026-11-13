@@ -103,10 +103,11 @@ class EnrollmentService
             $device = Device::query()->where('user_id', $user->id)->where('udid_hash', $hash)->first();
             $isNew = $device === null;
             if ($isNew) {
-                if ($user->devices()->count() >= (int) config('storefront.devices.max_per_account')) {
-                    throw new ApiException(ErrorCode::DeviceLimitReached);
-                }
-                $device = new Device(['user_id' => $user->id]);
+                // A new iPhone takes a place the account paid for (DeviceSlots): each iPhone is
+                // paid separately, so without one it is turned away before anything is registered.
+                User::query()->whereKey($user->id)->lockForUpdate()->first();
+                $device = app(DeviceSlots::class)->claimable($user)
+                    ?? throw new ApiException(ErrorCode::DeviceSlotRequired);
                 $device->setUdid($udid);
             }
 

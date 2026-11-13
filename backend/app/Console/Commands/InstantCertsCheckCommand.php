@@ -121,7 +121,7 @@ class InstantCertsCheckCommand extends Command
     {
         $device = $certificate->device;
         $user = $device?->user;
-        $active = $user?->activeSubscription()->first();
+        $active = $device?->activeSubscription()->first();
         $udid = $device && $device->udid_encrypted ? UdidHasher::normalize((string) $device->udid_encrypted) : '—';
         $email = (string) ($user->email ?? '');
         $artisan = 'cd /var/www/storefront/app/backend &amp;&amp; sudo -u storefront php artisan instant-certs:manage';

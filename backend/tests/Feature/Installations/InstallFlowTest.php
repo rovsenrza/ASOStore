@@ -1038,6 +1038,9 @@ it('prioritizes customer signing and starts speculative jobs only on an idle run
         $device = Device::factory()->make(['user_id' => $this->customer->id, 'device_family' => DeviceFamily::Iphone]);
         $device->setUdid($udid);
         $device->save();
+        // Each iPhone is paid for on its own.
+        \App\Models\Subscription::create(['user_id' => $this->customer->id, 'device_id' => $device->id, 'plan' => 'standard',
+            'status' => 'ACTIVE', 'starts_at' => now()->subMinute(), 'ends_at' => now()->addMonth()]);
         $service = app(DeviceRegistrationService::class);
         $service->register($service->request($device));
         $builds[] = $installations->prewarm($device->fresh(), $this->catalogApp);
@@ -1305,6 +1308,9 @@ describe('builds shared by the Apple team', function () {
         $device = Device::factory()->make(['user_id' => $test->customer->id, 'device_family' => DeviceFamily::Iphone]);
         $device->setUdid($udid);
         $device->save();
+        // Each iPhone is paid for on its own.
+        \App\Models\Subscription::create(['user_id' => $test->customer->id, 'device_id' => $device->id, 'plan' => 'standard',
+            'status' => 'ACTIVE', 'starts_at' => now()->subMinute(), 'ends_at' => now()->addMonth()]);
         $service = app(DeviceRegistrationService::class);
         $service->register($service->request($device));
 

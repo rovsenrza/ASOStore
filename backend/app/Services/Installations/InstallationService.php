@@ -51,7 +51,7 @@ class InstallationService
         if ($device->user_id !== $user->id) {
             throw new ApiException(ErrorCode::DeviceNotEligible);
         }
-        $this->assertSubscribed($user);
+        $this->assertSubscribed($user, $device);
         $artifact = $this->eligibleArtifact($device, $app);
 
         return DB::transaction(function () use ($user, $device, $app, $artifact) {
@@ -461,16 +461,16 @@ class InstallationService
     }
 
     /**
-     * Installing (and updating) is what a subscription pays for: once it has ended, no new
-     * install starts and no link handed out earlier still yields a manifest or an IPA.
-     * Staff keep access for testing.
+     * Installing (and updating) is what a subscription pays for, and it is paid per iPhone:
+     * once this device's access has ended, no new install starts on it and no link handed out
+     * earlier still yields a manifest or an IPA. Staff keep access for testing.
      */
-    private function assertSubscribed(?User $user): void
+    private function assertSubscribed(?User $user, ?Device $device): void
     {
-        if ($user === null) {
+        if ($user === null || $device === null) {
             throw new ApiException(ErrorCode::SubscriptionRequired);
         }
-        if ($user->isStaff() || $user->activeSubscription()->exists()) {
+        if ($user->isStaff() || $device->hasAccess()) {
             return;
         }
 
@@ -479,7 +479,7 @@ class InstallationService
 
     private function assertInstallable(Installation $installation): void
     {
-        $this->assertSubscribed($installation->user);
+        $this->assertSubscribed($installation->user, $installation->device);
         $this->assertDeviceEligible($installation->device);
 
         if ($installation->artifact->status !== ArtifactStatus::Published) {

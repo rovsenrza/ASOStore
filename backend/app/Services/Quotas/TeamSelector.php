@@ -319,7 +319,7 @@ class TeamSelector
         if ($otherDevice) {
             return false;
         }
-        $subscriptions = Subscription::query()->where('user_id', $device->user_id)->where('status', 'ACTIVE')->get(['starts_at', 'ends_at']);
+        $subscriptions = Subscription::query()->where('device_id', $device->id)->where('status', 'ACTIVE')->get(['starts_at', 'ends_at']);
         if ($subscriptions->isEmpty() || $subscriptions->contains(fn (Subscription $s) => $s->ends_at === null)) {
             return false;
         }

@@ -7,11 +7,13 @@ use App\Enums\ErrorCode;
 use App\Enums\SubscriptionStatus;
 use App\Exceptions\ApiException;
 use App\Models\ActivationCode;
+use App\Models\Device;
 use App\Models\Subscription;
 use App\Models\User;
 use App\Services\Audit\Actor;
 use App\Services\Audit\AuditService;
 use Carbon\CarbonInterface;
+use App\Services\Devices\DeviceSlots;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -72,7 +74,11 @@ class ActivationCodeService
         });
     }
 
-    public function redeem(User $user, string $input): Subscription
+    /**
+     * Puts a code's days on one of the user's devices: $device to extend it, $newDevice for a
+     * new (pending) iPhone, neither for the obvious one (DeviceSlots::target).
+     */
+    public function redeem(User $user, string $input, ?Device $device = null, bool $newDevice = false): Subscription
     {
         $code = self::normalize($input);
 
@@ -80,7 +86,7 @@ class ActivationCodeService
             throw new ApiException(ErrorCode::ActivationInvalid);
         }
 
-        return DB::transaction(function () use ($user, $code) {
+        return DB::transaction(function () use ($user, $code, $device, $newDevice) {
             $record = ActivationCode::query()->where('code_hash', self::hash($code))->lockForUpdate()->first();
 
             if ($record === null) {
@@ -93,17 +99,20 @@ class ActivationCodeService
                 ActivationCodeStatus::Issued => null,
             };
 
+            // Resolve the device before spending the code: a missing choice must not burn it.
+            User::query()->whereKey($user->id)->lockForUpdate()->first();
+            $target = app(DeviceSlots::class)->target($user, $device, $newDevice);
+
             $record->forceFill([
                 'status' => ActivationCodeStatus::Redeemed,
                 'redeemed_by' => $user->id,
                 'redeemed_at' => now(),
             ])->save();
 
-            // A new code extends the current subscription instead of overlapping it. The user row
-            // lock serialises this with another redemption and with DelayCompensation, which
-            // would otherwise both extend the same ends_at they read and lose each other's days.
-            User::query()->whereKey($user->id)->lockForUpdate()->first();
-            $current = $user->activeSubscription()->first();
+            // A new code extends the device's current subscription instead of overlapping it. The
+            // user row lock (above) serialises this with another redemption and with
+            // DelayCompensation, which would otherwise both extend the same ends_at and lose days.
+            $current = $target->activeSubscription()->first();
             $endsAt = match (true) {
                 $record->duration_days === null, $current !== null && $current->ends_at === null => null,
                 default => ($current->ends_at ?? now())->copy()->addDays($record->duration_days),
@@ -111,17 +120,19 @@ class ActivationCodeService
 
             $subscription = Subscription::create([
                 'user_id' => $user->id,
+                'device_id' => $target->id,
                 'activation_code_id' => $record->id,
                 'plan' => $record->plan,
                 'status' => SubscriptionStatus::Active,
                 'starts_at' => now(),
                 'ends_at' => $endsAt,
             ]);
-            // A code bought with the instant method sends the account's first iPhone that way.
-            app(\App\Services\InstantCerts\InstantCertificates::class)->applyCodePlan($user, $record->plan);
+            // A code bought with the instant method sends a not yet connected iPhone that way.
+            app(\App\Services\InstantCerts\InstantCertificates::class)->applyCodePlan($target, $record->plan);
 
             $this->audit->record('activation_code.redeemed', $record, after: [
                 'subscription_id' => $subscription->public_id,
+                'device_id' => $target->public_id,
                 'plan' => $subscription->plan,
                 'ends_at' => $endsAt?->toIso8601ZuluString(),
             ], actor: Actor::user($user));

@@ -47,10 +47,7 @@ beforeEach(function () {
         return $user;
     };
     $this->enrol = function (User $user, string $udid): DeviceRegistration {
-        $device = Device::factory()->make(['device_family' => DeviceFamily::Iphone, 'user_id' => $user->id]);
-        $device->setUdid($udid);
-        $device->enrolled_at = now();
-        $device->save();
+        $device = connectIphone($user, $udid);
         $registration = app(DeviceRegistrationService::class)->request($device);
         app(DeviceRegistrationService::class)->register($registration);
 

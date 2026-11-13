@@ -86,7 +86,7 @@ describe('device answer', function () {
 
         postEnrollment($challenge, ['UDID' => TEST_UDID, 'PRODUCT' => 'iPhone15,2', 'VERSION' => '18.6'])
             ->assertRedirect('/activate.html?enrollment_error=ENROLLMENT_CHALLENGE_EXPIRED');
-        expect(Device::count())->toBe(0);
+        expect(Device::enrolled()->count())->toBe(0);
     });
 
     it('rejects answers that are unsigned, tampered or for another challenge', function (string $case) {
@@ -101,7 +101,7 @@ describe('device answer', function () {
         };
 
         $response->assertRedirect('/activate.html?enrollment_error=ENROLLMENT_PAYLOAD_INVALID');
-        expect(Device::count())->toBe(0)
+        expect(Device::enrolled()->count())->toBe(0)
             ->and(AuditLog::where('action', 'device.enrollment_failed')->exists())->toBeTrue();
     })->with(['unsigned plist', 'tampered', 'other challenge', 'bad udid']);
 
@@ -113,15 +113,27 @@ describe('device answer', function () {
             ->assertRedirect('/activate.html?enrollment_error=DEVICE_OWNED_ELSEWHERE');
     });
 
-    it('limits devices per account but lets the same device enrol again', function () {
+    it('lets the same iPhone enrol again, and a second iPhone only into a place paid for it', function () {
         postEnrollment(enrollmentChallenge($this->customer), ['UDID' => TEST_UDID, 'PRODUCT' => 'iPhone15,2', 'VERSION' => '18.6']);
 
         postEnrollment(enrollmentChallenge($this->customer), ['UDID' => TEST_UDID, 'PRODUCT' => 'iPhone15,2', 'VERSION' => '18.7'])
             ->assertRedirect('/activate.html?enrolled='.Device::sole()->public_id);
         expect(Device::sole()->os_version)->toBe('18.7');
 
-        postEnrollment(enrollmentChallenge($this->customer), ['UDID' => '00008030-00000000000000AA', 'PRODUCT' => 'iPhone16,1', 'VERSION' => '18.6'])
-            ->assertRedirect('/activate.html?enrollment_error=DEVICE_LIMIT_REACHED');
+        // A second iPhone without paying for it is turned away…
+        $second = '00008030-00000000000000AA';
+        postEnrollment(enrollmentChallenge($this->customer), ['UDID' => $second, 'PRODUCT' => 'iPhone16,1', 'VERSION' => '18.6'])
+            ->assertRedirect('/activate.html?enrollment_error=DEVICE_SLOT_REQUIRED');
+
+        // …and takes the pending device a code bought for a new iPhone opened.
+        $pending = app(\App\Services\Activation\ActivationCodeService::class)
+            ->redeem($this->customer, issueActivationCode(30), newDevice: true)->device;
+        expect($pending->isEnrolled())->toBeFalse();
+        postEnrollment(enrollmentChallenge($this->customer), ['UDID' => $second, 'PRODUCT' => 'iPhone16,1', 'VERSION' => '18.6'])
+            ->assertRedirect('/activate.html?enrolled='.$pending->public_id);
+        expect($pending->refresh()->isEnrolled())->toBeTrue()
+            ->and($pending->product)->toBe('iPhone16,1')
+            ->and(Device::query()->where('user_id', $this->customer->id)->count())->toBe(2);
     });
 
     it('keeps the device waiting until an Apple team is connected, then registers it', function () {

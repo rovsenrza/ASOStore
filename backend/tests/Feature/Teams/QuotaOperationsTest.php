@@ -34,10 +34,7 @@ beforeEach(function () {
     $this->admin = userWithRoles(RoleSlug::Admin);
 
     $this->enrol = function (string $udid, ?User $owner = null): DeviceRegistration {
-        $device = Device::factory()->make(['device_family' => DeviceFamily::Iphone, 'user_id' => ($owner ?? User::factory()->create())->id]);
-        $device->setUdid($udid);
-        $device->enrolled_at = now();
-        $device->save();
+        $device = connectIphone($owner ?? User::factory()->create(), $udid);
         $registration = app(DeviceRegistrationService::class)->request($device);
         app(DeviceRegistrationService::class)->register($registration);
 

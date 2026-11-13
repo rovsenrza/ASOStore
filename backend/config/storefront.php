@@ -67,8 +67,8 @@ return [
     ],
 
     'devices' => [
-        // Devices one customer account may enrol (product decision; see IMPLEMENTATION_PLAN §10).
-        'max_per_account' => (int) env('STOREFRONT_MAX_DEVICES_PER_ACCOUNT', 1),
+        // iPhones one account may hold, each paid for on its own (decided 2026-11-13), pending ones included.
+        'max_per_account' => (int) env('STOREFRONT_MAX_DEVICES_PER_ACCOUNT', 5),
     ],
 
     'enrollment' => [
