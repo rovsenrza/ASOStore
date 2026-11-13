@@ -18,6 +18,7 @@ export function boot() {
   });
 
   setupHeader();
+  if (!mock) showAccountInHeader(api);
   guideToSafari();
 
   if (mock) {
@@ -56,6 +57,50 @@ function setupHeader() {
       toggle.focus();
     }
   });
+}
+
+const ACCOUNT_KEY = 'ruas.header-account';
+const ACCOUNT_TTL_MS = 5 * 60 * 1000;
+
+/** Forgets the header's signed-in state (call on sign-out). */
+export function forgetHeaderAccount() {
+  try { sessionStorage.removeItem(ACCOUNT_KEY); } catch { /* storage blocked */ }
+}
+
+/**
+ * The header shows «Войти» / «Начать» to guests; a signed-in customer gets «Аккаунт» and
+ * «Мои устройства» instead. A positive answer is remembered for a few minutes in this tab so
+ * every page does not ask the server again; guests are asked each time (a sign-in elsewhere
+ * then shows up at once).
+ */
+async function showAccountInHeader(api) {
+  const header = document.querySelector('[data-site-header]');
+  if (!header) return;
+  let signedIn = false;
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(ACCOUNT_KEY) ?? 'null');
+    signedIn = Boolean(cached && Date.now() - cached.at < ACCOUNT_TTL_MS);
+  } catch { /* storage blocked */ }
+  if (!signedIn) {
+    try {
+      await api.get('/auth/me');
+      signedIn = true;
+      try { sessionStorage.setItem(ACCOUNT_KEY, JSON.stringify({ at: Date.now() })); } catch { /* storage blocked */ }
+    } catch {
+      return; // a guest (or offline): keep «Войти»
+    }
+  }
+  const login = header.querySelector('.site-header__login');
+  if (login) {
+    login.textContent = 'Аккаунт';
+    login.href = '/account.html';
+  }
+  const start = header.querySelector('.site-header__actions .btn--primary');
+  if (start) {
+    start.textContent = 'Мои устройства';
+    start.href = '/devices.html';
+  }
+  header.classList.add('is-signed-in');
 }
 
 /**

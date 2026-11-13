@@ -1,4 +1,4 @@
-import { boot, redirectUnverified, renderDevice, renderError, renderLoading, renderStage } from '../app.js';
+import { boot, forgetHeaderAccount, redirectUnverified, renderDevice, renderError, renderLoading, renderStage } from '../app.js';
 
 const { api, t } = boot();
 const profile = document.querySelector('#profile');
@@ -41,6 +41,7 @@ function renderProfile(user) {
     signOut.disabled = true;
     try {
       await api.post('/auth/logout');
+      forgetHeaderAccount();
       location.assign('/');
     } catch (error) {
       signOut.disabled = false;
