@@ -35,11 +35,14 @@ class DeviceController extends Controller
             'status' => ['nullable', Rule::enum(DeviceRegistrationStatus::class)],
             'family' => ['nullable', Rule::enum(DeviceFamily::class)],
             'team' => ['nullable', 'string', 'max:20'],
+            // Paid places for an iPhone that never connected (no UDID) are listed only on request.
+            'connection' => ['nullable', 'in:connected,pending'],
             'page' => ['nullable', 'integer', 'min:1'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
         $query = Device::query()->with(['user', 'latestRegistration.team'])->latest('id');
+        ($filters['connection'] ?? 'connected') === 'pending' ? $query->pending() : $query->enrolled();
         $this->showUdid = $request->user()?->can('devices.reveal-udid') ?? false;
 
         if (filled($filters['q'] ?? null)) {
@@ -131,6 +134,7 @@ class DeviceController extends Controller
             'user' => ['id' => $device->user->public_id, 'number' => $device->user->id, 'email' => $device->user->email],
             'udid_hint' => $device->maskedUdid(),
             'udid' => $this->showUdid ? $device->udid_encrypted : null,
+            'connected' => $device->isEnrolled(),
             'product' => $device->product,
             'family' => $device->device_family->value,
             'os_version' => $device->os_version,

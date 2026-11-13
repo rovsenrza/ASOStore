@@ -9,7 +9,8 @@ import { hoursText, openCustomerCard, udidChip } from '../components/customer-ca
 const { api, t, can, me } = await boot();
 const STATUSES = ['ENROLLED', 'APPLE_PENDING', 'ELIGIBLE', 'APPLE_FAILED', 'QUOTA_BLOCKED', 'NO_ELIGIBLE_TEAM', 'DISABLED'];
 
-function registrationBadge(registration) {
+function registrationBadge(registration, device) {
+  if (device && device.connected === false) return statusBadge('warn', 'iPhone не подключён');
   if (!registration) return statusBadge('', t('devices.notConnected'));
   return statusBadge(registration.status, t(`devices.status.${registration.status}`));
 }
@@ -23,13 +24,14 @@ const table = createDataTable({
     { name: 'status', label: t('devices.registration'), type: 'select', options: [['', t('devices.allStatuses')], ...STATUSES.map((s) => [s, t(`devices.status.${s}`)])] },
     { name: 'team', label: 'Команда (ID Apple)', type: 'text' },
     { name: 'family', label: t('devices.family'), type: 'select', options: [['', t('devices.allFamilies')], ['IPHONE', 'iPhone'], ['IPAD', 'iPad']] },
+    { name: 'connection', label: 'Подключение', type: 'select', options: [['', 'Подключённые iPhone'], ['pending', 'Оплачен, iPhone не подключён']] },
   ],
   columns: [
     { key: 'udid_hint', label: t('devices.identifier'), render: (device) => udidChip(device) },
     { key: 'owner', label: t('devices.owner'), render: (device) => el('a', { href: '#', onclick: (event) => { event.preventDefault(); openCustomerCard({ api, t, can, me }, device.user.id, { onChange: () => table.reload() }); } }, `${device.user.email} · №${device.user.number}`) },
     { key: 'product', label: t('devices.model'), className: 'mono' },
     { key: 'os_version', label: t('devices.ios') },
-    { key: 'registration', label: t('devices.registration'), render: (device) => registrationBadge(device.registration) },
+    { key: 'registration', label: t('devices.registration'), render: (device) => registrationBadge(device.registration, device) },
     { key: 'team', label: 'Команда', className: 'mono', render: (device) => device.registration?.team ?? '' },
     { key: 'waited', label: 'Ожидание Apple', render: (device) => (device.registration ? hoursText(device.registration.waited_hours) : '') },
     { key: 'reason', label: t('devices.reason'), className: 'mono', render: (device) => device.registration?.reason ?? '' },
