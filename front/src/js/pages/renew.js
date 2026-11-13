@@ -11,7 +11,16 @@ const { api } = boot();
 const state = document.querySelector('#renew-state');
 const dateFormat = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'long' });
 
-const packages = setupPackages(document, { api, returnTo: '/renew.html', authPage: '/login.html', payVerb: 'Продлить за', chooseRegistration: false });
+// Access is paid per iPhone: ?device=<id> extends that iPhone (from «Мои устройства»).
+let deviceId = new URLSearchParams(location.search).get('device');
+const packages = setupPackages(document, {
+  api,
+  returnTo: deviceId ? `/renew.html?device=${encodeURIComponent(deviceId)}` : '/renew.html',
+  authPage: '/login.html',
+  payVerb: 'Продлить за',
+  chooseRegistration: false,
+  extra: () => (deviceId ? { device_id: deviceId } : {}),
+});
 
 /**
  * A one-time bot link that carries the signed-in account (POST /store/telegram-link), so the
@@ -72,23 +81,54 @@ function notice(tone, title, text, action = null) {
   return block;
 }
 
+const dayFormat = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'long' });
+
+/** One iPhone as a choice: model, last characters, until when. */
+function deviceLine(device) {
+  const until = device.access.unlimited ? 'бессрочно'
+    : device.access.ends_at ? `${device.access.active ? 'до' : 'закончилась'} ${dayFormat.format(new Date(device.access.ends_at))}` : 'не оплачен';
+  return `${device.connected ? device.model ?? 'iPhone' : 'Новый iPhone'}${device.connected ? ` ••${(device.udid_hint ?? '').slice(-4)}` : ''} · ${until}`;
+}
+
 async function load() {
   try {
-    const { data: user } = await api.get('/auth/me');
-    const subscription = user.subscription;
+    const [{ data: user }, { data: devices }] = await Promise.all([api.get('/auth/me'), api.get('/devices/me')]);
+    if (devices.length === 1) deviceId = devices[0].id;
+    const device = devices.find((d) => d.id === deviceId);
     let block;
-    if (subscription?.ends_at) {
-      block = notice('notice notice--ok', `Активна до ${dateFormat.format(new Date(subscription.ends_at))}`, `Аккаунт ${user.email}. Новые дни прибавятся к этой дате.`);
-    } else if (subscription) {
-      block = notice('notice notice--ok', 'Подписка активна без ограничения срока', `Аккаунт ${user.email}. Продлевать её не нужно.`);
+    if (!device && devices.length > 1) {
+      // Several iPhones: which one to extend (each is paid for on its own).
+      block = notice('notice', 'Какой iPhone продлить?', `Аккаунт ${user.email}. У каждого iPhone своя подписка — выберите нужный.`);
+      const list = document.createElement('div');
+      list.className = 'stage-actions';
+      for (const item of devices) {
+        const choice = document.createElement('a');
+        choice.className = 'btn btn--line btn--small';
+        choice.href = `/renew.html?device=${encodeURIComponent(item.id)}#pricing`;
+        choice.textContent = deviceLine(item);
+        list.append(choice);
+      }
+      block.append(list);
+    } else if (device?.access.unlimited) {
+      block = notice('notice notice--ok', 'Подписка активна без ограничения срока', `${deviceLine(device)}. Продлевать её не нужно.`);
+    } else if (device?.access.active) {
+      block = notice('notice notice--ok', `${device.connected ? device.model ?? 'iPhone' : 'Новый iPhone'}: активна до ${dateFormat.format(new Date(device.access.ends_at))}`, `Аккаунт ${user.email}. Новые дни прибавятся к этой дате.`);
+    } else if (device) {
+      block = notice('notice', `${device.connected ? device.model ?? 'iPhone' : 'Новый iPhone'}: подписка не активна`, `Аккаунт ${user.email}. Выберите срок ниже: доступ включится сразу после оплаты.`);
     } else {
       block = notice('notice', 'Подписка не активна', `Аккаунт ${user.email}. Выберите срок ниже: доступ включится сразу после оплаты.`);
+    }
+    if (devices.length > 1 || device) {
+      const all = document.createElement('p');
+      all.className = 'field-hint';
+      all.innerHTML = '<a href="/devices.html">Все мои устройства →</a>';
+      block.append(all);
     }
     state.replaceChildren(block);
     linkBotToAccount();
   } catch (error) {
     if (error?.code === 'UNAUTHENTICATED' || error?.code === 'SESSION_EXPIRED') {
-      const next = encodeURIComponent('/renew.html');
+      const next = encodeURIComponent(`/renew.html${location.search}`);
       state.replaceChildren(notice('notice', 'Войдите в аккаунт', 'Войдите с той же эл. почтой, на которую оформлена подписка, чтобы увидеть её срок и продлить.', { href: `/login.html?next=${next}`, label: 'Войти' }));
       return;
     }

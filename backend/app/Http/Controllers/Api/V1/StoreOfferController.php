@@ -38,10 +38,9 @@ class StoreOfferController extends Controller
         $response = ApiResponse::ok([
             'currency' => 'RUB',
             'online_payment' => PlategaClient::configured(),
-            // A new account may pick the instant certificate (same price) instead of our teams.
-            // Not for a signed-in customer whose iPhone is already registered: they are extending.
-            'instant_registration' => app(\App\Services\InstantCerts\InstantCertificates::class)->offered()
-                && ! (request()->user('sanctum')?->devices()->exists() ?? false),
+            // A new iPhone (a new account, or one added to an account) may be registered with the
+            // instant certificate (same price) instead of our teams; extending an iPhone never asks.
+            'instant_registration' => app(\App\Services\InstantCerts\InstantCertificates::class)->offered(),
             'plans' => $plans,
             'referral_percent' => $settings->referralPercent(),
             'telegram' => [

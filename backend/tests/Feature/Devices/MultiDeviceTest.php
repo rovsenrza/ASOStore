@@ -108,3 +108,44 @@ it('adds the waited Apple time to the iPhone that waited', function () {
         ->and(Subscription::query()->where('device_id', $b->id)->exists())->toBeTrue()
         ->and(Device::query()->where('udid_hash', app(UdidHasher::class)->hash(IPHONE_B))->value('id'))->toBe($b->id);
 });
+
+describe('buying for an iPhone', function () {
+    beforeEach(function () {
+        config(['telegram_store.mock_payments' => true]);
+        $this->buyer = \App\Models\TelegramStoreCustomer::query()->create(['telegram_user_id' => 7001, 'chat_id' => 7001, 'first_name' => 'B', 'referral_code' => 'buyer701']);
+        $this->orders = app(\App\Services\TelegramStore\OrderService::class);
+        \Illuminate\Support\Facades\Http::fake(fn () => \Illuminate\Support\Facades\Http::response(['ok' => true, 'result' => ['message_id' => 1]]));
+    });
+
+    it('adds a new iPhone to the account once a bot order for it is paid', function () {
+        $order = $this->orders->create($this->buyer, 'month3', $this->user, \App\Services\TelegramStore\OrderService::INSTANT, addDevice: true);
+        expect($order->add_device)->toBeTrue()->and($order->plan)->toBe('instant');
+
+        $completed = $this->orders->complete($order, 'mock');
+        $new = $completed->renewed->device;
+        expect($new->id)->not->toBe($this->a->id)
+            ->and($new->isEnrolled())->toBeFalse()
+            ->and($new->registration_method)->toBe('INSTANT')
+            ->and((int) round(now()->diffInDays($new->accessEndsAt())))->toBe(90)
+            ->and((int) round(now()->diffInDays($this->a->accessEndsAt())))->toBe(30);
+    });
+
+    it('extends the iPhone a bot order names', function () {
+        $this->codes->redeem($this->user, issueActivationCode(30), newDevice: true);
+        connectIphone($this->user, IPHONE_B);
+
+        $order = $this->orders->create($this->buyer, 'month1', $this->user, device: $this->a);
+        $this->orders->complete($order, 'mock');
+
+        expect((int) round(now()->diffInDays($this->a->accessEndsAt())))->toBe(60);
+    });
+
+    it('asks the website buyer which iPhone to extend once there are several', function () {
+        config(['services.platega.merchant_id' => 'm', 'services.platega.secret' => 's']);
+        $this->codes->redeem($this->user, issueActivationCode(30), newDevice: true);
+        Sanctum::actingAs($this->user);
+
+        $this->postJson('/api/v1/store/checkout', ['plan' => 'month1'])
+            ->assertStatus(409)->assertJsonPath('error.code', 'DEVICE_TARGET_REQUIRED');
+    });
+});

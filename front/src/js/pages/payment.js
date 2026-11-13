@@ -96,7 +96,13 @@ function render(order) {
     case 'PAID':
       lead.textContent = 'Оплата получена. Спасибо!';
       reportPurchase(order);
-      if (order.is_renewal) {
+      if (order.add_device) {
+        blocks = [notice('notice notice--ok', 'Новый iPhone добавлен в аккаунт', [
+          summary,
+          'Доступ для него уже оплачен. Подключите его: на новом iPhone откройте этот сайт в Safari, войдите в аккаунт и в разделе «Мои устройства» нажмите «Подключить этот iPhone».',
+        ])];
+        buttons = [link('Мои устройства', '/devices.html', true)];
+      } else if (order.is_renewal) {
         blocks = [notice('notice notice--ok', 'Подписка продлена', [
           summary,
           'Новые дни уже добавлены к вашему аккаунту, код вводить не нужно. Новую дату можно посмотреть в аккаунте.',

@@ -94,6 +94,17 @@ class TelegramStoreOrder extends Model
         return $this->belongsTo(User::class, 'renew_user_id');
     }
 
+    /**
+     * The iPhone this order extends (access is paid per iPhone); null with add_device (a new
+     * iPhone on the account) or for a code the buyer redeems by hand.
+     *
+     * @return BelongsTo<Device, $this>
+     */
+    public function renewDevice(): BelongsTo
+    {
+        return $this->belongsTo(Device::class, 'renew_device_id');
+    }
+
     public function isRenewal(): bool
     {
         return $this->renew_user_id !== null;

@@ -46,7 +46,7 @@ function monthlyLabel(node, input, saving) {
   }
 }
 
-export function setupPackages(root = document, { api = null, returnTo = '/buy.html', authPage = '/register.html', payVerb = 'Оплатить', chooseRegistration = true } = {}) {
+export function setupPackages(root = document, { api = null, returnTo = '/buy.html', authPage = '/register.html', payVerb = 'Оплатить', chooseRegistration = true, extra = () => ({}) } = {}) {
   const block = root.querySelector('[data-packages]');
   if (!block) return null;
   const field = (name) => block.querySelector(`[data-offer-${name}]`);
@@ -121,14 +121,20 @@ export function setupPackages(root = document, { api = null, returnTo = '/buy.ht
   const checkout = async () => {
     const plan = block.querySelector('input[name="plan"]:checked')?.value;
     if (!plan) return;
-    // Only sent while the choice is shown (offer.instant_registration); otherwise standard.
-    const registration = registrationField && !registrationField.hidden
-      ? block.querySelector('input[name="registration"]:checked')?.value ?? 'standard'
-      : 'standard';
+    // Only sent while the choice is shown (offer.instant_registration); otherwise standard. The two
+    // ways differ a lot, so nothing is preselected: the buyer must pick one.
+    const choosing = registrationField && !registrationField.hidden;
+    const registration = choosing ? block.querySelector('input[name="registration"]:checked')?.value : 'standard';
+    if (!registration) {
+      showNotice('Выберите, как подключить iPhone', '«Мгновенно» — сразу, но без уведомлений MAX и VK. «Аккаунт разработчика» — до 72 часов, всё работает. Цена одинаковая.');
+      registrationField.classList.add('is-invalid');
+      return;
+    }
+    registrationField?.classList.remove('is-invalid');
     const back = `${returnTo}?plan=${encodeURIComponent(plan)}${registration === 'instant' ? '&registration=instant' : ''}#pricing`;
     setBusy(true);
     try {
-      const { data } = await api.post('/store/checkout', { plan, registration }, {
+      const { data } = await api.post('/store/checkout', { plan, registration, ...extra() }, {
         idempotencyKey: `checkout-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`,
       });
       location.assign(data.payment_url);

@@ -30,6 +30,7 @@ function renderProfile(user) {
   const renew = document.createElement('a');
   renew.className = 'btn btn--primary';
   renew.href = '/renew.html';
+  // Access is paid per iPhone: the dates live on each iPhone in «Мои устройства».
   renew.textContent = user.subscription ? 'Продлить подписку' : 'Купить или продлить';
 
   const signOut = document.createElement('button');
@@ -47,9 +48,14 @@ function renderProfile(user) {
     }
   });
 
+  const devices = document.createElement('a');
+  devices.className = 'btn btn--line';
+  devices.href = '/devices.html';
+  devices.textContent = '📱 Мои устройства';
+
   const actions = document.createElement('div');
   actions.className = 'stage-actions';
-  actions.append(renew, signOut);
+  actions.append(devices, renew, signOut);
   profile.replaceChildren(list, actions);
 }
 

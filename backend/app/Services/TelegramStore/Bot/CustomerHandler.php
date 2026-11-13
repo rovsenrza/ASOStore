@@ -155,7 +155,7 @@ class CustomerHandler
         }
 
         // Buying and paying need a subscription to the news channel.
-        if (preg_match('/^(buy|buy2|buynew|buyext|renew|renew2|plan:\w+|pln:\w+|ext:\w+|lnk:\w+|reg:\w+:\w+|rna:\w+|rnw:\w+:\w+|(order|bal|pay:\w+|paid|mockpay|promo):[0-9a-z]{26})$/', $data) === 1 && $this->held($ctx, $data)) {
+        if (preg_match('/^(buy|buy2|buynew|buyext|renew|renew2|plan:\w+|pln:\w+|ext:\w+|lnk:\w+|reg:\w+:\w+(:\w+)?|rna:\w+|rnw:\w+:\w+|rnv:\w+:\w+|(order|bal|pay:\w+|paid|mockpay|promo):[0-9a-z]{26})$/', $data) === 1 && $this->held($ctx, $data)) {
             return;
         }
 
@@ -256,6 +256,22 @@ class CustomerHandler
             return;
         }
 
+        // One iPhone of a known account: extend that iPhone (access is paid per iPhone).
+        if (preg_match('/^rnv:(\w+):([0-9a-z]{26})$/', $data, $match)) {
+            $device = \App\Models\Device::query()->where('public_id', $match[2])->first();
+            $account = $device ? $this->accounts->for($customer)->first(fn (User $user) => $user->id === $device->user_id) : null;
+            if (! $account || $this->planMissing($match[1])) {
+                $this->messenger->answer($ctx, 'Этот вариант больше недоступен.', true);
+                $this->messenger->show($ctx, $this->screens->renew($customer));
+
+                return;
+            }
+            $this->messenger->answer($ctx);
+            $this->startOrder($ctx, $match[1], $account, OrderService::STANDARD, $device);
+
+            return;
+        }
+
         // plan: may still be a renewal (the buyer has an account); pln: is a new account chosen on purpose.
         if (preg_match('/^(plan|pln):(\w+)$/', $data, $match)) {
             if ($this->planMissing($match[2])) {
@@ -286,16 +302,24 @@ class CustomerHandler
             return;
         }
 
-        // How the new account's iPhone gets registered: reg:ins (instant certificate) or reg:std (our teams).
-        if (preg_match('/^reg:(ins|std):(\w+)$/', $data, $match)) {
-            if ($this->planMissing($match[2]) || ($match[1] === 'ins' && ! $this->instant->offered())) {
+        // How the new iPhone gets registered: reg:ins (instant certificate) or reg:std (our teams).
+        // With an account (reg:std:month1:<account>) the iPhone is added to that account, paid on
+        // its own; without one the code starts a new account.
+        if (preg_match('/^reg:(ins|std):([a-z0-9]+)(?::([0-9a-z]{26}))?$/', $data, $match)) {
+            $account = isset($match[3]) ? $this->accounts->find($customer, $match[3]) : null;
+            if ($this->planMissing($match[2]) || ($match[1] === 'ins' && ! $this->instant->offered()) || (isset($match[3]) && ! $account)) {
                 $this->messenger->answer($ctx, 'Этот вариант больше недоступен.', true);
                 $this->messenger->show($ctx, $this->screens->buy($customer));
 
                 return;
             }
+            if ($account && $account->devices()->count() >= \App\Services\Devices\DeviceSlots::limit()) {
+                $this->messenger->answer($ctx, 'В аккаунте уже '.\App\Services\Devices\DeviceSlots::limit().' устройств — больше добавить нельзя.', true);
+
+                return;
+            }
             $this->messenger->answer($ctx);
-            $this->startOrder($ctx, $match[2], null, $match[1] === 'ins' ? OrderService::INSTANT : OrderService::STANDARD);
+            $this->startOrder($ctx, $match[2], $account, $match[1] === 'ins' ? OrderService::INSTANT : OrderService::STANDARD, null, $account !== null);
 
             return;
         }
@@ -359,14 +383,18 @@ class CustomerHandler
     }
 
     /** Opens an order for the plan (a remembered promo code applies) and shows how to pay it. */
-    private function startOrder(Context $ctx, string $planKey, ?User $renewFor = null, string $registration = OrderService::STANDARD): void
+    private function startOrder(Context $ctx, string $planKey, ?User $renewFor = null, string $registration = OrderService::STANDARD, ?\App\Models\Device $device = null, bool $addDevice = false): void
     {
         if ($this->planMissing($planKey)) {
             $this->messenger->show($ctx, $this->screens->plans($ctx->customer, $this->promos->remembered($ctx->userId())));
 
             return;
         }
-        $order = $this->orders->create($ctx->customer, $planKey, $renewFor, $registration);
+        // Extending an account without naming the iPhone: its only iPhone, when it has just one.
+        if ($renewFor !== null && ! $addDevice && $device === null && $renewFor->devices()->count() === 1) {
+            $device = $renewFor->devices()->first();
+        }
+        $order = $this->orders->create($ctx->customer, $planKey, $renewFor, $registration, $device, $addDevice);
         if ($completed = $this->promos->applyRemembered($order)) {
             $this->finish($ctx, $completed);
 

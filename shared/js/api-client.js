@@ -71,6 +71,10 @@ export function createApiClient({ baseUrl = '/api/v1', transport = fetchTranspor
       headers['Content-Type'] = 'application/json';
     }
     if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+    // The iPhone this browser runs on (remembered when it enrolled, or picked in «Мои устройства»):
+    // access is paid per iPhone, so status, installs and claims speak for this one.
+    const device = thisDevice();
+    if (device && !headers['X-Storefront-Device']) headers['X-Storefront-Device'] = device;
     if (!SAFE_METHODS.has(method) && usesCookies) {
       if (!readCookie('XSRF-TOKEN')) await fetchCsrfCookie();
       const xsrf = readCookie('XSRF-TOKEN');
@@ -124,4 +128,26 @@ export function createApiClient({ baseUrl = '/api/v1', transport = fetchTranspor
     put: (path, body, options = {}) => request('PUT', path, { ...options, body }),
     delete: (path, options) => request('DELETE', path, options),
   };
+}
+
+const DEVICE_KEY = 'ruas.device';
+
+/** The public id of the iPhone this browser belongs to, if known. */
+export function thisDevice() {
+  try {
+    const id = globalThis.localStorage?.getItem(DEVICE_KEY) ?? '';
+    return /^[0-9a-z]{26}$/.test(id) ? id : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remembers (or forgets, with null) which iPhone this browser runs on. */
+export function rememberDevice(id) {
+  try {
+    if (id && /^[0-9a-z]{26}$/i.test(id)) globalThis.localStorage?.setItem(DEVICE_KEY, id.toLowerCase());
+    else globalThis.localStorage?.removeItem(DEVICE_KEY);
+  } catch {
+    // Private mode: the account's latest iPhone is used.
+  }
 }

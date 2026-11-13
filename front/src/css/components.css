@@ -380,3 +380,78 @@ button.text-link:disabled { color: var(--ink-2); cursor: default; }
 /* install.html uses div.txt instead of <p> so Safari never offers Reader there (Reader hides the install button). */
 .txt { margin: 0 0 1em; text-wrap: pretty; }
 .txt:last-child, .txt.field-hint { margin-bottom: 0; }
+
+/* «Мои устройства»: every iPhone as an iPhone, its state as a pulsing light (2026-11-13) */
+.devices-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s4); margin-bottom: var(--s5); }
+.devices-head h2 { margin-bottom: 0; }
+.devices-head__count { margin: 0; color: var(--ink-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+.device-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); gap: clamp(20px, 4vw, 40px) var(--s5); }
+.device-card { display: grid; justify-items: center; gap: var(--s4); }
+.device-card__actions { display: flex; flex-wrap: wrap; justify-content: center; gap: var(--s2); }
+
+.iphone {
+  --tone: #16c47f;
+  --tone-soft: rgb(22 196 127 / 55%);
+  position: relative;
+  width: min(100%, 196px);
+  aspect-ratio: 9 / 18.6;
+  padding: 9px;
+  border-radius: 40px;
+  background: linear-gradient(155deg, #2a3a6b, var(--navy) 55%, #030b2b);
+  box-shadow: 0 0 0 1.5px rgb(255 255 255 / 10%) inset, 0 24px 48px -18px rgb(6 22 77 / 55%), 0 2px 6px rgb(6 22 77 / 20%);
+  transition: transform .25s ease, box-shadow .25s ease;
+}
+.iphone:hover { transform: translateY(-4px); box-shadow: 0 0 0 1.5px rgb(255 255 255 / 12%) inset, 0 32px 56px -20px rgb(6 22 77 / 60%), 0 2px 6px rgb(6 22 77 / 20%); }
+.iphone--wait { --tone: #f5a524; --tone-soft: rgb(245 165 36 / 55%); }
+.iphone--bad { --tone: var(--red); --tone-soft: rgb(224 38 60 / 55%); }
+.iphone__island { position: absolute; z-index: 2; top: 19px; left: 50%; width: 31%; height: 19px; border-radius: 99px; background: #000; transform: translateX(-50%); }
+.iphone__screen {
+  position: relative;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 44px 14px 22px;
+  border-radius: 32px;
+  overflow: hidden;
+  color: #fff;
+  text-align: center;
+  background:
+    radial-gradient(120% 70% at 50% 0%, color-mix(in srgb, var(--tone) 30%, transparent), transparent 70%),
+    linear-gradient(170deg, var(--sky), var(--blue) 45%, var(--deep));
+}
+.iphone--bad .iphone__screen { background: radial-gradient(120% 70% at 50% 0%, rgb(224 38 60 / 35%), transparent 70%), linear-gradient(170deg, #3b4a7c, #1b2654 60%, #0c1438); }
+.iphone__status { display: inline-flex; align-items: center; gap: 8px; padding: 5px 11px 5px 9px; border-radius: 99px; background: rgb(0 0 0 / 22%); font-size: .78rem; font-weight: 600; backdrop-filter: blur(6px); }
+.pulse { position: relative; width: 10px; height: 10px; border-radius: 50%; background: var(--tone); box-shadow: 0 0 0 0 var(--tone-soft); animation: device-pulse 1.8s ease-out infinite; }
+@keyframes device-pulse {
+  0% { box-shadow: 0 0 0 0 var(--tone-soft); }
+  70% { box-shadow: 0 0 0 11px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none; } .iphone, .iphone:hover { transition: none; transform: none; } }
+.iphone__model { margin-top: 6px; font: 700 1.15rem/1.15 var(--font-display); letter-spacing: -.01em; }
+.iphone__term { font-size: .82rem; color: var(--on-blue-2); }
+.iphone__days { margin-top: 8px; font-size: .8rem; color: var(--on-blue-2); }
+.iphone__days b { display: block; font: 700 2.4rem/1 var(--font-display); color: #fff; font-variant-numeric: tabular-nums; }
+.iphone__meta { margin-top: auto; font-size: .72rem; color: rgb(227 236 255 / 80%); }
+.iphone__here { position: absolute; top: 46px; right: 50%; transform: translateX(50%) translateY(-34px); padding: 2px 8px; border-radius: 99px; background: #fff; color: var(--deep); font-size: .65rem; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; white-space: nowrap; }
+.iphone--pending .iphone__screen { background: radial-gradient(120% 70% at 50% 0%, rgb(245 165 36 / 30%), transparent 70%), linear-gradient(170deg, #4a6fd6, #2a4bb5 50%, #1a2f86); }
+
+.iphone--add { display: block; border: 0; cursor: pointer; background: transparent; box-shadow: none; padding: 9px; outline: 2px dashed var(--line-strong); outline-offset: -2px; }
+.iphone--add:hover { outline-color: var(--blue); box-shadow: none; }
+.iphone--add .iphone__island { background: var(--line-strong); }
+.iphone--add .iphone__screen { background: var(--mist); color: var(--ink); }
+.iphone--add .iphone__meta { margin-top: 0; color: var(--ink-2); }
+.iphone__plus { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: var(--blue); color: #fff; font: 400 2rem/1 var(--font-text); box-shadow: var(--shadow-blue, 0 10px 24px rgb(11 69 230 / 35%)); }
+.iphone--add:focus-visible { outline: 3px solid var(--blue); }
+
+.link-button { padding: 0; border: 0; background: none; color: var(--blue); font: inherit; font-size: var(--text-sm); text-decoration: underline; cursor: pointer; }
+.connect-steps { margin: 0 0 var(--s5); padding-left: 1.3em; display: grid; gap: var(--s2); color: var(--ink-2); line-height: 1.55; }
+.add-device-intro { max-width: 62ch; margin: 0 auto var(--s6); text-align: center; }
+.add-device-intro p { color: var(--ink-2); }
+.reg-list.is-invalid { outline: 2px solid var(--red); outline-offset: 6px; border-radius: var(--r-md); }
+.device-choice { margin: 0; padding: 0; border: 0; display: grid; gap: var(--s2); }
+.device-choice legend { margin-bottom: var(--s2); font-weight: 600; }
+.device-choice__list { display: grid; gap: var(--s2); }

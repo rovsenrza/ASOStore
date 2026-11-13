@@ -30,7 +30,7 @@ class OrderFulfillment
 
         try {
             $user = $order->user ?? throw new \RuntimeException('The account of the order is gone.');
-            $this->codes->redeem($user, $completed->code);
+            $this->codes->redeem($user, $completed->code, $order->renewDevice, (bool) $order->add_device);
         } catch (Throwable $exception) {
             report($exception);
             $this->messenger->notifyAdmins(new Screen(

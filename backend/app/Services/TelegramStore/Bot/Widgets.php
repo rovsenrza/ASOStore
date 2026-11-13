@@ -207,7 +207,10 @@ class Widgets
         }
 
         $accounts = $this->accounts->for($customer)->take(3);
-        $first = $accounts->first();
+        // Access is paid per iPhone: the customer extends one of their iPhones (all known accounts).
+        $devices = \App\Models\Device::query()->whereIn('user_id', $accounts->pluck('id'))
+            ->with('activeSubscription')->orderByRaw('udid_hash IS NULL')->orderBy('id')->limit(6)->get();
+        $first = $devices->first(fn (\App\Models\Device $device) => $device->activeSubscription !== null) ?? $devices->first();
         $end = $first?->activeSubscription?->ends_at;
         $unused = $this->orders->unusedCodes($customer)->first();
 
@@ -217,11 +220,19 @@ class Widgets
             's' => match (true) {
                 $first === null => null,
                 $first->activeSubscription !== null && $end === null => 'бессрочно',
-                $end !== null => 'до '.$end->copy()->setTimezone((string) config('telegram_store.display_timezone', 'Europe/Moscow'))->format('d.m').' · '.max(0, (int) ceil(now()->diffInHours($end, false) / 24)).' дн',
+                $end !== null && $end->isFuture() => 'до '.$end->copy()->setTimezone((string) config('telegram_store.display_timezone', 'Europe/Moscow'))->format('d.m').' · '.max(0, (int) ceil(now()->diffInHours($end, false) / 24)).' дн',
                 default => 'закончилась',
             },
             'on' => $first?->activeSubscription !== null ? 1 : null,
-            'a' => $accounts->map(fn (User $user) => [$user->public_id, RenewalAccounts::maskEmail($user->email), $this->accessShort($user)])->values()->all(),
+            'a' => $devices->map(fn (\App\Models\Device $device) => [
+                $device->public_id,
+                $device->isEnrolled()
+                    ? (\App\Services\Devices\CustomerDevices::model($device->product) ?? 'iPhone').' ··'.$device->udid_hint
+                    : 'Новый iPhone',
+                $this->deviceAccess($device),
+            ])->values()->all(),
+            // A new iPhone goes onto this account instead of starting another one.
+            'ac' => $accounts->first()?->public_id,
             'p' => $p,
             'o' => $this->instantCerts->offered() ? self::REGISTRATION : null,
             'c' => $customer->balance_rub > 0 ? (int) $customer->balance_rub : null,
@@ -316,6 +327,17 @@ class Widgets
     private static function primary(string $text): bool
     {
         return str_contains($text, '₽') || preg_match('/^(💳|✅|🛍|⚡|🛡|📲|🔑)/u', $text) === 1;
+    }
+
+    private function deviceAccess(\App\Models\Device $device): string
+    {
+        $active = $device->activeSubscription;
+        if ($active && $active->ends_at === null) {
+            return 'бессрочно';
+        }
+        $end = $device->accessEndsAt();
+
+        return $end ? ($end->isFuture() ? 'до ' : 'кончилась ').$end->copy()->setTimezone((string) config('telegram_store.display_timezone', 'Europe/Moscow'))->format('d.m') : 'нет подписки';
     }
 
     private function accessShort(User $user): string

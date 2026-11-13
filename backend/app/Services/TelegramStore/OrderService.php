@@ -6,6 +6,7 @@ use App\Enums\ActivationCodeStatus;
 use App\Enums\RoleSlug;
 use App\Models\ActivationCode;
 use App\Models\Subscription;
+use App\Models\Device;
 use App\Models\TelegramStoreCustomer;
 use App\Models\TelegramStoreOrder;
 use App\Models\User;
@@ -51,13 +52,17 @@ class OrderService
      * Opens an order for a plan. Older unpaid orders of the customer are
      * cancelled so only one checkout is live at a time.
      */
-    public function create(TelegramStoreCustomer $customer, string $planKey, ?User $renewFor = null, string $registration = self::STANDARD): TelegramStoreOrder
+    /**
+     * $renewFor: the account the code goes onto once paid; with it, $device names the iPhone to
+     * extend, or $addDevice puts a new iPhone on that account (registered with $registration).
+     */
+    public function create(TelegramStoreCustomer $customer, string $planKey, ?User $renewFor = null, string $registration = self::STANDARD, ?Device $device = null, bool $addDevice = false): TelegramStoreOrder
     {
         $plan = $this->settings->plan($planKey) ?? throw new InvalidArgumentException("Unknown plan {$planKey}.");
 
         // The customer row lock makes cancel-then-create atomic: a double tap waits here and then
         // cancels the first tap's order, so at most one order stays PENDING.
-        return DB::transaction(function () use ($customer, $plan, $planKey, $renewFor, $registration) {
+        return DB::transaction(function () use ($customer, $plan, $planKey, $renewFor, $registration, $device, $addDevice) {
             TelegramStoreCustomer::query()->whereKey($customer->id)->lockForUpdate()->firstOrFail();
             TelegramStoreOrder::query()
                 ->where('customer_id', $customer->id)
@@ -65,23 +70,27 @@ class OrderService
                 ->get()
                 ->each(fn (TelegramStoreOrder $order) => $this->close($order, TelegramStoreOrder::CANCELLED));
 
-            return $this->openFor($customer, $plan, $planKey, $renewFor, $registration);
+            return $this->openFor($customer, $plan, $planKey, $renewFor, $registration, $device, $addDevice);
         }, 3);
     }
 
     /** @param array{months: int, days: int, price: int} $plan */
-    private function openFor(TelegramStoreCustomer $customer, array $plan, string $planKey, ?User $renewFor, string $registration): TelegramStoreOrder
+    private function openFor(TelegramStoreCustomer $customer, array $plan, string $planKey, ?User $renewFor, string $registration, ?Device $device = null, bool $addDevice = false): TelegramStoreOrder
     {
+        $extends = $renewFor !== null && ! $addDevice;
         return TelegramStoreOrder::create([
             'public_id' => strtolower((string) Str::ulid()),
             'customer_id' => $customer->id,
             'renew_user_id' => $renewFor?->id,
+            'renew_device_id' => $extends ? $device?->id : null,
+            'add_device' => $renewFor !== null && $addDevice,
             'telegram_user_id' => $customer->telegram_user_id,
             'chat_id' => $customer->chat_id,
             'username' => $customer->username,
             'first_name' => $customer->first_name,
-            // A renewal extends an account whose iPhone is registered already: the method stays as it is.
-            'plan' => $renewFor === null ? self::registrationPlan($registration) : self::STANDARD,
+            // Extending an iPhone that is registered already keeps its method; a new iPhone (a new
+            // account, or one added to an account) is registered the way the buyer chose.
+            'plan' => $extends ? self::STANDARD : self::registrationPlan($registration),
             'plan_key' => $planKey,
             'duration_days' => $plan['days'],
             'price_rub' => $plan['price'],
@@ -95,7 +104,7 @@ class OrderService
      * Opens a website order for a plan, paid online and delivered to the account.
      * Older unpaid website orders of the account are cancelled, as in the bot.
      */
-    public function createForUser(User $user, string $planKey, string $registration = self::STANDARD): TelegramStoreOrder
+    public function createForUser(User $user, string $planKey, string $registration = self::STANDARD, ?Device $device = null, bool $addDevice = false): TelegramStoreOrder
     {
         $plan = $this->settings->plan($planKey) ?? throw new InvalidArgumentException("Unknown plan {$planKey}.");
 
@@ -109,7 +118,9 @@ class OrderService
         return TelegramStoreOrder::create([
             'public_id' => strtolower((string) Str::ulid()),
             'user_id' => $user->id,
-            'plan' => self::registrationPlan($registration),
+            'renew_device_id' => $addDevice ? null : $device?->id,
+            'add_device' => $addDevice,
+            'plan' => $addDevice || $device === null ? self::registrationPlan($registration) : self::STANDARD,
             'plan_key' => $planKey,
             'duration_days' => $plan['days'],
             'price_rub' => $plan['price'],
@@ -299,7 +310,8 @@ class OrderService
             return $completed;
         }
         try {
-            $subscription = $this->codes->redeem($account, $completed->code);
+            $order = $completed->order;
+            $subscription = $this->codes->redeem($account, $completed->code, $order->renewDevice, (bool) $order->add_device);
         } catch (Throwable $exception) {
             report($exception);
 

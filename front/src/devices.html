@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Мои устройства — Ru App Store</title>
+  <meta name="description" content="Все iPhone вашего аккаунта Ru App Store: у каждого своя подписка. Добавьте новый iPhone без нового аккаунта.">
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#0b45e6">
+  <link rel="icon" type="image/png" sizes="32x32" href="/assets/brand/ru-app-store-logo-32.png">
+  <link rel="apple-touch-icon" href="/assets/brand/ru-app-store-logo-180.png">
+  <link rel="stylesheet" href="/css/site.css">
+  <script type="module" src="/js/pages/devices.js"></script>
+</head>
+<body>
+  <!--#header-->
+
+  <main id="main">
+    <section class="page-hero" aria-labelledby="page-title">
+      <h1 id="page-title">Мои устройства</h1>
+      <p>Один аккаунт — несколько iPhone. У каждого своя подписка: продлевайте нужный, а новый добавляйте без нового аккаунта.</p>
+    </section>
+
+    <div class="page-body">
+      <section aria-labelledby="devices-title">
+        <div class="devices-head">
+          <h2 id="devices-title">iPhone в аккаунте</h2>
+          <p class="devices-head__count" id="devices-count"></p>
+        </div>
+        <div class="device-grid" id="devices" role="list" aria-live="polite"></div>
+      </section>
+
+      <section class="panel connect-panel" id="connect" aria-labelledby="connect-title" hidden>
+        <h2 id="connect-title">Подключите новый iPhone</h2>
+        <div id="connect-body"></div>
+      </section>
+    </div>
+
+    <section class="pricing pricing--page" id="add" aria-labelledby="add-title" hidden>
+      <div class="container">
+        <div class="add-device-intro">
+          <h2 id="add-title">Добавить iPhone в аккаунт</h2>
+          <p>Выберите срок и способ подключения. После оплаты откройте этот сайт на новом iPhone, войдите в этот же аккаунт и установите профиль — новый iPhone займёт оплаченное место.</p>
+        </div>
+        <!--#packages-->
+      </div>
+    </section>
+  </main>
+
+  <!--#footer-->
+</body>
+</html>

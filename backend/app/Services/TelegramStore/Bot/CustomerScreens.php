@@ -346,11 +346,24 @@ class CustomerScreens
         $rows = [[Screen::link('👤 Мой аккаунт', rtrim((string) config('app.url'), '/').'/account.html')]];
         $rows[] = [Screen::button('‹ Меню', 'menu')];
         $until = $subscription->ends_at ? 'до <b>'.Format::date($subscription->ends_at).'</b>' : '<b>без ограничения срока</b>';
+        $device = $subscription->device;
+        if ($order->add_device && $device !== null && ! $device->isEnrolled()) {
+            // A new iPhone was paid for: it is connected by installing the profile on that iPhone.
+            return new Screen(
+                "✅ <b>Новый iPhone добавлен в аккаунт!</b>\n\n"
+                ."Заказ #{$order->shortReference()} · {$this->planName($order)}\n"
+                .'Аккаунт: '.e(RenewalAccounts::maskEmail(($account ?? $order->renewUser)?->email))."\n"
+                ."Доступ для него действует {$until}.\n\n"
+                ."<b>Подключите его:</b> на новом iPhone откройте ruappstore.com в Safari, войдите в этот аккаунт и нажмите «Подключить iPhone» в разделе «Мои устройства».",
+                [[Screen::link('📱 Мои устройства', rtrim((string) config('app.url'), '/').'/devices.html')], [Screen::button('‹ Меню', 'menu')]],
+            );
+        }
 
         return new Screen(
             "✅ <b>Подписка продлена!</b>\n\n"
             ."Заказ #{$order->shortReference()} · {$this->planName($order)}\n"
             .'Аккаунт: '.e(RenewalAccounts::maskEmail(($account ?? $order->renewUser)?->email))."\n"
+            .($device?->isEnrolled() ? 'iPhone: '.e(\App\Services\Devices\CustomerDevices::model($device->product) ?? 'iPhone').' ••'.e((string) $device->udid_hint)."\n" : '')
             ."Подписка действует {$until}.\n\n"
             .'Код вводить не нужно, откройте Ru App Store на iPhone.',
             $rows,
@@ -366,8 +379,14 @@ class CustomerScreens
             "Тариф: {$this->brandHtml()} · {$plan}",
             'Стоимость: '.Format::rub($order->price_rub),
         ];
-        if ($order->isRenewal()) {
-            array_splice($lines, 2, 0, ['🔄 Продление аккаунта '.e(RenewalAccounts::maskEmail($order->renewUser?->email))]);
+        if ($order->isRenewal() && $order->add_device) {
+            array_splice($lines, 2, 0, ['➕ Новый iPhone в аккаунт '.e(RenewalAccounts::maskEmail($order->renewUser?->email))]);
+            if (OrderService::isInstant($order)) {
+                array_splice($lines, 4, 0, ['Регистрация: ⚡ мгновенная']);
+            }
+        } elseif ($order->isRenewal()) {
+            $device = $order->renewDevice;
+            array_splice($lines, 2, 0, ['🔄 Продление '.($device ? e(\App\Services\Devices\CustomerDevices::model($device->product) ?? 'iPhone').' ••'.e((string) $device->udid_hint).' · ' : 'аккаунта ').e(RenewalAccounts::maskEmail($order->renewUser?->email))]);
         } elseif (OrderService::isInstant($order)) {
             array_splice($lines, 3, 0, ['Регистрация: ⚡ мгновенная']);
         }

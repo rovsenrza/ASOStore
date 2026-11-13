@@ -1,6 +1,7 @@
 import { boot, redirectUnverified, renderDevice, renderError, renderLoading, renderStage } from '../app.js';
 import { bindForm } from '../forms.js';
 import { isIos, isSafari, safariPrompt } from '../safari.js';
+import { rememberDevice } from '/shared/js/api-client.js';
 
 const { api, t } = boot();
 const STAGE_TO_STEP = {
@@ -57,6 +58,8 @@ function paragraph(text, className) {
 /** One-off message after iOS sends the user back from the profile flow. */
 function renderReturnNotice() {
   const error = params.get('enrollment_error');
+  // iOS opens this page in Safari on the iPhone that just enrolled: remember it is this one.
+  if (params.get('enrolled')) rememberDevice(params.get('enrolled'));
   if (!error && !params.get('enrolled')) return null;
 
   const notice = document.createElement('div');
@@ -78,6 +81,10 @@ function renderActivationForm() {
         maxlength="32" aria-describedby="activation-code-hint" required>
       <p class="field-hint" id="activation-code-hint"></p>
     </div>
+    <fieldset class="device-choice" hidden>
+      <legend>Для какого iPhone этот код?</legend>
+      <div class="device-choice__list"></div>
+    </fieldset>
     <button class="primary-button" type="submit"><span></span> <span aria-hidden="true">→</span></button>
     <p class="form-footer">Нет кода? <a href="/buy.html#pricing">Купить доступ</a> — после оплаты на сайте доступ включится сам, код вводить не нужно.</p>`;
   form.querySelector('label').textContent = t('activate.codeLabel');
@@ -86,13 +93,50 @@ function renderActivationForm() {
   form.querySelector('button span').textContent = t('activate.codeSubmit');
 
   bindForm(form, t, {
-    submit: (data) => api.post('/activation/redeem', { code: data.get('code') }, {
-      idempotencyKey: `redeem-${crypto.randomUUID?.() ?? Date.now()}`,
-    }),
+    submit: async (data) => {
+      // Several iPhones on the account: the code goes onto the one picked (or a new one).
+      const target = data.get('target');
+      const body = { code: data.get('code') };
+      if (target === 'new') body.new_device = true;
+      else if (target) body.device_id = target;
+      try {
+        return await api.post('/activation/redeem', body, { idempotencyKey: `redeem-${crypto.randomUUID?.() ?? Date.now()}` });
+      } catch (error) {
+        if (error?.code === 'DEVICE_TARGET_REQUIRED') await showDeviceChoice(form);
+        throw error;
+      }
+    },
     onSuccess: load,
   });
 
   stageState.append(form);
+}
+
+/** The account's iPhones as radio buttons, plus «a new iPhone», for a code that needs a target. */
+async function showDeviceChoice(form) {
+  const field = form.querySelector('.device-choice');
+  const list = field.querySelector('.device-choice__list');
+  const { data: devices } = await api.get('/devices/me');
+  list.replaceChildren(...devices.map((device) => choice(device.id,
+    `${device.model ?? 'iPhone'}${device.connected ? ` ••${(device.udid_hint ?? '').slice(-4)}` : ' (ещё не подключён)'}`,
+    device.access.active ? (device.access.unlimited ? 'бессрочно' : `до ${new Date(device.access.ends_at).toLocaleDateString('ru-RU')}`) : 'доступ закончился')),
+  choice('new', '➕ Новый iPhone', 'добавить в аккаунт ещё одно устройство'));
+  field.hidden = false;
+}
+
+function choice(value, title, note) {
+  const label = document.createElement('label');
+  label.className = 'plan-option plan-option--reg';
+  const input = document.createElement('input');
+  input.type = 'radio';
+  input.name = 'target';
+  input.value = value;
+  const name = document.createElement('b');
+  name.textContent = title;
+  const small = document.createElement('small');
+  small.textContent = note;
+  label.append(input, name, small);
+  return label;
 }
 
 /** Profile download on an iPhone/iPad in Safari; instructions everywhere else. */

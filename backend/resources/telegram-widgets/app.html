@@ -68,16 +68,16 @@ function initStore(){if(!S.o)reg='';var P=S.p||[],a=S.a||[];if(!P.some(function(
 function store(){var a=S.a||[],P=S.p||[],p=P.find(function(x){return x[0]==plan})||[0,'',0];
 if(S.uc)R.appendChild(btn(S.uc,'uc'));
 add(R,add(E('div','r'),E('button','ch'+(mode=='n'?' s':''),'🆕 Новый iPhone',function(){mode='n';draw()}),E('button','ch'+(mode=='r'?' s':''),'🔄 Продлить',function(){mode='r';draw()})));
-if(mode=='r'&&a.length>1){add(R,E('div','l','Аккаунт'));var r=E('div','r');a.forEach(function(x){var b=E('button','ch'+(x[0]==acc?' s':''),x[1],function(){acc=x[0];draw()});add(b,E('small','',x[2]));r.appendChild(b)});R.appendChild(r)}
+if(mode=='r'&&a.length>1){add(R,E('div','l','Какой iPhone продлить?'));var r=E('div','r');a.forEach(function(x){var b=E('button','ch'+(x[0]==acc?' s':''),x[1],function(){acc=x[0];draw()});add(b,E('small','',x[2]));r.appendChild(b)});R.appendChild(r)}
 if(mode=='r'&&!a.length&&S.lk)R.appendChild(btn(S.lk));
 var g=E('div','pl2');P.forEach(function(x){var b=E('button','pr'+(x[0]==plan?' s':''),null,function(){plan=x[0];draw()});var n=E('span','nm');add(n,E('b','',x[1]),x[3],x[5]?E('i','',x[5]):null);add(b,E('span','o'),n,E('em','',rub(x[2])));g.appendChild(b)});R.appendChild(g);
 if(mode=='n'&&S.o){R.appendChild(btn(['Далее · '+rub(p[2])+' ›','',1])).onclick=function(){st=2;draw()}}
-else{var d=mode=='r'?(a.length?'rnw:'+plan+':'+acc:'ext:'+plan):'pln:'+plan;R.appendChild(btn([(mode=='r'?(a.length?'Продлить':'Код для продления'):'Оплатить')+' · '+rub(p[2]),d,1]))}
+else{var d=mode=='r'?(a.length?'rnv:'+plan+':'+acc:'ext:'+plan):S.ac?'reg:std:'+plan+':'+S.ac:'pln:'+plan;R.appendChild(btn([(mode=='r'?(a.length?'Продлить':'Код для продления'):'Оплатить')+' · '+rub(p[2]),d,1]))}
 if(S.c&&!toast&&!busy)R.appendChild(E('div','n','💰 Баланс '+rub(S.c)+' — можно оплатить в заказе'))}
 function step2(){var P=S.p||[],p=P.find(function(x){return x[0]==plan})||[0,'',0];
 R.appendChild(E('div','n',p[1]+' · '+rub(p[2])+' · цена одинаковая'));
 S.o.forEach(function(x){var b=E('button','op'+(reg==x[0]?' s':''),null,function(){reg=x[0];draw()});add(b,E('b','',x[1]),E('span','ok','✓ '+x[2]),E('span','no','✕ '+x[3]));R.appendChild(b)});
-var b=btn([reg?'Оплатить · '+rub(p[2]):'Выберите способ','reg:'+reg+':'+plan,reg?1:0]);if(!reg){b.disabled=true;b.className+=' off'}R.appendChild(b)}
+var b=btn([reg?'Оплатить · '+rub(p[2]):'Выберите способ','reg:'+reg+':'+plan+(S.ac?':'+S.ac:''),reg?1:0]);if(!reg){b.disabled=true;b.className+=' off'}R.appendChild(b)}
 function dash(){var r=E('div','r');[1,7,30].forEach(function(x){r.appendChild(btn([x==1?'Сегодня':x+' дней','w:a:'+x],'ch'+(S.d==x?' s':'')))});R.appendChild(r);
 var h=E('div','hero');add(h,E('span','',S.u),E('b','',S.rv),E('span','',S.pc));R.appendChild(h);
 var g=E('div','g');(S.k||[]).forEach(function(x){var k=E('div','k'+(x[2]?' w':''));if(x[3])k.onclick=function(){go(x[3])};add(k,E('b','',x[1]),E('span','',x[0]));g.appendChild(k)});R.appendChild(g)}

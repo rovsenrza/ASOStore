@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\V1;
 use App\Enums\ErrorCode;
 use App\Exceptions\ApiException;
 use App\Http\Controllers\Controller;
+use App\Services\Devices\DeviceSlots;
+use App\Models\Device;
 use App\Http\Responses\ApiResponse;
 use App\Models\Subscription;
 use App\Models\TelegramStoreOrder;
@@ -58,13 +60,31 @@ class StoreOrderController extends Controller
     {
         $data = $request->validate([
             'plan' => ['required', 'string', 'max:16'],
-            // How the account's iPhone gets registered (a renewal of a registered iPhone ignores it).
+            // How a new iPhone gets registered (extending a registered iPhone ignores it).
             'registration' => ['nullable', 'string', 'in:standard,instant'],
+            // Access is paid per iPhone: extend this one…
+            'device_id' => ['nullable', 'string', 'size:26'],
+            // …or add a new iPhone to the account.
+            'new_device' => ['nullable', 'boolean'],
         ]);
+        $user = $request->user();
+        $addDevice = (bool) ($data['new_device'] ?? false);
+        $device = filled($data['device_id'] ?? null) && ! $addDevice
+            ? Device::query()->where('user_id', $user->id)->where('public_id', strtolower($data['device_id']))->first()
+                ?? throw new ApiException(ErrorCode::NotFound, 'Устройство не найдено.')
+            : null;
+        $devices = $user->devices()->count();
+        if ($addDevice && $devices >= DeviceSlots::limit()) {
+            throw new ApiException(ErrorCode::DeviceLimitReached, details: ['limit' => DeviceSlots::limit()]);
+        }
+        if (! $addDevice && $device === null && $devices > 1) {
+            throw new ApiException(ErrorCode::DeviceTargetRequired);
+        }
+        $device ??= $addDevice ? null : $user->devices()->first();
         $registration = $data['registration'] ?? OrderService::STANDARD;
-        // An account whose iPhone is already registered keeps its slot: buying again extends it,
-        // so the instant method is neither offered nor accepted.
-        if ($request->user()->devices()->exists()) {
+        // An iPhone that is already registered keeps its slot: buying for it extends it, so the
+        // instant method is only for a new iPhone (or an account that has none yet).
+        if (! $addDevice && $device?->isEnrolled()) {
             $registration = OrderService::STANDARD;
         }
         if ($registration === OrderService::INSTANT && ! app(InstantCertificates::class)->offered()) {
@@ -77,7 +97,7 @@ class StoreOrderController extends Controller
             throw new ApiException(ErrorCode::ServiceUnavailable, 'Оплата на сайте временно недоступна.');
         }
 
-        $order = $this->orders->createForUser($request->user(), $data['plan'], $registration);
+        $order = $this->orders->createForUser($user, $data['plan'], $registration, $device, $addDevice);
         try {
             $url = $this->payments->paymentUrl($order, $request->ip());
         } catch (PlategaException $exception) {
@@ -170,9 +190,12 @@ class StoreOrderController extends Controller
             'expires_at' => $order->expires_at->toIso8601ZuluString(),
             'paid_at' => $order->paid_at?->toIso8601ZuluString(),
             'bot_url' => $order->isWeb() ? null : $this->botUrl(),
+            // A new iPhone for the account: the result page says how to connect it.
+            'add_device' => (bool) $order->add_device,
+            'device_id' => $order->renewDevice?->public_id,
             // Already had access before this order: the result page speaks of extending, not starting.
-            'is_renewal' => $order->isRenewal() || ($order->user_id !== null
-                && Subscription::query()->where('user_id', $order->user_id)->where('created_at', '<', $order->created_at)->exists()),
+            'is_renewal' => ! $order->add_device && ($order->isRenewal() || ($order->user_id !== null
+                && Subscription::query()->where('user_id', $order->user_id)->where('created_at', '<', $order->created_at)->exists())),
         ];
     }
 
