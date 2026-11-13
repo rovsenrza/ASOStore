@@ -321,24 +321,69 @@ class CustomerScreens
         return new Screen("<b>🔄 Продление подписки</b>\n\nКакой аккаунт продлить? 👇", $rows);
     }
 
-    public function renewPlans(TelegramStoreCustomer $customer, User $account): Screen
+    /**
+     * The terms for extending one iPhone of the account (access is paid per iPhone). With
+     * several iPhones and none chosen yet, asks which one first.
+     */
+    public function renewPlans(TelegramStoreCustomer $customer, User $account, ?\App\Models\Device $device = null): Screen
     {
+        $devices = $account->devices()->with('activeSubscription')->orderByRaw('udid_hash IS NULL')->orderBy('id')->get();
+        if ($device === null && $devices->count() > 1) {
+            $rows = $devices->map(fn (\App\Models\Device $item) => [Screen::button(
+                '📱 '.$this->deviceName($item).' · '.$this->deviceAccess($item),
+                'rnd:'.$item->public_id,
+            )])->all();
+            $rows[] = [Screen::button('‹ Меню', 'menu')];
+
+            return new Screen(
+                "<b>🔄 Продление подписки</b>\n\n"
+                .'Аккаунт: <b>'.e(RenewalAccounts::maskEmail($account->email))."</b>\n\n"
+                ."У каждого iPhone своя подписка. Какой iPhone продлить? 👇",
+                $rows,
+            );
+        }
+        $device ??= $devices->first();
+
         $rows = [];
         foreach ($this->settings->plans() as $key => $plan) {
-            $rows[] = [Screen::button($this->planLabel($key, $plan), "rnw:{$key}:{$account->public_id}")];
+            $rows[] = [Screen::button($this->planLabel($key, $plan), $device
+                ? "rnv:{$key}:{$device->public_id}"
+                : "rnw:{$key}:{$account->public_id}")];
         }
-        $rows[] = [Screen::button('‹ Меню', 'menu')];
+        $rows[] = [Screen::button('‹ '.($devices->count() > 1 ? 'Другой iPhone' : 'Меню'), $devices->count() > 1 ? 'rna:'.$account->public_id : 'menu')];
 
+        $active = $device ? $device->activeSubscription !== null : $account->activeSubscription !== null;
         $text = "<b>🔄 Продление подписки</b>\n\n"
             .'Аккаунт: <b>'.e(RenewalAccounts::maskEmail($account->email))."</b>\n"
-            .'Подписка: <b>'.$this->accessLine($account)."</b>\n\n"
+            .($device ? 'iPhone: <b>'.e($this->deviceName($device))."</b>\n" : '')
+            .'Подписка: <b>'.($device ? $this->deviceAccess($device) : $this->accessLine($account))."</b>\n\n"
             .'После оплаты подписка продлится сама, код вводить не нужно. ';
-        $text .= $account->activeSubscription ? 'Новые дни прибавятся к текущему сроку.' : 'Доступ включится сразу.';
+        $text .= $active ? 'Новые дни прибавятся к текущему сроку.' : 'Доступ включится сразу.';
         if ($customer->balance_rub > 0) {
             $text .= "\n\n💰 На балансе <b>".Format::rub($customer->balance_rub).'</b> — им можно оплатить заказ.';
         }
 
         return new Screen($text."\n\nВыберите срок 👇", $rows);
+    }
+
+    /** «iPhone 16 Pro ••801C», or «Новый iPhone» for one paid but not connected yet. */
+    private function deviceName(\App\Models\Device $device): string
+    {
+        return $device->isEnrolled()
+            ? (\App\Services\Devices\CustomerDevices::model($device->product) ?? 'iPhone').' ••'.$device->udid_hint
+            : 'Новый iPhone (не подключён)';
+    }
+
+    /** «активна до 04.12.2026», «бессрочно» or «закончилась 01.11.2026» for one iPhone. */
+    private function deviceAccess(\App\Models\Device $device): string
+    {
+        $active = $device->activeSubscription;
+        if ($active && $active->ends_at === null) {
+            return 'бессрочно';
+        }
+        $end = $device->accessEndsAt();
+
+        return $end ? ($active ? 'активна до ' : 'закончилась ').Format::date($end) : 'не оплачен';
     }
 
     public function renewed(TelegramStoreOrder $order, Subscription $subscription, ?User $account = null): Screen

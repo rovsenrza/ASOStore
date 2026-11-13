@@ -851,7 +851,8 @@ describe('extending without a mix-up', function () {
         ($this->press)(BUYER_ID, "apl:{$order->public_id}:{$account->public_id}");
         expect($account->activeSubscription()->first()->ends_at->equalTo($before->copy()->addDays(90)))->toBeTrue();
         ($this->press)(BUYER_ID, 'renew');
-        expect(($this->buttons)(BUYER_ID))->toContain('rnw:month1:'.$account->public_id);
+        // Access is paid per iPhone: the plans extend the account's (only) iPhone.
+        expect(($this->buttons)(BUYER_ID))->toContain('rnv:month1:'.$account->devices()->sole()->public_id);
     });
 
     it('never puts a code on an account the buyer has not proved is theirs', function () {
@@ -975,4 +976,31 @@ describe('registration method', function () {
         ($this->press)(BUYER_ID, 'reg:ins:month1');
         expect(TelegramStoreOrder::query()->where('plan', 'instant')->count())->toBe(0);
     });
+});
+
+it('asks which iPhone to extend when the account has several, and extends that one', function () {
+    connectFakeAppleTeam();
+    $account = userWithRoles(RoleSlug::Customer);
+    $codes = app(App\Services\Activation\ActivationCodeService::class);
+    $first = $codes->redeem($account, issueActivationCode(30))->device;
+    connectIphone($account, '00008030-0000000000000A11');
+    $second = $codes->redeem($account, issueActivationCode(30), newDevice: true)->device;
+    connectIphone($account, '00008030-0000000000000B22');
+    ($this->text)(BUYER_ID, '/start');
+    App\Models\TelegramAccountLink::query()->create(['customer_id' => customer(BUYER_ID)->id, 'user_id' => $account->id, 'via' => 'email']);
+
+    ($this->press)(BUYER_ID, 'renew');
+    expect(($this->buttons)(BUYER_ID))->toContain('rnd:'.$first->public_id, 'rnd:'.$second->public_id)
+        ->and(($this->sentTo)(BUYER_ID)->last())->toContain('Какой iPhone продлить');
+
+    ($this->press)(BUYER_ID, 'rnd:'.$second->public_id);
+    expect(($this->buttons)(BUYER_ID))->toContain('rnv:month1:'.$second->public_id);
+
+    ($this->press)(BUYER_ID, 'rnv:month1:'.$second->public_id);
+    $order = TelegramStoreOrder::query()->latest('id')->firstOrFail();
+    expect($order->renew_device_id)->toBe($second->id);
+
+    app(OrderService::class)->complete($order, 'mock');
+    expect((int) round(now()->diffInDays($second->refresh()->accessEndsAt())))->toBe(60)
+        ->and((int) round(now()->diffInDays($first->refresh()->accessEndsAt())))->toBe(30);
 });

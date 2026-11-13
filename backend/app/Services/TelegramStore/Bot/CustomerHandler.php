@@ -256,6 +256,16 @@ class CustomerHandler
             return;
         }
 
+        // Which iPhone of a known account to extend: its terms.
+        if (preg_match('/^rnd:([0-9a-z]{26})$/', $data, $match)) {
+            $device = \App\Models\Device::query()->where('public_id', $match[1])->first();
+            $account = $device ? $this->accounts->for($customer)->first(fn (User $user) => $user->id === $device->user_id) : null;
+            $this->messenger->answer($ctx, $account ? null : 'Это устройство больше недоступно.', ! $account);
+            $this->messenger->show($ctx, $account ? $this->screens->renewPlans($customer, $account, $device) : $this->screens->renew($customer));
+
+            return;
+        }
+
         // One iPhone of a known account: extend that iPhone (access is paid per iPhone).
         if (preg_match('/^rnv:(\w+):([0-9a-z]{26})$/', $data, $match)) {
             $device = \App\Models\Device::query()->where('public_id', $match[2])->first();
