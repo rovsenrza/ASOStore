@@ -67,22 +67,20 @@ function phone(device, current) {
   const frame = el('div', `iphone iphone--${state.tone}${device.connected ? '' : ' iphone--pending'}`);
   frame.append(el('span', 'iphone__island'));
   const screen = el('div', 'iphone__screen');
+  if (current) screen.append(el('span', 'iphone__here', 'Это устройство'));
   const light = el('div', 'iphone__status');
   light.append(el('span', 'pulse'), el('span', null, state.label));
-  screen.append(
-    light,
-    el('strong', 'iphone__model', device.connected ? (device.model ?? 'iPhone') : 'Новый iPhone'),
-    el('span', 'iphone__term', term(device)),
-  );
-  if (device.access.active && device.access.days_left != null) {
-    const left = el('span', 'iphone__days');
-    left.append(el('b', null, String(device.access.days_left)), ` ${plural(device.access.days_left, 'день', 'дня', 'дней')}`);
-    screen.append(left);
-  }
+  screen.append(light, el('strong', 'iphone__model', device.connected ? (device.model ?? 'iPhone') : 'Новый iPhone'));
+  // The big number: days left, ∞ when unlimited, ! when it needs something.
+  const big = el('span', 'iphone__days');
+  if (device.access.unlimited) big.append(el('b', null, '∞'), 'без срока');
+  else if (device.access.active && device.access.days_left != null) {
+    big.append(el('b', null, String(device.access.days_left)), `${plural(device.access.days_left, 'день', 'дня', 'дней')} осталось`);
+  } else big.append(el('b', null, device.state === 'connect' ? '＋' : '!'), device.state === 'connect' ? 'подключите' : 'продлите');
+  screen.append(big, el('span', 'iphone__term', term(device)));
   screen.append(el('span', 'iphone__meta', device.connected
     ? `${device.method === 'instant' ? '⚡ мгновенно' : '🛡 через Apple'} · ••${(device.udid_hint ?? '').slice(-4)}`
     : 'оплачен, ждёт подключения'));
-  if (current) screen.append(el('span', 'iphone__here', 'Это устройство'));
   frame.append(screen);
   return frame;
 }
