@@ -3,6 +3,8 @@
 namespace App\Services\TelegramStore;
 
 use App\Models\ActivationCode;
+use App\Models\TelegramAccountLink;
+use App\Models\TelegramStoreCustomer;
 use App\Models\TelegramStoreOrder;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
@@ -40,6 +42,17 @@ class AccountContacts
     {
         $orderIds = $this->redeemedOrderIds($user);
 
+        // Chats that proved the account is theirs (email code, the signed-in site, an operator),
+        // whether or not they bought anything in the bot.
+        $linked = TelegramStoreCustomer::query()
+            ->whereIn('id', TelegramAccountLink::query()->where('user_id', $user->id)->select('customer_id'))
+            ->get(['telegram_user_id', 'username', 'first_name'])
+            ->map(fn (TelegramStoreCustomer $customer) => [
+                'telegram_user_id' => (int) $customer->telegram_user_id,
+                'username' => $customer->username,
+                'first_name' => $customer->first_name,
+            ]);
+
         return TelegramStoreOrder::query()
             ->where('status', TelegramStoreOrder::PAID)
             ->whereNotNull('telegram_user_id')
@@ -52,6 +65,9 @@ class AccountContacts
                 'username' => $order->username,
                 'first_name' => $order->first_name,
             ])
+            ->toBase()
+            ->concat($linked)
+            ->unique('telegram_user_id')
             ->values();
     }
 
@@ -71,7 +87,13 @@ class AccountContacts
         $notes = $orders->map(fn (TelegramStoreOrder $order) => self::NOTE_PREFIX.strtoupper($order->public_id));
         $redeemers = ActivationCode::query()->whereIn('note', $notes->all())->whereNotNull('redeemed_by')->pluck('redeemed_by');
 
-        return $orders->pluck('renew_user_id')->merge($orders->pluck('user_id'))->merge($redeemers)->filter()->unique()->values();
+        $linked = TelegramAccountLink::query()
+            ->whereIn('customer_id', TelegramStoreCustomer::query()->where(fn (Builder $where) => ctype_digit($query)
+                ? $where->where('telegram_user_id', (int) $query)
+                : $where->where('username', $query))->select('id'))
+            ->pluck('user_id');
+
+        return $orders->pluck('renew_user_id')->merge($orders->pluck('user_id'))->merge($redeemers)->merge($linked)->filter()->unique()->values();
     }
 
     /** @return Collection<int, string> lower-case order public ids */

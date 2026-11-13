@@ -57,3 +57,13 @@ it('lists accounts that never had access under none', function () {
     asStaff($staff)->getJson('/api/v1/admin/subscriptions?state=none')
         ->assertOk()->assertJsonFragment(['number' => $staff->id])->assertJsonMissing(['number' => $this->customer->id]);
 });
+
+it('shows a Telegram chat linked to the account even without a bot purchase, and finds the account by it', function () {
+    $chat = \App\Models\TelegramStoreCustomer::query()->create(['telegram_user_id' => 1101921201, 'chat_id' => 1101921201, 'username' => 'linked_chat', 'first_name' => 'R', 'referral_code' => 'linked01']);
+    \App\Models\TelegramAccountLink::query()->create(['customer_id' => $chat->id, 'user_id' => $this->customer->id, 'via' => 'admin']);
+
+    asStaff(userWithRoles(RoleSlug::Admin))->getJson("/api/v1/admin/users/{$this->customer->public_id}/profile")
+        ->assertOk()->assertJsonPath('data.telegram.0.username', 'linked_chat');
+    $this->getJson('/api/v1/admin/subscriptions?state=all&q=@linked_chat')
+        ->assertOk()->assertJsonCount(1, 'data')->assertJsonPath('data.0.number', $this->customer->id);
+});
