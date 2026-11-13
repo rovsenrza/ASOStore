@@ -60,7 +60,17 @@ export function deviceLine(device, registration = device.registration, team = de
     device.os_version ? el('span', { className: 'muted' }, `iOS ${device.os_version}`) : null,
     udidChip(device),
     registration ? el('span', { className: `badge badge--${REG_TONE[registration] ?? 'warn'}` }, regStatusLabel(registration)) : el('span', { className: 'badge badge--neutral' }, 'Не подключено'),
-    team ? el('span', { className: 'mono muted' }, team) : null);
+    team ? el('span', { className: 'mono muted' }, team) : null,
+    accessBadge(device.access));
+}
+
+/** An iPhone's own access (access is paid per iPhone). */
+function accessBadge(access) {
+  if (!access) return null;
+  if (access.unlimited) return el('span', { className: 'badge badge--ok' }, 'бессрочно');
+  if (!access.ends_at) return el('span', { className: 'badge badge--neutral' }, 'не оплачен');
+  const date = new Date(access.ends_at).toLocaleDateString('ru-RU');
+  return el('span', { className: `badge badge--${access.active ? (access.days_left <= 3 ? 'warn' : 'ok') : 'error'}` }, access.active ? `до ${date} · ${access.days_left} дн` : `кончилась ${date}`);
 }
 
 function tabs(items) {
@@ -242,6 +252,14 @@ export async function openCustomerCard(ctx, userId, { onChange } = {}) {
     if (user.access.ends_at) date.value = toLocalInput(user.access.ends_at);
     const reason = el('input', { name: 'reason', placeholder: 'Причина (в журнал аудита)', maxLength: 500, required: true });
     const quick = [1, 3, 7, 30, -1, -3, -7].map((n) => el('button', { type: 'button', className: 'button button--ghost', onclick: () => { days.value = String(n); } }, n > 0 ? `+${n}` : String(n)));
+    // Access is paid per iPhone: which one to change.
+    const device = el('select', { name: 'device_id' }, ...user.devices.map((d) => el('option', { value: d.id },
+      `${d.connected === false ? 'Новый iPhone (не подключён)' : `${d.product || 'iPhone'} ${d.udid_hint}`} — ${d.access?.unlimited ? 'бессрочно' : d.access?.ends_at ? new Date(d.access.ends_at).toLocaleDateString('ru-RU') : 'нет доступа'}`)));
+    device.addEventListener('change', () => {
+      const chosen = user.devices.find((d) => d.id === device.value);
+      if (chosen?.access?.ends_at) date.value = toLocalInput(chosen.access.ends_at);
+    });
+    device.dispatchEvent(new Event('change'));
 
     const send = async (body) => {
       if (!reason.value.trim()) {
@@ -249,11 +267,12 @@ export async function openCustomerCard(ctx, userId, { onChange } = {}) {
         toast('Укажите причину', { tone: 'error' });
         return;
       }
-      await act(() => api.post(`/admin/users/${user.id}/subscription`, { ...body, reason: reason.value.trim() }, { idempotencyKey: newIdempotencyKey('sub') }),
+      await act(() => api.post(`/admin/users/${user.id}/subscription`, { ...body, device_id: device.value || undefined, reason: reason.value.trim() }, { idempotencyKey: newIdempotencyKey('sub') }),
         'Срок доступа изменён');
     };
 
     return el('section', { className: 'actions-card' },
+      user.devices.length ? el('label', { className: 'field' }, 'iPhone', device) : null,
       el('div', { className: 'form-inline' },
         el('label', { className: 'field' }, 'Дней (минус — убрать)', days),
         el('div', { className: 'button-row' }, ...quick),

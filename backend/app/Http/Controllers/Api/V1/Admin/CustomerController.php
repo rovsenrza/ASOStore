@@ -102,6 +102,9 @@ class CustomerController extends Controller
                 'id' => $device->public_id,
                 'udid_hint' => $device->maskedUdid(),
                 'udid' => $showUdid ? $device->udid_encrypted : null,
+                // Access is paid per iPhone.
+                'connected' => $device->isEnrolled(),
+                'access' => app(\App\Services\Devices\CustomerDevices::class)->present($device)['access'],
                 'product' => $device->product,
                 'name' => $device->name,
                 'os_version' => $device->os_version,

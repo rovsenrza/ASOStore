@@ -579,8 +579,23 @@ class CustomerScreens
             $lines[] = '';
             $lines[] = 'Последняя покупка: '.$this->planName($lastPaid).', '.Format::date($lastPaid->paid_at);
         }
+        // Each iPhone of the customer's accounts with its own access (paid per iPhone).
+        $devices = \App\Models\Device::query()->whereIn('user_id', $this->accounts->for($customer)->pluck('id'))
+            ->with('activeSubscription')->orderByRaw('udid_hash IS NULL')->orderBy('id')->limit(5)->get();
+        if ($devices->isNotEmpty()) {
+            $lines[] = '';
+            $lines[] = '<b>📱 Мои устройства</b>';
+            foreach ($devices as $device) {
+                $end = $device->accessEndsAt();
+                $active = $device->activeSubscription !== null;
+                $lines[] = ($active ? '🟢 ' : '🔴 ')
+                    .($device->isEnrolled() ? e(\App\Services\Devices\CustomerDevices::model($device->product) ?? 'iPhone').' ••'.e((string) $device->udid_hint) : 'Новый iPhone (ждёт подключения)')
+                    .' · '.($active && $device->activeSubscription->ends_at === null ? 'бессрочно' : ($end ? ($active ? 'до ' : 'закончилась ').Format::date($end) : 'не оплачен'));
+            }
+        }
 
         return new Screen(implode("\n", $lines), [
+            [Screen::link('📱 Мои устройства', rtrim((string) config('app.url'), '/').'/devices.html')],
             [Screen::button('🧾 Мои заказы', 'orders'), Screen::button('👥 Пригласить друга', 'invite')],
             [Screen::button('🔄 Продлить подписку', 'renew')],
             [Screen::button('🛍 Купить подписку', 'buy')],

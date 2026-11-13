@@ -27,7 +27,10 @@ class MeResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        $subscription = $this->activeSubscription;
+        // Access is paid per iPhone: the app (token bound to its iPhone) and the site (which
+        // names its iPhone) see that iPhone's subscription; with no iPhone, the account's.
+        $device = app(\App\Services\Devices\CurrentDevice::class)->resolve($request);
+        $subscription = $device !== null ? $device->activeSubscription : $this->activeSubscription;
 
         return [
             'id' => $this->public_id,
